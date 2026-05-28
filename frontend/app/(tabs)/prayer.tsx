@@ -7,7 +7,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -15,11 +14,18 @@ import {
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
+import * as Sharing from "expo-sharing";
+import { captureRef } from "react-native-view-shot";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
+import {
+  PrayerImageCard,
+  PRAYER_CARD_WIDTH,
+  PRAYER_CARD_HEIGHT,
+} from "@/src/components/PrayerImageCard";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer } from "@/src/lib/local-store";
@@ -42,6 +48,8 @@ export default function PrayerScreen() {
   const reflectionFade = useRef(new Animated.Value(0)).current;
   const prayerFade = useRef(new Animated.Value(0)).current;
   const prefetchedRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
+  const shareCardRef = useRef<View>(null);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
@@ -234,7 +242,7 @@ export default function PrayerScreen() {
             </View>
             <View style={styles.actionsRow}>
               <IconAction icon={saved ? "checkmark" : "bookmark-outline"} label={saved ? "Saved" : "Save"} onPress={handleSave} disabled={saved} testID="save-prayer-button" />
-              <IconAction icon="share-outline" label="Share" onPress={handleShare} testID="share-prayer-button" />
+              <IconAction icon="share-outline" label={sharing ? "..." : "Share"} onPress={handleShare} disabled={sharing} testID="share-prayer-button" />
             </View>
             <Pressable onPress={() => router.push("/(tabs)/reflections")} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
               <Text style={styles.sitWithText}>Want to sit with this?</Text>
@@ -252,6 +260,17 @@ export default function PrayerScreen() {
         <Animated.View style={[styles.amenOverlay, { opacity: amenOpacity, pointerEvents: "none" }]} testID="amen-overlay">
           <Animated.Text style={[styles.amenText, { transform: [{ scale: amenScale }] }]}>Amen</Animated.Text>
         </Animated.View>
+      )}
+
+      {/* Off-screen prayer image card for PNG share capture */}
+      {!!prayer && (
+        <View style={styles.offscreen} pointerEvents="none">
+          <PrayerImageCard
+            ref={shareCardRef}
+            prayer={prayer}
+            verseReference={reflection?.verseReference}
+          />
+        </View>
       )}
     </ScreenBackground>
   );
