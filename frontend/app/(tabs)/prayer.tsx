@@ -50,7 +50,6 @@ export default function PrayerScreen() {
   const prefetchedRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
   const shareCardRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
-  const [shareMounted, setShareMounted] = useState(false);
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
@@ -263,9 +262,10 @@ export default function PrayerScreen() {
         </Animated.View>
       )}
 
-      {/* Off-screen prayer image card. Only mounted during share, wrapped in a
-          1×1 clipped container so it can never leak onto the screen. */}
-      {shareMounted && !!prayer && (
+      {/* Off-screen prayer image card. Permanently mounted while a prayer
+          exists so the captureRef is always attached. Wrapped in a 1×1
+          overflow-hidden container so it can never appear on screen. */}
+      {!!prayer && (
         <View style={styles.offscreenClip} pointerEvents="none">
           <View style={styles.offscreenShift}>
             <PrayerImageCard

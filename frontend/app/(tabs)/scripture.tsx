@@ -181,16 +181,15 @@ export default function ScriptureScreen() {
   const shareCardRef = useRef<View>(null);
   const [shareTemplate, setShareTemplate] = useState<ShareTemplate>("editorial");
   const [sharing, setSharing] = useState(false);
-  const [shareMounted, setShareMounted] = useState(false);
 
   const handleShare = async () => {
     if (!verse || sharing) return;
     const next = SHARE_TEMPLATES[Math.floor(Math.random() * SHARE_TEMPLATES.length)];
     setShareTemplate(next);
     setSharing(true);
-    setShareMounted(true);
     try {
-      await new Promise((r) => setTimeout(r, 180));
+      // Tiny wait so the new template paints before capture.
+      await new Promise((r) => setTimeout(r, 80));
       const uri = await captureRef(shareCardRef, {
         format: "png",
         quality: 1,
@@ -219,7 +218,6 @@ export default function ScriptureScreen() {
       console.warn("scripture share failed", e);
     } finally {
       setSharing(false);
-      setTimeout(() => setShareMounted(false), 200);
     }
   };
 
@@ -351,8 +349,9 @@ export default function ScriptureScreen() {
         )}
       </KeyboardAwareScrollView>
 
-      {/* Off-screen share card — only mounted during share, clipped to 1×1. */}
-      {shareMounted && verse && (
+      {/* Off-screen share card — permanently mounted (ref always attached),
+          wrapped in a 1×1 overflow-hidden clip so it never appears visibly. */}
+      {verse && (
         <View style={styles.offscreenClip} pointerEvents="none">
           <View style={styles.offscreenShift}>
             <ScriptureShareCard
