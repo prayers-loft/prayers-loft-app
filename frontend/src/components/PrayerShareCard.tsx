@@ -265,8 +265,7 @@ function CandlelightTemplate({ lines, verseReference, sizing, format }: TmplProp
       {/* Top vignette */}
       <LinearGradient
         colors={["rgba(10,15,30,0.55)", "transparent"]}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, height: 400 }}
-        pointerEvents="none"
+        style={{ position: "absolute", top: 0, left: 0, right: 0, height: 400, pointerEvents: "none" }}
       />
 
       <View style={[shared.frame, { paddingHorizontal: pad.x, paddingTop: pad.top, paddingBottom: pad.bottom, alignItems: "center" }]}>

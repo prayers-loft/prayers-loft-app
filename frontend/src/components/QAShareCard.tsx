@@ -120,8 +120,7 @@ function CenteredTemplate({
       />
       <LinearGradient
         colors={["transparent", "rgba(7,12,28,0.55)"]}
-        style={shared.vignette}
-        pointerEvents="none"
+        style={[shared.vignette, { pointerEvents: "none" }]}
       />
 
       <View style={[shared.frame, { paddingHorizontal: pad.x, paddingTop: pad.top, paddingBottom: pad.bottom, alignItems: "center" }]}>

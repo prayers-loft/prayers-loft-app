@@ -315,7 +315,7 @@ export function ShareImageModal({
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet} pointerEvents="box-none">
+      <View style={[styles.sheet, { pointerEvents: "box-none" }]}>
         <View style={styles.sheetInner}>
           <View style={styles.handle} />
           <Text style={styles.title}>
@@ -428,7 +428,7 @@ export function ShareImageModal({
       </View>
 
       {toast && (
-        <Animated.View pointerEvents="none" style={[styles.toast, { opacity: toastOpacity }]}>
+        <Animated.View style={[styles.toast, { opacity: toastOpacity, pointerEvents: "none" }]}>
           <Ionicons
             name={toast.tone === "success" ? "checkmark-circle" : "alert-circle"}
             size={16}
