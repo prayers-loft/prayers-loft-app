@@ -141,7 +141,7 @@ export const api = {
       body: JSON.stringify({ question, verse, style }),
     }),
 
-  shareExcerpt: (text: string, style: "Devotional" | "Theologian", question?: string) =>
+  shareExcerpt: (text: string, style: "Devotional" | "Theologian" | "Prayer" | "Verse", question?: string) =>
     request<{ excerpt: string; cached?: boolean; fallback?: boolean }>("/share-excerpt", {
       method: "POST",
       body: JSON.stringify({ text, style, question }),

@@ -25,7 +25,7 @@ import {
   saveCachedDevotional,
   cacheMatchesToday,
 } from "@/src/lib/daily-devotional";
-import { ShareImageModal } from "@/src/components/ShareImageModal";
+import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 
 const BANNER_QUOTES = [
@@ -53,6 +53,7 @@ const todayLabel = () =>
 
 type ShareSource =
   | { kind: "verse" }
+  | { kind: "devotional" }
   | { kind: "qa"; style: Style; text: string; question: string };
 
 export default function ScriptureScreen() {
@@ -76,13 +77,7 @@ export default function ScriptureScreen() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareSource, setShareSource] = useState<ShareSource | null>(null);
   const [sharePreparing, setSharePreparing] = useState(false);
-  const [sharePayload, setSharePayload] = useState<{
-    excerpt: string;
-    fullText: string;
-    reference: string;
-    questionLine?: string;
-    style: Style;
-  } | null>(null);
+  const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -192,20 +187,38 @@ export default function ScriptureScreen() {
     setSharePreparing(true);
     try {
       if (src.kind === "verse") {
-        // Verse share: excerpt is just the verse text (already short).
         setSharePayload({
+          kind: "qa",
           excerpt: verse.verse,
           fullText: `${verse.verse}\n\n— ${verse.reference}`,
           reference: verse.reference,
           style: "Devotional",
+          defaultTemplate: "centered",
+        });
+      } else if (src.kind === "devotional") {
+        // Hybrid excerpt: if devotional is short & emotionally strong, use as-is.
+        // Otherwise, Claude pulls the most beautiful 1-2 sentences.
+        const excerpt = await getShareExcerpt(verse.devotional, "Devotional");
+        setSharePayload({
+          kind: "qa",
+          excerpt,
+          fullText: verse.devotional,
+          reference: verse.reference,
+          style: "Devotional",
+          // Rotate the default template so each share feels fresh.
+          defaultTemplate: ["centered", "reflection", "insight"][Math.floor(Math.random() * 3)] as
+            | "centered"
+            | "reflection"
+            | "insight",
         });
       } else {
         const excerpt = await getShareExcerpt(src.text, src.style, { question: src.question });
         setSharePayload({
+          kind: "qa",
           excerpt,
           fullText: src.text,
           reference: verse.reference,
-          questionLine: src.question,
+          question: src.question,
           style: src.style,
         });
       }
@@ -289,7 +302,21 @@ export default function ScriptureScreen() {
 
             {/* Devotional — no card border, soft tint */}
             <View>
-              <Text style={styles.sectionLabel}>Devotional</Text>
+              <View style={styles.devoHeader}>
+                <Text style={styles.sectionLabel}>Devotional</Text>
+                <Pressable
+                  onPress={() => openShare({ kind: "devotional" })}
+                  hitSlop={8}
+                  style={styles.devoShareBtn}
+                  testID="share-devotional-button"
+                >
+                  {sharePreparing && shareSource?.kind === "devotional" ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Ionicons name="share-outline" size={14} color={colors.accent} />
+                  )}
+                </Pressable>
+              </View>
               <View style={styles.devotionalCard} testID="devotional-card">
                 <Text style={styles.devotionalText}>{verse.devotional}</Text>
               </View>
@@ -380,11 +407,7 @@ export default function ScriptureScreen() {
         <ShareImageModal
           visible={shareOpen}
           onClose={closeShare}
-          excerpt={sharePayload.excerpt}
-          fullText={sharePayload.fullText}
-          reference={sharePayload.reference}
-          question={sharePayload.questionLine}
-          style={sharePayload.style}
+          payload={sharePayload}
         />
       )}
     </ScreenBackground>

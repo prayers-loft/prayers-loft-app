@@ -7,13 +7,11 @@ import {
   Linking,
   Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +21,9 @@ import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer } from "@/src/lib/local-store";
+import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
+import { getShareExcerpt } from "@/src/lib/share-excerpt";
+import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
 
 type Stage = "idle" | "reflection" | "prayer";
 
@@ -42,7 +43,11 @@ export default function PrayerScreen() {
   const reflectionFade = useRef(new Animated.Value(0)).current;
   const prayerFade = useRef(new Animated.Value(0)).current;
   const prefetchedRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
-  const shareCardRef = useRef<View>(null);
+
+  // Share state
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharePreparing, setSharePreparing] = useState(false);
+  const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
@@ -137,14 +142,32 @@ export default function PrayerScreen() {
   };
 
   const handleShare = async () => {
-    if (!prayer) return;
-    const verseLine = reflection?.verseReference ? `\n${reflection.verseReference}\n` : "\n";
-    const text = `A Prayer For You\n\n${prayer}${verseLine}\nfrom Prayers Loft`;
+    if (!prayer || sharePreparing) return;
+    setSharePreparing(true);
     try {
-      await Share.share({ message: text, title: "A Prayer For You" });
-    } catch {
-      try { await Clipboard.setStringAsync(text); } catch {}
+      // Hybrid excerpt: prayers are usually short (≤80 words), so the client
+      // memo returns the full prayer instantly. For unusually long prayers,
+      // Claude pulls the most heartfelt 1-3 sentences (first-person preserved).
+      const excerpt = await getShareExcerpt(prayer, "Prayer");
+      // Rotate the default template each share so visual variety stays fresh.
+      const tpl: PrayerTemplate = PRAYER_TEMPLATES[Math.floor(Math.random() * PRAYER_TEMPLATES.length)];
+      setSharePayload({
+        kind: "prayer",
+        prayer: excerpt,
+        fullText: prayer,
+        verseReference: reflection?.verseReference,
+        defaultTemplate: tpl,
+      });
+      setShareOpen(true);
+    } catch (e) {
+      console.warn("prayer share prep failed", e);
+    } finally {
+      setSharePreparing(false);
     }
+  };
+
+  const closeShare = () => {
+    setShareOpen(false);
   };
 
   const openVerse = () => {
@@ -254,6 +277,12 @@ export default function PrayerScreen() {
           <Animated.Text style={[styles.amenText, { transform: [{ scale: amenScale }] }]}>Amen</Animated.Text>
         </Animated.View>
       )}
+
+      <ShareImageModal
+        visible={shareOpen}
+        onClose={closeShare}
+        payload={sharePayload}
+      />
     </ScreenBackground>
   );
 }

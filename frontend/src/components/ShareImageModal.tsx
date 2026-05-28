@@ -1,19 +1,25 @@
-// Robust off-screen capture + share for branded PNG cards.
+// Robust, polished share-card capture + share/save flow.
 //
-// Design notes (why this avoids the previous leak bug):
-//   - We host the full-resolution card inside an Expo `<Modal>` overlay.
-//     The Modal renders in its own root, so even when we position the card
-//     at (-99999, -99999) it cannot push or leak into the underlying
-//     scroll view (which was the failure mode of the previous attempt).
-//   - We also show the user a *scaled-down preview* of the same card so
-//     they get an Apple-grade pre-share preview. The capture is taken from
-//     the off-screen full-res node, NOT the scaled preview.
-//   - `react-native-view-shot` 4.x reliably captures off-screen nodes as
-//     long as the parent is mounted and laid out (Modal satisfies this).
+// Design notes:
+//  - We host the full-resolution capture node inside an Expo `<Modal>` layer.
+//    The Modal renders in its own root, so even when the capture node is
+//    positioned at (-99999, -99999) it cannot push the underlying scroll view.
+//  - We show the user a *scaled* preview of the same card so they get an
+//    Apple-grade preview. Capture comes from the off-screen full-res node.
+//  - Supports two card kinds: QA (Devotional / Theologian / Daily-verse) and
+//    Prayer (first-person prayer card with dedicated templates).
+//  - Three actions:
+//      1. Share image (native share sheet)
+//      2. Save to Photos (expo-media-library, contextual permission)
+//      3. Copy full text (clipboard)
 //
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -26,6 +32,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as Clipboard from "expo-clipboard";
+import * as FileSystem from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
 import { colors, fonts } from "@/src/theme/theme";
 import {
   QA_FORMAT_SIZES,
@@ -33,18 +41,34 @@ import {
   QAShareCard,
   QATemplate,
 } from "./QAShareCard";
+import {
+  PRAYER_TEMPLATES,
+  PrayerShareCard,
+  PrayerTemplate,
+} from "./PrayerShareCard";
+
+export type ShareKind =
+  | {
+      kind: "qa";
+      excerpt: string;
+      fullText: string;
+      reference: string;
+      question?: string;
+      style: "Devotional" | "Theologian";
+      defaultTemplate?: QATemplate;
+    }
+  | {
+      kind: "prayer";
+      prayer: string;
+      fullText: string;
+      verseReference?: string;
+      defaultTemplate?: PrayerTemplate;
+    };
 
 export type ShareImageModalProps = {
   visible: boolean;
   onClose: () => void;
-  excerpt: string;
-  fullText: string;
-  reference: string;
-  question?: string;
-  style: "Devotional" | "Theologian";
-  /** Optional preferred template; otherwise defaults by style. */
-  template?: QATemplate;
-  /** Optional preferred format; user can change in modal. */
+  payload: ShareKind | null;
   format?: QAFormat;
 };
 
@@ -54,7 +78,7 @@ const FORMAT_LABELS: Record<QAFormat, string> = {
   story: "Story",
 };
 
-const TEMPLATE_LABELS_BY_STYLE: Record<
+const QA_TEMPLATE_LABELS_BY_STYLE: Record<
   "Devotional" | "Theologian",
   { value: QATemplate; label: string }[]
 > = {
@@ -70,94 +94,217 @@ const TEMPLATE_LABELS_BY_STYLE: Record<
   ],
 };
 
+const PRAYER_TEMPLATE_LABELS: { value: PrayerTemplate; label: string }[] = [
+  { value: "journal", label: "Journal" },
+  { value: "centered", label: "Centered" },
+  { value: "editorial", label: "Editorial" },
+  { value: "candlelight", label: "Candlelight" },
+];
+
 export function ShareImageModal({
   visible,
   onClose,
-  excerpt,
-  fullText,
-  reference,
-  question,
-  style,
-  template,
+  payload,
   format,
 }: ShareImageModalProps) {
-  const [activeFormat, setActiveFormat] = useState<QAFormat>(format ?? "portrait");
-  const [activeTemplate, setActiveTemplate] = useState<QATemplate>(
-    template ?? (style === "Theologian" ? "insight" : "centered")
+  const initialFormat: QAFormat = format ?? "portrait";
+
+  const initialTemplate = useMemo<QATemplate | PrayerTemplate | null>(() => {
+    if (!payload) return null;
+    if (payload.kind === "qa") {
+      return payload.defaultTemplate ?? (payload.style === "Theologian" ? "insight" : "centered");
+    }
+    return payload.defaultTemplate ?? PRAYER_TEMPLATES[0];
+  }, [payload]);
+
+  const [activeFormat, setActiveFormat] = useState<QAFormat>(initialFormat);
+  const [activeTemplate, setActiveTemplate] = useState<QATemplate | PrayerTemplate>(
+    (initialTemplate as QATemplate | PrayerTemplate) ?? "centered"
   );
-  const [busy, setBusy] = useState<null | "share" | "copy">(null);
+  const [busy, setBusy] = useState<null | "share" | "save" | "copy">(null);
+  const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const captureRefView = useRef<View>(null);
 
-  // Reset when reopened.
+  // Reset whenever the modal opens with a fresh payload.
   useEffect(() => {
-    if (visible) {
+    if (visible && payload) {
       setActiveFormat(format ?? "portrait");
-      setActiveTemplate(template ?? (style === "Theologian" ? "insight" : "centered"));
+      if (payload.kind === "qa") {
+        setActiveTemplate(
+          payload.defaultTemplate ?? (payload.style === "Theologian" ? "insight" : "centered")
+        );
+      } else {
+        setActiveTemplate(payload.defaultTemplate ?? PRAYER_TEMPLATES[0]);
+      }
       setBusy(null);
+      setToast(null);
     }
-  }, [visible, format, template, style]);
+  }, [visible, payload, format]);
+
+  // Toast animation
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!toast) return;
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+      Animated.delay(1600),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 320, useNativeDriver: true }),
+    ]).start(({ finished }) => {
+      if (finished) setToast(null);
+    });
+  }, [toast, toastOpacity]);
+
+  const dims = QA_FORMAT_SIZES[activeFormat];
+  const PREVIEW_TARGET_W = 240;
+  const previewScale = PREVIEW_TARGET_W / dims.width;
+
+  const templates: { value: QATemplate | PrayerTemplate; label: string }[] = useMemo(() => {
+    if (!payload) return [];
+    if (payload.kind === "qa") return QA_TEMPLATE_LABELS_BY_STYLE[payload.style];
+    return PRAYER_TEMPLATE_LABELS;
+  }, [payload]);
+
+  const renderCard = (refForCapture?: React.RefObject<View | null>) => {
+    if (!payload) return null;
+    if (payload.kind === "qa") {
+      return (
+        <QAShareCard
+          ref={refForCapture as unknown as React.Ref<View>}
+          excerpt={payload.excerpt}
+          reference={payload.reference}
+          question={payload.question}
+          style={payload.style}
+          template={activeTemplate as QATemplate}
+          format={activeFormat}
+        />
+      );
+    }
+    return (
+      <PrayerShareCard
+        ref={refForCapture as unknown as React.Ref<View>}
+        prayer={payload.prayer}
+        verseReference={payload.verseReference}
+        template={activeTemplate as PrayerTemplate}
+        format={activeFormat}
+      />
+    );
+  };
+
+  // ----- Actions ----------------------------------------------------------
+  const captureToFile = async (): Promise<string | null> => {
+    // Tiny wait so any template/format change paints.
+    await new Promise((r) => setTimeout(r, 120));
+    const uri = await captureRef(captureRefView, {
+      format: "png",
+      quality: 1,
+      result: Platform.OS === "web" ? "data-uri" : "tmpfile",
+    });
+    return uri as string;
+  };
 
   const handleShareImage = async () => {
-    if (busy) return;
+    if (busy || !payload) return;
     setBusy("share");
     try {
-      // Tiny wait so any template/format change has painted.
-      await new Promise((r) => setTimeout(r, 120));
-      const uri = await captureRef(captureRefView, {
-        format: "png",
-        quality: 1,
-        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
-      });
+      const uri = await captureToFile();
+      if (!uri) throw new Error("capture failed");
       if (Platform.OS === "web") {
         try {
           // eslint-disable-next-line no-undef
           const a = document.createElement("a");
-          a.href = uri as string;
+          a.href = uri;
           a.download = "prayers-loft.png";
           a.click();
+          setToast({ text: "Downloaded", tone: "success" });
         } catch (e) {
           console.warn("web download failed", e);
+          setToast({ text: "Unable to share", tone: "error" });
         }
-        onClose();
         return;
       }
       const available = await Sharing.isAvailableAsync();
       if (available) {
-        await Sharing.shareAsync(uri as string, {
+        await Sharing.shareAsync(uri, {
           mimeType: "image/png",
           dialogTitle: "Share from Prayers Loft",
           UTI: "public.png",
         });
+        // Close after share sheet returns.
+        setTimeout(onClose, 200);
+      } else {
+        setToast({ text: "Sharing not available", tone: "error" });
       }
-      onClose();
     } catch (e) {
-      console.warn("share-image capture failed", e);
+      console.warn("share image failed", e);
+      setToast({ text: "Unable to share image", tone: "error" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleSaveToPhotos = async () => {
+    if (busy || !payload) return;
+    setBusy("save");
+    try {
+      if (Platform.OS === "web") {
+        // On web, "Save to Photos" ≡ download.
+        await handleShareImage();
+        return;
+      }
+      // 1. Check existing permission.
+      let perm = await MediaLibrary.getPermissionsAsync();
+      // 2. If undetermined, ask now (contextual, after the user tapped Save).
+      if (perm.status !== "granted" && perm.canAskAgain) {
+        perm = await MediaLibrary.requestPermissionsAsync();
+      }
+      // 3. If denied and can't ask again, show settings fallback.
+      if (perm.status !== "granted") {
+        Alert.alert(
+          "Allow photo access",
+          "Prayers Loft needs photo access to save your share card. You can enable it in Settings.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => Linking.openSettings().catch(() => {}),
+            },
+          ]
+        );
+        return;
+      }
+      // 4. Capture + persist.
+      const uri = await captureToFile();
+      if (!uri) throw new Error("capture failed");
+      await MediaLibrary.saveToLibraryAsync(uri);
+      setToast({ text: "Saved to Photos", tone: "success" });
+    } catch (e) {
+      console.warn("save to photos failed", e);
+      setToast({ text: "Unable to save image", tone: "error" });
     } finally {
       setBusy(null);
     }
   };
 
   const handleCopyText = async () => {
-    if (busy) return;
+    if (busy || !payload) return;
     setBusy("copy");
     try {
-      const out = `${fullText}\n\n— ${reference}\nShared from Prayers Loft`;
+      let out: string;
+      if (payload.kind === "qa") {
+        out = `${payload.fullText}\n\n— ${payload.reference}\nShared from Prayers Loft`;
+      } else {
+        const ref = payload.verseReference ? `\n${payload.verseReference}\n` : "\n";
+        out = `A Prayer\n\n${payload.fullText}${ref}\nShared from Prayers Loft`;
+      }
       await Clipboard.setStringAsync(out);
-      // Tiny confirmation pause then close.
-      setTimeout(onClose, 350);
+      setToast({ text: "Copied", tone: "success" });
     } catch (e) {
       console.warn("copy failed", e);
+      setToast({ text: "Unable to copy", tone: "error" });
     } finally {
       setBusy(null);
     }
   };
-
-  const dims = QA_FORMAT_SIZES[activeFormat];
-  // Scale to a portrait preview area roughly 240px wide.
-  const PREVIEW_TARGET_W = 240;
-  const previewScale = PREVIEW_TARGET_W / dims.width;
-
-  const templates = TEMPLATE_LABELS_BY_STYLE[style];
 
   return (
     <Modal
@@ -171,7 +318,9 @@ export function ShareImageModal({
       <View style={styles.sheet} pointerEvents="box-none">
         <View style={styles.sheetInner}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Share moment</Text>
+          <Text style={styles.title}>
+            {payload?.kind === "prayer" ? "Share your prayer" : "Share moment"}
+          </Text>
           <Text style={styles.subtitle}>Preview before sharing</Text>
 
           {/* Scaled preview */}
@@ -198,14 +347,7 @@ export function ShareImageModal({
                   ],
                 }}
               >
-                <QAShareCard
-                  excerpt={excerpt}
-                  reference={reference}
-                  question={question}
-                  style={style}
-                  template={activeTemplate}
-                  format={activeFormat}
-                />
+                {renderCard()}
               </View>
             </View>
           </View>
@@ -253,34 +395,30 @@ export function ShareImageModal({
 
           {/* Actions */}
           <View style={styles.actions}>
-            <Pressable
+            <ActionButton
+              icon="copy-outline"
+              label="Copy"
               onPress={handleCopyText}
-              style={[styles.actionBtn, styles.actionBtnSecondary]}
+              loading={busy === "copy"}
               disabled={!!busy}
-            >
-              {busy === "copy" ? (
-                <ActivityIndicator color={colors.accent} />
-              ) : (
-                <>
-                  <Ionicons name="copy-outline" size={18} color={colors.accent} />
-                  <Text style={styles.actionTextSecondary}>Copy full text</Text>
-                </>
-              )}
-            </Pressable>
-            <Pressable
+              variant="ghost"
+            />
+            <ActionButton
+              icon="download-outline"
+              label={Platform.OS === "web" ? "Save" : "Save to Photos"}
+              onPress={handleSaveToPhotos}
+              loading={busy === "save"}
+              disabled={!!busy}
+              variant="secondary"
+            />
+            <ActionButton
+              icon="share-outline"
+              label="Share"
               onPress={handleShareImage}
-              style={[styles.actionBtn, styles.actionBtnPrimary]}
+              loading={busy === "share"}
               disabled={!!busy}
-            >
-              {busy === "share" ? (
-                <ActivityIndicator color={colors.textOnAccent} />
-              ) : (
-                <>
-                  <Ionicons name="share-outline" size={18} color={colors.textOnAccent} />
-                  <Text style={styles.actionTextPrimary}>Share image</Text>
-                </>
-              )}
-            </Pressable>
+              variant="primary"
+            />
           </View>
 
           <Pressable onPress={onClose} hitSlop={12} style={styles.cancelRow}>
@@ -289,9 +427,20 @@ export function ShareImageModal({
         </View>
       </View>
 
+      {toast && (
+        <Animated.View pointerEvents="none" style={[styles.toast, { opacity: toastOpacity }]}>
+          <Ionicons
+            name={toast.tone === "success" ? "checkmark-circle" : "alert-circle"}
+            size={16}
+            color={toast.tone === "success" ? "#A8D7B8" : "#E8B8B8"}
+          />
+          <Text style={styles.toastText}>{toast.text}</Text>
+        </Animated.View>
+      )}
+
       {/*
         Full-resolution off-screen capture node.
-        Lives inside the Modal layer so it can't leak into the underlying
+        Lives inside the Modal layer so it cannot leak into the underlying
         ScrollView. `pointerEvents="none"` keeps it inert.
       */}
       <View
@@ -301,22 +450,67 @@ export function ShareImageModal({
           top: -99999,
           width: dims.width,
           height: dims.height,
-          opacity: 0.99, // Keep non-zero so view-shot doesn't think it's hidden.
+          opacity: 0.99,
           pointerEvents: "none",
         }}
       >
-        <View ref={captureRefView} collapsable={false} style={{ width: dims.width, height: dims.height }}>
-          <QAShareCard
-            excerpt={excerpt}
-            reference={reference}
-            question={question}
-            style={style}
-            template={activeTemplate}
-            format={activeFormat}
-          />
+        <View
+          ref={captureRefView}
+          collapsable={false}
+          style={{ width: dims.width, height: dims.height }}
+        >
+          {renderCard()}
         </View>
       </View>
     </Modal>
+  );
+}
+
+function ActionButton({
+  icon,
+  label,
+  onPress,
+  loading,
+  disabled,
+  variant,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+  variant: "primary" | "secondary" | "ghost";
+}) {
+  const isPrimary = variant === "primary";
+  const isGhost = variant === "ghost";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[
+        styles.actionBtn,
+        isPrimary && styles.actionBtnPrimary,
+        !isPrimary && !isGhost && styles.actionBtnSecondary,
+        isGhost && styles.actionBtnGhost,
+        disabled && { opacity: 0.55 },
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={isPrimary ? colors.textOnAccent : colors.accent} size="small" />
+      ) : (
+        <>
+          <Ionicons name={icon} size={16} color={isPrimary ? colors.textOnAccent : colors.accent} />
+          <Text
+            style={[
+              styles.actionText,
+              isPrimary ? { color: colors.textOnAccent } : { color: colors.accent },
+            ]}
+          >
+            {label}
+          </Text>
+        </>
+      )}
+    </Pressable>
   );
 }
 
@@ -403,32 +597,53 @@ const styles = StyleSheet.create({
   },
   tplText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
   tplTextActive: { color: colors.accent, fontFamily: fonts.sansSemibold },
-  actions: { flexDirection: "row", gap: 10, marginTop: 8 },
+  actions: { flexDirection: "row", gap: 8, marginTop: 8 },
   actionBtn: {
     flex: 1,
-    paddingVertical: 15,
+    paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 8,
-  },
-  actionBtnSecondary: {
-    backgroundColor: colors.surface1,
+    gap: 6,
+    minHeight: 50,
   },
   actionBtnPrimary: {
     backgroundColor: colors.accent,
+    flex: 1.3,
   },
-  actionTextSecondary: {
+  actionBtnSecondary: {
+    backgroundColor: colors.surface2,
+  },
+  actionBtnGhost: {
+    backgroundColor: colors.surface1,
+  },
+  actionText: {
     fontFamily: fonts.sansSemibold,
-    color: colors.accent,
-    fontSize: 14,
+    fontSize: 13,
   },
-  actionTextPrimary: {
-    fontFamily: fonts.sansSemibold,
-    color: colors.textOnAccent,
-    fontSize: 14,
-  },
-  cancelRow: { alignSelf: "center", paddingVertical: 10 },
+  cancelRow: { alignSelf: "center", paddingVertical: 8 },
   cancelText: { fontFamily: fonts.sansMedium, color: colors.textTertiary, fontSize: 14 },
+  toast: {
+    position: "absolute",
+    bottom: 110,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  toastText: {
+    fontFamily: fonts.sansMedium,
+    color: colors.text,
+    fontSize: 13,
+  },
 });
+
+// Re-export keeping FileSystem import alive in case future versions need it.
+export { FileSystem };

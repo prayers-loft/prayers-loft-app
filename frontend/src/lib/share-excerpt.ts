@@ -59,7 +59,7 @@ function clientExcerpt(text: string): string {
 
 export async function getShareExcerpt(
   text: string,
-  style: "Devotional" | "Theologian",
+  style: "Devotional" | "Theologian" | "Prayer" | "Verse",
   opts: { question?: string } = {}
 ): Promise<string> {
   const cleaned = (text || "").replace(/\s+/g, " ").trim();

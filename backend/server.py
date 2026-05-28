@@ -77,7 +77,7 @@ class TheologicalQuestion(BaseModel):
 
 class ShareExcerptRequest(BaseModel):
     text: str
-    style: Literal["Devotional", "Theologian"]
+    style: Literal["Devotional", "Theologian", "Prayer", "Verse"]
     question: Optional[str] = None
 
 
@@ -329,6 +329,19 @@ SHARE_EXCERPT_SYSTEMS = {
         "Keep it accessible and emotionally powerful. "
         "Return ONLY the excerpt text, no quotes, no preamble, no labels. "
         "CRITICAL: do not use em dashes or en dashes. Use commas, periods, or natural pauses."
+    ),
+    "Prayer": (
+        "You distill first-person prayers into a share-worthy excerpt for social media. "
+        "Given a longer prayer, extract or gently compose a 1 to 3 sentence excerpt (max 240 characters) "
+        "that preserves intimacy, vulnerability, and the praying voice. KEEP first-person ('I', 'me', 'my'). "
+        "Prefer the most heartfelt, share-worthy line. Do not change theology. Do not paraphrase the closing 'Amen' unless it is part of the chosen excerpt. "
+        "Return ONLY the excerpt text, no quotes, no preamble, no labels. "
+        "CRITICAL: do not use em dashes or en dashes. Use commas, periods, or natural pauses."
+    ),
+    "Verse": (
+        "You select the most emotionally resonant 1 to 2 sentence portion of a Bible verse passage "
+        "for a share card. Return ONLY the chosen verse text, no quotes, no preamble. Max 240 characters. "
+        "CRITICAL: do not use em dashes or en dashes."
     ),
 }
 

@@ -236,6 +236,46 @@ class TestShareExcerpt:
         )
         assert r.status_code == 422
 
+    def test_prayer_excerpt_preserves_first_person(self, session):
+        prayer = (
+            "Heavenly Father,\n"
+            "I am tired and my heart feels heavy tonight.\n"
+            "Please hold me close and quiet my anxious mind.\n"
+            "Help me trust You with what I cannot see.\n"
+            "In Jesus' name, Amen."
+        )
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": prayer, "style": "Prayer"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        excerpt = d["excerpt"]
+        assert isinstance(excerpt, str) and 1 <= len(excerpt) <= 280, f"len={len(excerpt)}: {excerpt}"
+        # First-person voice preserved (at least one of these markers).
+        lower = excerpt.lower()
+        assert any(tok in lower for tok in (" i ", "i ", " my ", " me ", "my ", "me ")), (
+            f"Prayer excerpt should preserve first-person voice: {excerpt}"
+        )
+        assert "—" not in excerpt and "–" not in excerpt
+
+    def test_verse_excerpt(self, session):
+        verse_text = (
+            "Don't worry about anything; instead, pray about everything. Tell God what you need, "
+            "and thank him for all he has done. Then you will experience God's peace, which "
+            "exceeds anything we can understand."
+        )
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": verse_text, "style": "Verse"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert isinstance(d["excerpt"], str) and 1 <= len(d["excerpt"]) <= 300
+        assert "—" not in d["excerpt"] and "–" not in d["excerpt"]
+
 
 # ---------- Reflections CRUD ----------
 class TestReflections:
