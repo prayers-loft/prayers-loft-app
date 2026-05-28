@@ -349,18 +349,16 @@ export default function ScriptureScreen() {
         )}
       </KeyboardAwareScrollView>
 
-      {/* Off-screen share card — permanently mounted (ref always attached),
-          wrapped in a 1×1 overflow-hidden clip so it never appears visibly. */}
+      {/* Off-screen share card. Positioned above the viewport so it renders
+          fully but is never visible. captureRef snapshots it cleanly. */}
       {verse && (
-        <View style={styles.offscreenClip} pointerEvents="none">
-          <View style={styles.offscreenShift}>
-            <ScriptureShareCard
-              ref={shareCardRef}
-              verse={verse.verse}
-              reference={verse.reference}
-              template={shareTemplate}
-            />
-          </View>
+        <View style={styles.offscreenAbove} pointerEvents="none">
+          <ScriptureShareCard
+            ref={shareCardRef}
+            verse={verse.verse}
+            reference={verse.reference}
+            template={shareTemplate}
+          />
         </View>
       )}
     </ScreenBackground>
@@ -516,5 +514,10 @@ const styles = StyleSheet.create({
     left: -100000,
     top: 0,
     opacity: 1,
+  },
+  offscreenAbove: {
+    position: "absolute",
+    top: -10000,
+    left: 0,
   },
 });

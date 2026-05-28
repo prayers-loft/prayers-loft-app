@@ -262,18 +262,16 @@ export default function PrayerScreen() {
         </Animated.View>
       )}
 
-      {/* Off-screen prayer image card. Permanently mounted while a prayer
-          exists so the captureRef is always attached. Wrapped in a 1×1
-          overflow-hidden container so it can never appear on screen. */}
+      {/* Off-screen prayer image card. Positioned above the viewport so it
+          renders fully but is never visible. Card has its own intrinsic
+          dimensions (1080×1350) so captureRef snapshots it cleanly. */}
       {!!prayer && (
-        <View style={styles.offscreenClip} pointerEvents="none">
-          <View style={styles.offscreenShift}>
-            <PrayerImageCard
-              ref={shareCardRef}
-              prayer={prayer}
-              verseReference={reflection?.verseReference}
-            />
-          </View>
+        <View style={styles.offscreenAbove} pointerEvents="none">
+          <PrayerImageCard
+            ref={shareCardRef}
+            prayer={prayer}
+            verseReference={reflection?.verseReference}
+          />
         </View>
       )}
     </ScreenBackground>
@@ -417,5 +415,10 @@ const styles = StyleSheet.create({
   },
   offscreenShift: {
     transform: [{ translateX: -5000 }],
+  },
+  offscreenAbove: {
+    position: "absolute",
+    top: -10000,
+    left: 0,
   },
 });
