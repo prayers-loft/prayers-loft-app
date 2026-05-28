@@ -1,13 +1,17 @@
-// Shared header with brand mark + ambient toggle.
-import { StyleSheet, View } from "react-native";
+// Minimal header. Brand mark on left, ambient toggle on right.
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AmbientToggle, BrandMark } from "@/src/components/AmbientToggle";
+import { AmbientToggle } from "@/src/components/AmbientToggle";
+import { colors, fonts } from "@/src/theme/theme";
 
 export function ScreenHeader() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-      <BrandMark />
+    <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+      <View style={styles.brand}>
+        <View style={styles.dot} />
+        <Text style={styles.brandText}>Prayers Loft</Text>
+      </View>
       <AmbientToggle />
     </View>
   );
@@ -16,9 +20,22 @@ export function ScreenHeader() {
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
-    paddingBottom: 8,
+    paddingBottom: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  brand: { flexDirection: "row", alignItems: "center", gap: 10 },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  brandText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    color: colors.textSecondary,
+    letterSpacing: 0.3,
   },
 });

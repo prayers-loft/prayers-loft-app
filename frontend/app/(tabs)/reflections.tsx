@@ -1,14 +1,17 @@
-// Reflections tab — journaling with prompts, emotion chips, saved entries.
-import { useCallback, useEffect, useMemo, useState } from "react";
+// Reflections. Modern minimal journaling with elegant streak visualization.
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { useEffect, useRef } from "react";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,7 +23,7 @@ import { getSavedPrayers, removeSavedPrayer, SavedPrayer } from "@/src/lib/local
 
 const DAILY_PROMPTS = [
   "What's one thing you noticed today that felt like grace?",
-  "Where did you feel God's nearness — or distance — today?",
+  "Where did you feel God's nearness, or distance, today?",
   "What are you carrying that you'd like to set down?",
   "Name one quiet gift from this week.",
   "What word would describe your soul right now?",
@@ -34,17 +37,14 @@ const DAILY_PROMPTS = [
 const EMOTIONS = ["Grateful", "Hopeful", "Anxious", "Peaceful", "Confused", "Joyful", "Tired", "Seeking"] as const;
 type Emotion = (typeof EMOTIONS)[number];
 
-// --- Streak helpers ---
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-
 function computeStreak(activeDays: Set<string>): number {
   let streak = 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  // Allow the streak to count from yesterday if user hasn't journaled today yet.
-  let cursor = new Date(today);
+  const cursor = new Date(today);
   if (!activeDays.has(ymd(cursor))) cursor.setDate(cursor.getDate() - 1);
   while (activeDays.has(ymd(cursor))) {
     streak++;
@@ -52,7 +52,6 @@ function computeStreak(activeDays: Set<string>): number {
   }
   return streak;
 }
-
 function lastNDays(n: number): Date[] {
   const out: Date[] = [];
   const today = new Date();
@@ -64,11 +63,9 @@ function lastNDays(n: number): Date[] {
   }
   return out;
 }
-
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
 type ServerEntry = { id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string };
-
 type CombinedEntry =
   | ({ kind: "reflection" } & ServerEntry)
   | { kind: "prayer"; id: string; text: string; prayer: string; created_at: string; verseReference?: string };
@@ -82,6 +79,7 @@ export default function ReflectionsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fade = useRef(new Animated.Value(0)).current;
 
   const todayPrompt = useMemo(() => {
     if (params.prompt) return params.prompt;
@@ -96,28 +94,22 @@ export default function ReflectionsScreen() {
       const [serverRes, local] = await Promise.all([api.listReflections(), getSavedPrayers()]);
       setEntries(serverRes.reflections);
       setSavedPrayers(local);
+      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
     } catch (e) {
       console.warn("load reflections failed", e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fade]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleSave = async () => {
     if (!text.trim() || saving) return;
     setSaving(true);
     try {
-      if (editingId) {
-        await api.updateReflection(editingId, text.trim(), emotion ?? undefined);
-      } else {
-        await api.createReflection(text.trim(), emotion ?? undefined, todayPrompt);
-      }
+      if (editingId) await api.updateReflection(editingId, text.trim(), emotion ?? undefined);
+      else await api.createReflection(text.trim(), emotion ?? undefined, todayPrompt);
       setText("");
       setEmotion(null);
       setEditingId(null);
@@ -138,49 +130,25 @@ export default function ReflectionsScreen() {
   const handleDelete = (id: string) => {
     Alert.alert("Delete reflection?", "This can't be undone.", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.deleteReflection(id);
-            await load();
-          } catch (e) {
-            console.warn("delete failed", e);
-          }
-        },
-      },
+      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteReflection(id); await load(); } catch (e) { console.warn(e); } } },
     ]);
   };
 
   const handleDeletePrayer = (id: string) => {
     Alert.alert("Remove saved prayer?", undefined, [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          await removeSavedPrayer(id);
-          await load();
-        },
-      },
+      { text: "Remove", style: "destructive", onPress: async () => { await removeSavedPrayer(id); await load(); } },
     ]);
   };
 
   const combined: CombinedEntry[] = useMemo(() => {
     const refl: CombinedEntry[] = entries.map((e) => ({ kind: "reflection" as const, ...e }));
     const pray: CombinedEntry[] = savedPrayers.map((p) => ({
-      kind: "prayer" as const,
-      id: p.id,
-      text: p.request,
-      prayer: p.prayer,
-      created_at: p.created_at,
-      verseReference: p.verseReference,
+      kind: "prayer" as const, id: p.id, text: p.request, prayer: p.prayer, created_at: p.created_at, verseReference: p.verseReference,
     }));
     return [...refl, ...pray].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }, [entries, savedPrayers]);
 
-  // Build set of active days (any reflection or saved prayer) for streak + calendar.
   const activeDays = useMemo(() => {
     const set = new Set<string>();
     for (const c of combined) {
@@ -199,28 +167,36 @@ export default function ReflectionsScreen() {
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
-        bottomOffset={24}
+        bottomOffset={32}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.eyebrow}>Reflections</Text>
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>Reflections</Text>
+          <Text style={styles.title}>Quiet thoughts.</Text>
+        </View>
 
-        <StreakCard streak={streak} days={last14} activeDays={activeDays} />
+        <StreakBlock streak={streak} days={last14} activeDays={activeDays} />
 
-        <View style={styles.promptCard} testID="daily-prompt">
-          <Text style={styles.promptLabel}>Today's Prompt</Text>
+        {/* Prompt — borderless, italic */}
+        <View style={styles.promptBlock}>
+          <Text style={styles.promptLabel}>Today's prompt</Text>
           <Text style={styles.promptText}>{todayPrompt}</Text>
         </View>
 
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          multiline
-          placeholder="Begin writing…"
-          placeholderTextColor="rgba(250,248,243,0.35)"
-          style={styles.input}
-          testID="reflection-input"
-        />
+        {/* Input */}
+        <View style={styles.inputWrap}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            multiline
+            placeholder="Begin writing…"
+            placeholderTextColor={colors.textTertiary}
+            style={styles.input}
+            testID="reflection-input"
+          />
+        </View>
 
+        {/* Emotion chips */}
         <View style={styles.chipsWrap} testID="emotion-chips">
           {EMOTIONS.map((em) => {
             const c = emotionColors[em];
@@ -231,12 +207,12 @@ export default function ReflectionsScreen() {
                 onPress={() => setEmotion(active ? null : em)}
                 style={[
                   styles.chip,
-                  { borderColor: c.border, backgroundColor: active ? c.bg : "transparent" },
-                  active && { borderWidth: 1.5 },
+                  { backgroundColor: active ? c.bg : colors.surface1 },
+                  active && { borderColor: c.border, borderWidth: 1 },
                 ]}
                 testID={`emotion-chip-${em}`}
               >
-                <Text style={[styles.chipText, { color: c.text }]}>{em}</Text>
+                <Text style={[styles.chipText, active && { color: c.text }]}>{em}</Text>
               </Pressable>
             );
           })}
@@ -248,67 +224,79 @@ export default function ReflectionsScreen() {
           style={[styles.saveBtn, (!text.trim() || saving) && styles.saveBtnDisabled]}
           testID="save-reflection-button"
         >
-          {saving ? (
-            <ActivityIndicator color={colors.bgTop} />
-          ) : (
-            <Text style={styles.saveBtnText}>{editingId ? "Update Reflection" : "Save Reflection"}</Text>
-          )}
+          {saving ? <ActivityIndicator color={colors.textOnAccent} /> : <Text style={styles.saveBtnText}>{editingId ? "Update reflection" : "Save reflection"}</Text>}
         </Pressable>
 
         {editingId && (
-          <Pressable
-            onPress={() => {
-              setText("");
-              setEmotion(null);
-              setEditingId(null);
-            }}
-            style={styles.cancelLink}
-            testID="cancel-edit-button"
-          >
+          <Pressable onPress={() => { setText(""); setEmotion(null); setEditingId(null); }} style={styles.cancelLink} testID="cancel-edit-button">
             <Text style={styles.cancelLinkText}>Cancel edit</Text>
           </Pressable>
         )}
 
-        <Text style={styles.sectionLabel}>Your Reflections</Text>
+        <Text style={styles.sectionLabel}>Your reflections</Text>
 
         {loading && combined.length === 0 ? (
-          <ActivityIndicator color={colors.gold} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
         ) : combined.length === 0 ? (
           <View style={styles.emptyCard} testID="empty-state">
+            <Ionicons name="journal-outline" size={28} color={colors.textTertiary} />
             <Text style={styles.emptyText}>Your reflections will appear here.</Text>
           </View>
         ) : (
-          combined.map((entry) =>
-            entry.kind === "reflection" ? (
-              <ReflectionCard
-                key={`r-${entry.id}`}
-                entry={entry}
-                onEdit={() => handleEdit(entry)}
-                onDelete={() => handleDelete(entry.id)}
-              />
-            ) : (
-              <PrayerEntryCard
-                key={`p-${entry.id}`}
-                entry={entry}
-                onDelete={() => handleDeletePrayer(entry.id)}
-              />
-            )
-          )
+          <Animated.View style={{ opacity: fade, gap: 12 }}>
+            {combined.map((entry) =>
+              entry.kind === "reflection" ? (
+                <ReflectionCard key={`r-${entry.id}`} entry={entry} onEdit={() => handleEdit(entry)} onDelete={() => handleDelete(entry.id)} />
+              ) : (
+                <PrayerEntryCard key={`p-${entry.id}`} entry={entry} onDelete={() => handleDeletePrayer(entry.id)} />
+              )
+            )}
+          </Animated.View>
         )}
       </KeyboardAwareScrollView>
     </ScreenBackground>
   );
 }
 
-function ReflectionCard({
-  entry,
-  onEdit,
-  onDelete,
-}: {
-  entry: { id: string; text: string; emotion?: string; created_at: string };
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
+function StreakBlock({ streak, days, activeDays }: { streak: number; days: Date[]; activeDays: Set<string> }) {
+  const todayStr = ymd(new Date());
+  const headline = streak === 0 ? "Begin today" : `${streak}`;
+  const sub = streak === 0 ? "A single reflection is enough to begin." : streak === 1 ? "day streak" : "day streak";
+  return (
+    <View style={styles.streakBlock} testID="streak-card">
+      <View style={styles.streakTop}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.streakLabel}>Your streak</Text>
+          <View style={styles.streakHeadlineRow}>
+            <Text style={styles.streakNumber}>{headline}</Text>
+            {streak > 0 && <Text style={styles.streakUnit}>{sub}</Text>}
+          </View>
+          {streak === 0 && <Text style={styles.streakHint}>{sub}</Text>}
+        </View>
+        {streak >= 3 && (
+          <View style={styles.flameBubble}>
+            <Ionicons name="flame" size={20} color={colors.accent} />
+          </View>
+        )}
+      </View>
+      <View style={styles.streakRow} testID="streak-row">
+        {days.map((d) => {
+          const key = ymd(d);
+          const active = activeDays.has(key);
+          const isToday = key === todayStr;
+          return (
+            <View key={key} style={styles.streakCell}>
+              <View style={[styles.streakDot, active && styles.streakDotActive, isToday && !active && styles.streakDotToday]} />
+              <Text style={[styles.streakDay, isToday && styles.streakDayToday]}>{WEEKDAY_LETTERS[d.getDay()]}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function ReflectionCard({ entry, onEdit, onDelete }: { entry: { id: string; text: string; emotion?: string; created_at: string }; onEdit: () => void; onDelete: () => void }) {
   const ec = entry.emotion && emotionColors[entry.emotion] ? emotionColors[entry.emotion] : null;
   const [expanded, setExpanded] = useState(false);
   const isLong = entry.text.length > 220 || (entry.text.match(/\n/g)?.length ?? 0) >= 4;
@@ -316,12 +304,10 @@ function ReflectionCard({
     <View style={styles.entryCard} testID={`reflection-card-${entry.id}`}>
       <View style={styles.entryHeader}>
         {ec && entry.emotion ? (
-          <View style={[styles.entryChip, { borderColor: ec.border, backgroundColor: ec.bg }]}>
+          <View style={[styles.entryChip, { backgroundColor: ec.bg }]}>
             <Text style={[styles.entryChipText, { color: ec.text }]}>{entry.emotion}</Text>
           </View>
-        ) : (
-          <View />
-        )}
+        ) : <View />}
         <Text style={styles.entryDate}>{formatDate(entry.created_at)}</Text>
       </View>
       <Text style={styles.entryText} numberOfLines={expanded ? undefined : 5}>{entry.text}</Text>
@@ -331,31 +317,22 @@ function ReflectionCard({
         </Pressable>
       )}
       <View style={styles.entryActions}>
-        <Pressable onPress={onEdit} testID={`edit-${entry.id}`}>
-          <Text style={styles.entryAction}>Edit</Text>
-        </Pressable>
-        <Pressable onPress={onDelete} testID={`delete-${entry.id}`}>
-          <Text style={[styles.entryAction, styles.entryActionDanger]}>Delete</Text>
-        </Pressable>
+        <Pressable onPress={onEdit} testID={`edit-${entry.id}`}><Text style={styles.entryAction}>Edit</Text></Pressable>
+        <Pressable onPress={onDelete} testID={`delete-${entry.id}`}><Text style={[styles.entryAction, styles.entryActionDanger]}>Delete</Text></Pressable>
       </View>
     </View>
   );
 }
 
-function PrayerEntryCard({
-  entry,
-  onDelete,
-}: {
-  entry: { id: string; text: string; prayer: string; created_at: string; verseReference?: string };
-  onDelete: () => void;
-}) {
+function PrayerEntryCard({ entry, onDelete }: { entry: { id: string; text: string; prayer: string; created_at: string; verseReference?: string }; onDelete: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = entry.prayer.length > 220 || (entry.prayer.match(/\n/g)?.length ?? 0) >= 5;
   return (
     <View style={[styles.entryCard, styles.entryCardPrayer]} testID={`prayer-saved-card-${entry.id}`}>
       <View style={styles.entryHeader}>
         <View style={styles.prayerTag}>
-          <Text style={styles.prayerTagText}>🕊️ Saved prayer</Text>
+          <Ionicons name="leaf-outline" size={11} color={colors.accent} />
+          <Text style={styles.prayerTagText}>Saved prayer</Text>
         </View>
         <Text style={styles.entryDate}>{formatDate(entry.created_at)}</Text>
       </View>
@@ -368,9 +345,7 @@ function PrayerEntryCard({
       )}
       {!!entry.verseReference && <Text style={styles.entryRef}>{entry.verseReference}</Text>}
       <View style={styles.entryActions}>
-        <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}>
-          <Text style={[styles.entryAction, styles.entryActionDanger]}>Remove</Text>
-        </Pressable>
+        <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}><Text style={[styles.entryAction, styles.entryActionDanger]}>Remove</Text></Pressable>
       </View>
     </View>
   );
@@ -378,188 +353,59 @@ function PrayerEntryCard({
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function StreakCard({
-  streak,
-  days,
-  activeDays,
-}: {
-  streak: number;
-  days: Date[];
-  activeDays: Set<string>;
-}) {
-  const todayStr = ymd(new Date());
-  const headline =
-    streak === 0
-      ? "Begin your streak today"
-      : streak === 1
-      ? "1 day streak"
-      : `${streak} day streak`;
-  const subline =
-    streak === 0
-      ? "A single reflection is enough to begin."
-      : streak < 3
-      ? "A quiet beginning. Keep going."
-      : streak < 7
-      ? "Faithful daily presence. Beautiful."
-      : "A sustained practice of stillness.";
-  return (
-    <View style={styles.streakCard} testID="streak-card">
-      <View style={styles.streakHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.streakLabel}>Your Streak</Text>
-          <Text style={styles.streakHeadline}>{headline}</Text>
-          <Text style={styles.streakSub}>{subline}</Text>
-        </View>
-        <View style={styles.streakIconWrap}>
-          <Ionicons
-            name={streak >= 3 ? "flame" : "leaf-outline"}
-            size={26}
-            color={streak >= 3 ? colors.gold : colors.textSecondary}
-          />
-        </View>
-      </View>
-      <View style={styles.streakRow} testID="streak-row">
-        {days.map((d) => {
-          const key = ymd(d);
-          const active = activeDays.has(key);
-          const isToday = key === todayStr;
-          return (
-            <View key={key} style={styles.streakCell}>
-              <View
-                style={[
-                  styles.streakDot,
-                  active && styles.streakDotActive,
-                  isToday && !active && styles.streakDotToday,
-                ]}
-              />
-              <Text style={[styles.streakDay, isToday && styles.streakDayToday]}>
-                {WEEKDAY_LETTERS[d.getDay()]}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 24, paddingBottom: 64, gap: 14 },
-  eyebrow: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 8 },
-  promptCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-    gap: 8,
-  },
-  promptLabel: { fontFamily: fonts.sansSemibold, fontSize: 10, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase" },
-  promptText: { fontFamily: fonts.serif, color: colors.ivory, fontSize: 17, lineHeight: 25 },
-  input: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 18,
-    color: colors.ivory,
-    fontFamily: fonts.sans,
-    fontSize: 16,
-    minHeight: 130,
-    textAlignVertical: "top",
-    lineHeight: 24,
-  },
+  scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 14 },
+  hero: { marginTop: 12, marginBottom: 16 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 },
+  title: { fontFamily: fonts.sansBold, fontSize: 34, color: colors.text, letterSpacing: -0.8, lineHeight: 40 },
+  streakBlock: { backgroundColor: colors.surface1, borderRadius: 22, padding: 22, gap: 18, marginBottom: 4 },
+  streakTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  streakLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textTertiary, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 },
+  streakHeadlineRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  streakNumber: { fontFamily: fonts.sansBold, fontSize: 38, color: colors.text, letterSpacing: -1 },
+  streakUnit: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.textSecondary },
+  streakHint: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  flameBubble: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accentSoft, alignItems: "center", justifyContent: "center" },
+  streakRow: { flexDirection: "row", justifyContent: "space-between" },
+  streakCell: { alignItems: "center", gap: 6, flex: 1 },
+  streakDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.1)" },
+  streakDotActive: { backgroundColor: colors.accent },
+  streakDotToday: { borderWidth: 1.5, borderColor: colors.accent, backgroundColor: "transparent" },
+  streakDay: { fontFamily: fonts.sansMedium, fontSize: 10, color: colors.textTertiary },
+  streakDayToday: { color: colors.accent, fontFamily: fonts.sansSemibold },
+  promptBlock: { paddingHorizontal: 4, gap: 6, marginTop: 8 },
+  promptLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase" },
+  promptText: { fontFamily: fonts.serif, color: colors.text, fontSize: 18, lineHeight: 26 },
+  inputWrap: { backgroundColor: colors.surface1, borderRadius: 22, padding: 18, marginTop: 4 },
+  input: { color: colors.text, fontFamily: fonts.sans, fontSize: 16, minHeight: 130, textAlignVertical: "top", lineHeight: 24 },
   chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  chipText: { fontFamily: fonts.sansSemibold, fontSize: 13 },
-  saveBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginTop: 4,
-  },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+  chipText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.textSecondary },
+  saveBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 15, alignItems: "center", marginTop: 4 },
   saveBtnDisabled: { opacity: 0.35 },
-  saveBtnText: { fontFamily: fonts.sansBold, color: colors.bgTop, fontSize: 15, letterSpacing: 0.3 },
+  saveBtnText: { fontFamily: fonts.sansSemibold, color: colors.textOnAccent, fontSize: 15, letterSpacing: 0.2 },
   cancelLink: { alignItems: "center", paddingVertical: 6 },
   cancelLinkText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.textSecondary },
-  sectionLabel: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 16 },
-  emptyCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 28,
-    alignItems: "center",
-  },
+  sectionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.textTertiary, textTransform: "uppercase", marginTop: 24 },
+  emptyCard: { backgroundColor: colors.surface1, borderRadius: 22, padding: 36, alignItems: "center", gap: 12 },
   emptyText: { fontFamily: fonts.serif, color: colors.textSecondary, fontSize: 15 },
-  entryCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 18,
-    gap: 10,
-  },
-  entryCardPrayer: { borderColor: "rgba(201,168,76,0.25)" },
+  entryCard: { backgroundColor: colors.surface1, borderRadius: 18, padding: 18, gap: 10 },
+  entryCardPrayer: { backgroundColor: "rgba(212,179,106,0.06)" },
   entryHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  entryChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
+  entryChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   entryChipText: { fontFamily: fonts.sansSemibold, fontSize: 11 },
-  prayerTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(201,168,76,0.15)", borderWidth: 1, borderColor: "rgba(201,168,76,0.3)" },
-  prayerTagText: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.gold },
-  entryDate: { fontFamily: fonts.sans, fontSize: 12, color: colors.textMuted },
-  entryText: { fontFamily: fonts.serif, color: colors.ivory, fontSize: 15, lineHeight: 22 },
+  prayerTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 5 },
+  prayerTagText: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.accent },
+  entryDate: { fontFamily: fonts.sans, fontSize: 12, color: colors.textTertiary },
+  entryText: { fontFamily: fonts.serif, color: colors.text, fontSize: 15, lineHeight: 23 },
   entryRequest: { fontFamily: fonts.sans, color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
-  entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.ivory, fontSize: 15, lineHeight: 22 },
-  entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.gold },
-  showMore: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold, marginTop: 4 },
-  streakCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: "rgba(201,168,76,0.25)",
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 18,
-    gap: 14,
-  },
-  streakHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  streakLabel: { fontFamily: fonts.sansSemibold, fontSize: 10, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginBottom: 4 },
-  streakHeadline: { fontFamily: fonts.sansBold, fontSize: 22, color: colors.ivory, lineHeight: 28, letterSpacing: -0.3 },
-  streakSub: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  streakIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(201,168,76,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  streakRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
-  streakCell: { alignItems: "center", gap: 6, flex: 1 },
-  streakDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "rgba(250,248,243,0.12)",
-  },
-  streakDotActive: {
-    backgroundColor: colors.gold,
-  },
-  streakDotToday: {
-    borderWidth: 1.5,
-    borderColor: colors.gold,
-    backgroundColor: "transparent",
-  },
-  streakDay: { fontFamily: fonts.sansMedium, fontSize: 10, color: colors.textMuted },
-  streakDayToday: { color: colors.gold, fontFamily: fonts.sansSemibold },
+  entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.text, fontSize: 15, lineHeight: 23 },
+  entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.accent },
   entryActions: { flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 4 },
-  entryAction: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold },
-  entryActionDanger: { color: "#f8a8a8" },
+  entryAction: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent },
+  entryActionDanger: { color: "#F8B8B8" },
+  showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
 });

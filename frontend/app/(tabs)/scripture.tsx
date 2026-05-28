@@ -1,4 +1,4 @@
-// Scripture Unplugged. Daily NLT verse with reactions, devotional, and theological Q&A.
+// Scripture. Editorial, immersive verse card with subtle interactions.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -29,7 +29,6 @@ const BANNER_QUOTES = [
 
 type ReactionKey = "pray" | "love" | "fire" | "insight";
 type ReactionMeta = { key: ReactionKey; icon: keyof typeof Ionicons.glyphMap; label: string };
-
 const REACTIONS: ReactionMeta[] = [
   { key: "pray", icon: "leaf-outline", label: "Pray" },
   { key: "love", icon: "heart-outline", label: "Love" },
@@ -40,6 +39,9 @@ const REACTIONS: ReactionMeta[] = [
 type Style = "Devotional" | "Theologian";
 const STYLES: Style[] = ["Devotional", "Theologian"];
 
+const todayLabel = () =>
+  new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
 export default function ScriptureScreen() {
   const router = useRouter();
   const [verse, setVerse] = useState<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string } | null>(null);
@@ -47,6 +49,7 @@ export default function ScriptureScreen() {
   const [counts, setCounts] = useState<Record<string, number>>({ pray: 0, love: 0, fire: 0, insight: 0 });
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
+  const fade = useRef(new Animated.Value(0)).current;
 
   const [question, setQuestion] = useState("");
   const [lastAskedQuestion, setLastAskedQuestion] = useState<string>("");
@@ -61,20 +64,20 @@ export default function ScriptureScreen() {
         setVerse(v);
         const c = await api.getReactionCounts(v.verse_id);
         setCounts(c.counts);
+        Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
       } catch (e) {
         console.warn("daily verse load failed", e);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [fade]);
 
-  // Rotating banner
   useEffect(() => {
     const interval = setInterval(() => {
-      Animated.timing(bannerOpacity, { toValue: 0, duration: 400, useNativeDriver: true, easing: Easing.in(Easing.quad) }).start(() => {
+      Animated.timing(bannerOpacity, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.in(Easing.quad) }).start(() => {
         setBannerIdx((i) => (i + 1) % BANNER_QUOTES.length);
-        Animated.timing(bannerOpacity, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.quad) }).start();
+        Animated.timing(bannerOpacity, { toValue: 1, duration: 550, useNativeDriver: true, easing: Easing.out(Easing.quad) }).start();
       });
     }, 5000);
     return () => clearInterval(interval);
@@ -118,10 +121,7 @@ export default function ScriptureScreen() {
   const handleStyleChange = async (s: Style) => {
     if (s === style) return;
     setStyle(s);
-    // If we already have a question asked, regenerate the response in the new style
-    // (or reuse a cached one).
-    if (!lastAskedQuestion) return;
-    if (qaResponses[s]) return; // already have it cached
+    if (!lastAskedQuestion || qaResponses[s]) return;
     await runQA(lastAskedQuestion, s);
   };
 
@@ -140,217 +140,239 @@ export default function ScriptureScreen() {
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
-        bottomOffset={24}
+        bottomOffset={32}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.eyebrow}>Scripture</Text>
-        <Text style={styles.title}>Today's verse</Text>
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>Scripture</Text>
+          <Text style={styles.title}>Today's verse</Text>
+          <Text style={styles.dateLine}>{todayLabel()}</Text>
+        </View>
 
+        {/* Rotating quote — minimal, no card */}
         <Animated.View style={[styles.banner, { opacity: bannerOpacity }]} testID="rotating-banner">
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
 
         {loading || !verse ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator color={colors.gold} />
+            <ActivityIndicator color={colors.accent} />
           </View>
         ) : (
-          <>
+          <Animated.View style={{ opacity: fade, gap: 16 }}>
+            {/* Verse card — editorial */}
             <View style={styles.verseCard} testID="verse-card">
-              <Text style={styles.translationTag}>NLT</Text>
+              <View style={styles.metaRow}>
+                <Text style={styles.metaText}>NLT · {verse.reference}</Text>
+                <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8}>
+                  <Ionicons name="open-outline" size={16} color={colors.accent} />
+                </Pressable>
+              </View>
               <Text style={styles.verseText}>"{verse.verse}"</Text>
-              <Pressable onPress={openVerse} testID="verse-bible-link" style={styles.refRow}>
-                <Text style={styles.verseLink}>{verse.reference}</Text>
-                <Ionicons name="open-outline" size={14} color={colors.goldHover} />
-              </Pressable>
             </View>
 
+            {/* Reactions — minimal floating row */}
             <View style={styles.reactionsRow} testID="reactions-row">
               {REACTIONS.map((r) => (
-                <Pressable
+                <ReactionButton
                   key={r.key}
-                  style={styles.reactionBtn}
+                  icon={r.icon}
+                  label={r.label}
+                  count={counts[r.key] ?? 0}
                   onPress={() => handleReact(r.key)}
                   testID={`react-${r.key}`}
-                >
-                  <Ionicons name={r.icon} size={20} color={colors.gold} />
-                  <Text style={styles.reactionLabel}>{r.label}</Text>
-                  <Text style={styles.reactionCount}>{counts[r.key] ?? 0}</Text>
-                </Pressable>
+                />
               ))}
             </View>
 
-            <Text style={styles.sectionLabel}>Devotional</Text>
-            <View style={styles.devotionalCard} testID="devotional-card">
-              <Text style={styles.devotionalText}>{verse.devotional}</Text>
+            {/* Devotional — no card border, soft tint */}
+            <View>
+              <Text style={styles.sectionLabel}>Devotional</Text>
+              <View style={styles.devotionalCard} testID="devotional-card">
+                <Text style={styles.devotionalText}>{verse.devotional}</Text>
+              </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Discuss</Text>
-            <View style={styles.qaWrap}>
-              <TextInput
-                value={question}
-                onChangeText={setQuestion}
-                placeholder="Ask a theological question…"
-                placeholderTextColor="rgba(250,248,243,0.35)"
-                multiline
-                style={styles.qaInput}
-                testID="theological-question-input"
-              />
-              <View style={styles.styleSegment}>
-                {STYLES.map((s) => (
-                  <Pressable
-                    key={s}
-                    onPress={() => handleStyleChange(s)}
-                    style={[styles.stylePill, style === s && styles.stylePillActive]}
-                    testID={`style-pill-${s}`}
-                  >
-                    <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>{s}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Pressable
-                onPress={submitQuestion}
-                disabled={!question.trim() || qaLoading}
-                style={[styles.askBtn, (!question.trim() || qaLoading) && styles.askBtnDisabled]}
-                testID="ask-question-button"
-              >
+            {/* Discussion */}
+            <View>
+              <Text style={styles.sectionLabel}>Discuss</Text>
+              <View style={styles.qaWrap}>
+                <View style={styles.qaInputWrap}>
+                  <TextInput
+                    value={question}
+                    onChangeText={setQuestion}
+                    placeholder="Ask a theological question…"
+                    placeholderTextColor={colors.textTertiary}
+                    multiline
+                    style={styles.qaInput}
+                    testID="theological-question-input"
+                  />
+                </View>
+                <View style={styles.styleSegment}>
+                  {STYLES.map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => handleStyleChange(s)}
+                      style={[styles.stylePill, style === s && styles.stylePillActive]}
+                      testID={`style-pill-${s}`}
+                    >
+                      <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>{s}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Pressable
+                  onPress={submitQuestion}
+                  disabled={!question.trim() || qaLoading}
+                  style={[styles.askBtn, (!question.trim() || qaLoading) && styles.askBtnDisabled]}
+                  testID="ask-question-button"
+                >
+                  {qaLoading && !currentResponse ? (
+                    <ActivityIndicator color={colors.textOnAccent} />
+                  ) : (
+                    <Text style={styles.askBtnText}>Ask</Text>
+                  )}
+                </Pressable>
                 {qaLoading && !currentResponse ? (
-                  <ActivityIndicator color={colors.bgTop} />
-                ) : (
-                  <Text style={styles.askBtnText}>Ask</Text>
-                )}
-              </Pressable>
-              {(qaLoading && !currentResponse) ? (
-                <View style={styles.qaResponseCard}>
-                  <ActivityIndicator color={colors.gold} />
-                </View>
-              ) : !!currentResponse ? (
-                <View style={styles.qaResponseCard} testID="qa-response">
-                  <Text style={styles.qaResponseStyle}>{style}</Text>
-                  <Text style={styles.qaResponseText}>{currentResponse}</Text>
-                </View>
-              ) : null}
+                  <View style={styles.qaResponseCard}>
+                    <ActivityIndicator color={colors.accent} />
+                  </View>
+                ) : !!currentResponse ? (
+                  <View style={styles.qaResponseCard} testID="qa-response">
+                    <Text style={styles.qaResponseStyle}>{style}</Text>
+                    <Text style={styles.qaResponseText}>{currentResponse}</Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
 
             <Pressable onPress={goReflect} style={styles.reflectCta} testID="want-to-reflect-button">
               <Text style={styles.reflectCtaText}>Reflect on this verse</Text>
-              <Ionicons name="arrow-forward" size={16} color={colors.gold} />
+              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
-          </>
+          </Animated.View>
         )}
       </KeyboardAwareScrollView>
     </ScreenBackground>
   );
 }
 
+function ReactionButton({ icon, label, count, onPress, testID }: { icon: keyof typeof Ionicons.glyphMap; label: string; count: number; onPress: () => void; testID: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  return (
+    <Pressable
+      onPress={() => {
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 1.15, duration: 100, useNativeDriver: true }),
+          Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 5 }),
+        ]).start();
+        onPress();
+      }}
+      style={styles.reactionBtn}
+      testID={testID}
+    >
+      <Animated.View style={[styles.reactionInner, { transform: [{ scale }] }]}>
+        <Ionicons name={icon} size={18} color={colors.accent} />
+        {count > 0 && <Text style={styles.reactionCount}>{count}</Text>}
+      </Animated.View>
+      <Text style={styles.reactionLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 24, paddingBottom: 64, gap: 14 },
-  eyebrow: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 8 },
-  title: { fontFamily: fonts.sansBold, fontSize: 28, color: colors.ivory, marginTop: 2, letterSpacing: -0.5 },
-  banner: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  bannerText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13, textAlign: "center", letterSpacing: 0.2 },
-  loadingBox: { padding: 40, alignItems: "center" },
+  scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
+  hero: { marginTop: 12, marginBottom: 4 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 },
+  title: { fontFamily: fonts.sansBold, fontSize: 34, color: colors.text, letterSpacing: -0.8, lineHeight: 40 },
+  dateLine: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 8 },
+  banner: { paddingVertical: 10, alignItems: "center" },
+  bannerText: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 13, textAlign: "center", letterSpacing: 0.2 },
+  loadingBox: { padding: 60, alignItems: "center" },
   verseCard: {
-    backgroundColor: colors.ivory,
-    borderRadius: 20,
-    padding: 26,
-    gap: 14,
-    marginTop: 8,
+    backgroundColor: colors.surface1,
+    borderRadius: 26,
+    padding: 28,
+    gap: 18,
   },
-  translationTag: {
-    alignSelf: "flex-start",
-    fontFamily: fonts.sansSemibold,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: colors.goldHover,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(201,168,76,0.4)",
-  },
-  verseText: { fontFamily: fonts.serif, fontSize: 22, color: colors.onCard, lineHeight: 32 },
-  refRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  verseLink: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.goldHover },
-  reactionsRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  metaText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase" },
+  verseText: { fontFamily: fonts.serif, fontSize: 24, color: colors.text, lineHeight: 36, letterSpacing: 0.1 },
+  reactionsRow: { flexDirection: "row", gap: 8 },
   reactionBtn: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    gap: 4,
-  },
-  reactionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textSecondary, letterSpacing: 0.2 },
-  reactionCount: { fontFamily: fonts.sansSemibold, color: colors.textMuted, fontSize: 11 },
-  sectionLabel: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 12 },
-  devotionalCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-  },
-  devotionalText: { fontFamily: fonts.serif, color: colors.ivory, fontSize: 16, lineHeight: 26 },
-  qaWrap: { gap: 12 },
-  qaInput: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderColor: colors.glassBorder,
-    borderWidth: 1,
+    backgroundColor: colors.surface1,
     borderRadius: 16,
-    padding: 16,
-    color: colors.ivory,
+    paddingVertical: 14,
+    alignItems: "center",
+    gap: 6,
+  },
+  reactionInner: { flexDirection: "row", alignItems: "center", gap: 5 },
+  reactionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textSecondary },
+  reactionCount: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.accent },
+  sectionLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    letterSpacing: 2,
+    color: colors.textTertiary,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  devotionalCard: {
+    backgroundColor: colors.surface1,
+    borderRadius: 20,
+    padding: 22,
+  },
+  devotionalText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 26 },
+  qaWrap: { gap: 12 },
+  qaInputWrap: {
+    backgroundColor: colors.surface1,
+    borderRadius: 18,
+    padding: 4,
+  },
+  qaInput: {
+    color: colors.text,
     fontFamily: fonts.sans,
     fontSize: 15,
     minHeight: 70,
     textAlignVertical: "top",
+    padding: 14,
+    lineHeight: 22,
   },
   styleSegment: {
     flexDirection: "row",
     padding: 4,
-    backgroundColor: "rgba(0,0,0,0.25)",
-    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    borderRadius: 14,
   },
-  stylePill: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: "center" },
-  stylePillActive: { backgroundColor: colors.gold },
-  stylePillText: { fontFamily: fonts.sansSemibold, color: colors.textSecondary, fontSize: 13 },
-  stylePillTextActive: { color: colors.bgTop },
+  stylePill: { flex: 1, paddingVertical: 11, borderRadius: 11, alignItems: "center" },
+  stylePillActive: { backgroundColor: colors.accent },
+  stylePillText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
+  stylePillTextActive: { color: colors.textOnAccent, fontFamily: fonts.sansSemibold },
   askBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: 12,
+    backgroundColor: colors.accent,
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
   },
-  askBtnDisabled: { opacity: 0.4 },
-  askBtnText: { fontFamily: fonts.sansBold, color: colors.bgTop, fontSize: 15, letterSpacing: 0.3 },
+  askBtnDisabled: { opacity: 0.35 },
+  askBtnText: { fontFamily: fonts.sansSemibold, color: colors.textOnAccent, fontSize: 14, letterSpacing: 0.2 },
   qaResponseCard: {
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.surface1,
     borderRadius: 18,
     padding: 22,
     gap: 8,
     minHeight: 80,
     justifyContent: "center",
   },
-  qaResponseStyle: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2, color: colors.goldHover, textTransform: "uppercase" },
-  qaResponseText: { fontFamily: fonts.serif, color: colors.onCard, fontSize: 16, lineHeight: 24 },
+  qaResponseStyle: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.accent, textTransform: "uppercase" },
+  qaResponseText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 25 },
   reflectCta: {
     alignSelf: "center",
     paddingVertical: 16,
-    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    marginTop: 4,
   },
-  reflectCtaText: { fontFamily: fonts.sansSemibold, color: colors.gold, fontSize: 14 },
+  reflectCtaText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
 });
