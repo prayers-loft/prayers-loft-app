@@ -20,6 +20,9 @@ import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import { getSavedPrayers, removeSavedPrayer, SavedPrayer } from "@/src/lib/local-store";
+import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
+import { getShareExcerpt } from "@/src/lib/share-excerpt";
+import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
 
 const DAILY_PROMPTS = [
   "What's one thing you noticed today that felt like grace?",
@@ -141,6 +144,32 @@ export default function ReflectionsScreen() {
     ]);
   };
 
+  // ---- Share saved prayer ----------------------------------------------
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
+
+  const handleSharePrayer = async (entry: { id: string; prayer: string; verseReference?: string }) => {
+    if (sharingId) return;
+    setSharingId(entry.id);
+    try {
+      const excerpt = await getShareExcerpt(entry.prayer, "Prayer");
+      const tpl: PrayerTemplate = PRAYER_TEMPLATES[Math.floor(Math.random() * PRAYER_TEMPLATES.length)];
+      setSharePayload({
+        kind: "prayer",
+        prayer: excerpt,
+        fullText: entry.prayer,
+        verseReference: entry.verseReference,
+        defaultTemplate: tpl,
+      });
+      setShareOpen(true);
+    } catch (e) {
+      console.warn("share saved-prayer prep failed", e);
+    } finally {
+      setSharingId(null);
+    }
+  };
+
   const combined: CombinedEntry[] = useMemo(() => {
     const refl: CombinedEntry[] = entries.map((e) => ({ kind: "reflection" as const, ...e }));
     const pray: CombinedEntry[] = savedPrayers.map((p) => ({
@@ -248,12 +277,24 @@ export default function ReflectionsScreen() {
               entry.kind === "reflection" ? (
                 <ReflectionCard key={`r-${entry.id}`} entry={entry} onEdit={() => handleEdit(entry)} onDelete={() => handleDelete(entry.id)} />
               ) : (
-                <PrayerEntryCard key={`p-${entry.id}`} entry={entry} onDelete={() => handleDeletePrayer(entry.id)} />
+                <PrayerEntryCard
+                  key={`p-${entry.id}`}
+                  entry={entry}
+                  onDelete={() => handleDeletePrayer(entry.id)}
+                  onShare={() => handleSharePrayer(entry)}
+                  sharing={sharingId === entry.id}
+                />
               )
             )}
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
+
+      <ShareImageModal
+        visible={shareOpen}
+        onClose={() => setShareOpen(false)}
+        payload={sharePayload}
+      />
     </ScreenBackground>
   );
 }
@@ -404,8 +445,10 @@ const styles = StyleSheet.create({
   entryRequest: { fontFamily: fonts.sans, color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
   entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.text, fontSize: 15, lineHeight: 23 },
   entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.accent },
-  entryActions: { flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 4 },
+  entryActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 18, marginTop: 4 },
   entryAction: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent },
+  entryActionAccent: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent },
   entryActionDanger: { color: "#F8B8B8" },
+  prayerEntryShareBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
 });

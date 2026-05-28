@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 4 mini-task — Share button on saved prayer cards on Reflections tab. CRITICAL FRONTEND BUG: feature is NOT implemented in the leaf component. The parent ReflectionsScreen (reflections.tsx) correctly lifts shareOpen/sharePayload state, mounts a single <ShareImageModal>, defines handleSharePrayer() (which calls getShareExcerpt(prayer, 'Prayer') + random PrayerTemplate rotation + setShareOpen(true)), and passes onShare={() => handleSharePrayer(entry)} and sharing={sharingId === entry.id} to <PrayerEntryCard>. HOWEVER, the PrayerEntryCard function signature at reflections.tsx:368 only destructures { entry, onDelete } — onShare and sharing are silently dropped — and the rendered <View style={styles.entryActions}> contains ONLY the red 'Remove' Pressable. There is NO 'Share' Pressable, NO 'share-prayer-{id}' testID, NO ActivityIndicator-while-preparing affordance. Confirmed by static code search (grep) and by live runtime DOM probe on /reflections: document.querySelectorAll('[data-testid^=\"share-prayer-\"]').length === 0. The whole iteration 4 user-visible feature ('Saved prayer card should now have TWO actions: Share + Remove') is unshipped. Backend regression suite: 25/25 PASS — POST /api/share-excerpt with style='Prayer' still works (test_prayer_excerpt_preserves_first_person), no other endpoints touched. Reflections tab still loads cleanly (no red screen) — the unused props are simply ignored at runtime because Babel strips TS types and there are no PropTypes checks. Deprecated/legacy warnings carried over from iter1-3 are still present (props.pointerEvents JSX prop, useNativeDriver web warning, expo-audio + react-native-keyboard-controller version mismatch, shadow*/textShadow* style props). No E2E playwright run was performed for the saved-prayer share flow because the testID does not exist — the bug is unambiguous from code.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PrayerEntryCard (Reflections tab, saved prayer card)",
+        "issue": "Share button is NOT rendered on the saved-prayer card. The component signature at /app/frontend/app/(tabs)/reflections.tsx:368 declares only { entry, onDelete } and the action row at /app/frontend/app/(tabs)/reflections.tsx:388-390 renders ONLY <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}> with the red 'Remove' label. The parent (line 280-286) DOES pass onShare and sharing props, but they are silently dropped by the destructure. testID 'share-prayer-{id}' does not exist anywhere in the source.",
+        "testID": "share-prayer-{id} (MISSING)",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Save prayer (Prayer tab) → switch to Reflections tab → tap Share on saved prayer card → open ShareImageModal with PrayerShareCard preview",
+        "issue": "Flow is broken at the very first user-visible step on Reflections tab. The Share Pressable does not exist, so the user has no way to invoke handleSharePrayer, the ShareImageModal will never open from a saved prayer, the random PrayerTemplate rotation never runs, and the 'Share your prayer' preview never appears. The downstream ShareImageModal + getShareExcerpt('Prayer') + PrayerShareCard plumbing IS wired correctly in the parent — only the leaf button is missing.",
+        "affected_testIDs": ["share-prayer-{id}", "prayer-saved-card-{id}"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "props.pointerEvents (legacy JSX prop)", "issue": "Carried over from iter2/iter3 — still warns 'props.pointerEvents is deprecated. Use style.pointerEvents' on every Reflections-tab load. Reference: /app/frontend/src/components/ShareImageModal.tsx:318, /app/frontend/src/components/ShareImageModal.tsx:431, /app/frontend/src/components/PrayerShareCard.tsx:269, and /app/frontend/app/(tabs)/prayer.tsx:276 (amen-overlay)."},
+      {"component": "package: expo-audio", "issue": "Carried over — Expo SDK version-pin mismatch. Reference: /app/frontend/package.json"},
+      {"component": "package: react-native-keyboard-controller", "issue": "Carried over — Expo SDK version-pin mismatch. Reference: /app/frontend/package.json"},
+      {"component": "StyleSheet shadow*/textShadow* props", "issue": "Carried over — 'shadow* style props are deprecated. Use boxShadow.' Reference: scripture.tsx, prayer.tsx, reflections.tsx StyleSheet blocks."},
+      {"component": "Animated useNativeDriver (web)", "issue": "Carried over — cosmetic on web preview only, harmless on device."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prayers_loft_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(CRITICAL — implements the iteration 4 feature) Update PrayerEntryCard in /app/frontend/app/(tabs)/reflections.tsx: (a) widen the prop type to include onShare: () => void and sharing?: boolean, (b) destructure them in the function signature, (c) inside the <View style={styles.entryActions}> row (around line 388) render a Share Pressable BEFORE the Remove Pressable, e.g.: \n  <Pressable onPress={onShare} disabled={sharing} testID={`share-prayer-${entry.id}`} style={styles.prayerEntryShareBtn}>\n    {sharing ? <ActivityIndicator size=\"small\" color={colors.accent} /> : (<><Ionicons name=\"share-outline\" size={14} color={colors.accent} /><Text style={styles.entryAction}>Share</Text></>)}\n  </Pressable>\n  Note: styles.prayerEntryShareBtn already exists at reflections.tsx:452 ({ flexDirection: 'row', alignItems: 'center', gap: 5 }) — appears to have been pre-added in anticipation of this button.",
+    "After fix, retest E2E on a mobile viewport (390x844): Prayer tab → input 'I'm anxious about an interview' → Begin → reflection-card → Pray with me → prayer-card → Save (bookmark) → navigate to Reflections tab → verify a prayer-saved-card renders with BOTH share-prayer-{id} (gold) and delete-prayer-{id} (red) → tap Share → verify ShareImageModal opens with title 'Share your prayer' and a PrayerShareCard preview → switch all 4 prayer templates (Journal/Centered/Editorial/Candlelight) and 3 aspects (Post/Square/Story) → close via Cancel and backdrop tap → verify Remove still triggers Alert confirm → confirm Prayer-tab live share and Scripture-tab Devotional/Verse share still work (no regression).",
+    "(Carried over from iter2/iter3) Move pointerEvents='none' from JSX props into style={{ pointerEvents: 'none' }} on ShareImageModal.tsx:318, ShareImageModal.tsx:431, PrayerShareCard.tsx:269, and prayer.tsx:276.",
+    "(Carried over) Align expo-audio + react-native-keyboard-controller versions with Expo SDK; migrate shadow*/textShadow* StyleSheet props to boxShadow/textShadow."
+  ],
+  "critical_code_review_comments": [
+    "Bug RCA: PrayerEntryCard's TypeScript prop type at reflections.tsx:368 is a closed { entry; onDelete } shape. Because Metro/Babel strips TS types at build time and there are no PropTypes runtime checks, the call site at line 280-286 passes extra onShare/sharing props that silently disappear into the void. TypeScript should have caught this at the call site with TS2322 'Object literal may only specify known properties' but the repo is being bundled with TS checks off (or the editor lint output was ignored). Recommend running `tsc --noEmit` as a pre-commit / CI gate to catch this class of bug.",
+    "Parent-side plumbing is otherwise correct and idiomatic: handleSharePrayer() reuses the exact same getShareExcerpt(entry.prayer, 'Prayer') + PRAYER_TEMPLATES[Math.floor(Math.random() * PRAYER_TEMPLATES.length)] pattern as prayer.tsx:144-167, sharePayload uses kind:'prayer' + prayer/fullText/verseReference/defaultTemplate (matches the discriminated union expected by ShareImageModal/PrayerShareCard), and the single ShareImageModal is mounted at the screen root.",
+    "Style styles.prayerEntryShareBtn already exists at line 452 ({ flexDirection: 'row', alignItems: 'center', gap: 5 }) suggesting the developer was mid-way through the implementation — only the JSX <Pressable> was forgotten."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_4.json (new)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated — 25/25 PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% (25/25)",
+    "frontend": "0% on the iteration 4 feature (share button on saved prayer card is not rendered). All carried-over flows (Prayer tab live share, Scripture devotional/verse share, Reflections CRUD, prayer-saved-card display, prayer-saved-card Remove) appear intact from code inspection — Reflections page loads cleanly on mobile viewport (390x844)."
+  },
+  "seed_data_creation": "Backend tests create transient TEST_-prefixed reflections and clean them up. Frontend saved prayers live in AsyncStorage (local-store.ts) and are per-browser-profile — no seed data on the test browser, so no prayer-saved-card was visible in the live load probe (which is expected and unrelated to the bug).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After main agent adds the missing Share <Pressable> to PrayerEntryCard (signature widening + JSX node inside styles.entryActions row using testID `share-prayer-${entry.id}`), do the FULL E2E flow on mobile viewport: Prayer tab input → Begin → reflection-card → Pray with me → prayer-card → tap save-prayer-button → switch to Reflections tab → wait for prayer-saved-card-{id} → assert presence of BOTH share-prayer-{id} (gold, share-outline icon) and delete-prayer-{id} (red Remove) → tap share-prayer-{id} → wait for ShareImageModal with title 'Share your prayer' → assert PrayerShareCard preview is rendered (NOT QAShareCard) — should show 'A PRAYER' label and verse reference as small footnote → cycle all 4 prayer template chips (Journal/Centered/Editorial/Candlelight) and all 3 aspect chips (Post/Square/Story) → close modal via Cancel and re-open and close via backdrop tap → tap delete-prayer-{id} → confirm Alert and verify card disappears from list → regress: Prayer-tab share-prayer-button still opens 'Share your prayer' modal, Scripture-tab share-devotional-button still opens 'Share moment' modal with DEVOTIONAL card, Scripture-tab share-scripture-button still opens 'Share moment' modal with verse card, Scripture-tab Q&A flow share-qa-button still works. Backend pytest: `EXPO_PUBLIC_BACKEND_URL=https://prayers-loft.preview.emergentagent.com pytest /app/backend/tests/test_prayers_loft_api.py -v` — 25/25.",
+  "rca_of_issue": "Bug: 'Share' action on saved-prayer cards is missing on the Reflections tab. Reproduction: open /reflections (mobile viewport) → if any saved prayer exists (Prayer tab Save flow), inspect the rendered prayer-saved-card-{id} → only a single 'Remove' Pressable is present in the action row; no 'Share' control, no share-prayer-{id} testID. Mitigation: in /app/frontend/app/(tabs)/reflections.tsx update PrayerEntryCard at line 368 to accept onShare and sharing props, and add a <Pressable onPress={onShare} disabled={sharing} testID={`share-prayer-${entry.id}`}> ahead of the existing Remove Pressable inside the styles.entryActions row, rendering ActivityIndicator when sharing===true and Ionicons share-outline + 'Share' label otherwise (style.prayerEntryShareBtn is already defined in the StyleSheet at line 452). Root cause: prop-type / call-site mismatch that TypeScript would have caught with `tsc --noEmit` but was lost because the build pipeline strips TS without type-checking."
+}
