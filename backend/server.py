@@ -75,6 +75,12 @@ class TheologicalQuestion(BaseModel):
     style: Literal["Devotional", "Theologian"]
 
 
+class ShareExcerptRequest(BaseModel):
+    text: str
+    style: Literal["Devotional", "Theologian"]
+    question: Optional[str] = None
+
+
 class ReactionRequest(BaseModel):
     verse_id: str
     reaction: str
@@ -304,6 +310,80 @@ async def theological_question(payload: TheologicalQuestion):
     except Exception as e:
         logger.exception("theological-question failed")
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
+
+
+# ---------- Share excerpt (for long Q&A responses) ----------
+SHARE_EXCERPT_SYSTEMS = {
+    "Devotional": (
+        "You craft share-worthy excerpts from devotional reflections for social media. "
+        "Given a longer devotional response, extract or compose a 1 to 3 sentence excerpt (max 280 characters) "
+        "that preserves emotional impact and spiritual meaning, reads beautifully on its own, and feels share-worthy. "
+        "Prefer the most resonant, quotable line. Use plain flowing prose. "
+        "Return ONLY the excerpt text, no quotes, no preamble, no labels. "
+        "CRITICAL: do not use em dashes or en dashes. Use commas, periods, or natural pauses."
+    ),
+    "Theologian": (
+        "You craft share-worthy excerpts from theological reflections for social media. "
+        "Given a longer theological response, extract or compose a 1 to 3 sentence excerpt (max 280 characters) "
+        "that preserves the core theological insight and feels intellectually elegant. "
+        "Keep it accessible and emotionally powerful. "
+        "Return ONLY the excerpt text, no quotes, no preamble, no labels. "
+        "CRITICAL: do not use em dashes or en dashes. Use commas, periods, or natural pauses."
+    ),
+}
+
+
+def _excerpt_cache_key(text: str, style: str) -> str:
+    h = hashlib.sha256(f"{style}::{text}".encode("utf-8")).hexdigest()[:24]
+    return f"excerpt:{style}:{h}"
+
+
+def _clean_excerpt(s: str) -> str:
+    s = soften_text(s or "").strip()
+    # Strip surrounding quotes if Claude wrapped the line.
+    if len(s) >= 2 and s[0] in '"\u201c\u2018' and s[-1] in '"\u201d\u2019':
+        s = s[1:-1].strip()
+    # Cap to 300 chars hard limit so designs never overflow.
+    if len(s) > 300:
+        s = s[:297].rstrip() + "..."
+    return s
+
+
+@api_router.post("/share-excerpt")
+async def share_excerpt(payload: ShareExcerptRequest):
+    """Generate (or fetch cached) emotionally powerful 1-3 sentence excerpt
+    from a long Q&A response, suitable for a social share image.
+    """
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    key = _excerpt_cache_key(text, payload.style)
+    cached = await db.share_excerpts.find_one({"_id": key})
+    if cached and cached.get("excerpt"):
+        return {"excerpt": cached["excerpt"], "cached": True}
+
+    system = SHARE_EXCERPT_SYSTEMS.get(payload.style, SHARE_EXCERPT_SYSTEMS["Devotional"])
+    user_text = text
+    if payload.question:
+        user_text = f"Question asked: {payload.question.strip()}\n\nResponse:\n{text}"
+    try:
+        raw = await ai_chat(system, user_text, max_tokens=160)
+        excerpt = _clean_excerpt(raw)
+        if not excerpt:
+            # Fallback: truncate the original.
+            excerpt = (text[:277] + "...") if len(text) > 280 else text
+        await db.share_excerpts.update_one(
+            {"_id": key},
+            {"$set": {"_id": key, "excerpt": excerpt, "style": payload.style, "created_at": now_iso()}},
+            upsert=True,
+        )
+        return {"excerpt": excerpt, "cached": False}
+    except Exception as e:
+        logger.exception("share-excerpt failed")
+        # Soft fallback so client UX never breaks.
+        excerpt = (text[:277] + "...") if len(text) > 280 else text
+        return {"excerpt": excerpt, "cached": False, "fallback": True, "error": str(e)}
 
 
 @api_router.post("/reflections")

@@ -141,6 +141,12 @@ export const api = {
       body: JSON.stringify({ question, verse, style }),
     }),
 
+  shareExcerpt: (text: string, style: "Devotional" | "Theologian", question?: string) =>
+    request<{ excerpt: string; cached?: boolean; fallback?: boolean }>("/share-excerpt", {
+      method: "POST",
+      body: JSON.stringify({ text, style, question }),
+    }),
+
   listReflections: () =>
     request<{ reflections: { id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string }[] }>("/reflections"),
 

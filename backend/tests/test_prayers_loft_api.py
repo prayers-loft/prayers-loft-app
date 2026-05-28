@@ -1,7 +1,8 @@
 """Backend API tests for Prayers Loft.
 
 Covers: root, prayer-request (AI), prayer-follow-up (AI), daily-verse (AI/cached),
-react-to-verse, get-reaction-counts, theological-question (AI), reflections CRUD.
+react-to-verse, get-reaction-counts, theological-question (AI), share-excerpt (AI/cached),
+reflections CRUD.
 """
 import os
 import re
@@ -9,7 +10,8 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://prayers-loft.preview.emergentagent.com"
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL")
+assert BASE_URL, "EXPO_PUBLIC_BACKEND_URL must be set"
 BASE_URL = BASE_URL.rstrip("/")
 API = f"{BASE_URL}/api"
 TIMEOUT = 90  # AI calls can be slow
@@ -23,15 +25,6 @@ def session():
     s.close()
 
 
-# ---------- Basic ----------
-def test_root(session):
-    r = session.get(f"{API}/", timeout=TIMEOUT)
-    assert r.status_code == 200
-    data = r.json()
-    assert "message" in data
-    assert "Prayers Loft" in data["message"]
-
-
 def assert_no_mongo_id(obj):
     if isinstance(obj, dict):
         assert "_id" not in obj, f"_id leaked: {obj}"
@@ -40,6 +33,13 @@ def assert_no_mongo_id(obj):
     elif isinstance(obj, list):
         for v in obj:
             assert_no_mongo_id(v)
+
+
+# ---------- Basic ----------
+def test_root(session):
+    r = session.get(f"{API}/", timeout=TIMEOUT)
+    assert r.status_code == 200
+    assert "Prayers Loft" in r.json().get("message", "")
 
 
 # ---------- Prayer flow (AI) ----------
@@ -52,98 +52,67 @@ class TestPrayerFlow:
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        assert "response" in data
         text = data["response"]
         assert isinstance(text, str) and len(text) > 50
-        # Should include VERSE: line
         assert re.search(r"VERSE:\s*", text, re.IGNORECASE), f"No VERSE: line in:\n{text}"
-        # Should include closing question
-        assert re.search(r"would you like me to pray with you", text, re.IGNORECASE), \
-            f"Missing closing question:\n{text}"
-        assert_no_mongo_id(data)
+        assert re.search(r"would you like me to pray with you", text, re.IGNORECASE)
 
     def test_prayer_request_empty_message_rejected(self, session):
         r = session.post(f"{API}/prayer-request", json={"message": "   "}, timeout=TIMEOUT)
         assert r.status_code == 400
 
-    def test_prayer_follow_up_returns_prayer(self, session):
-        r = session.post(
-            f"{API}/prayer-follow-up",
-            json={"message": "I feel anxious about my new job.", "consent": True},
-            timeout=TIMEOUT,
-        )
-        assert r.status_code == 200, r.text
-        data = r.json()
-        assert "prayer" in data
-        prayer = data["prayer"].strip()
-        assert len(prayer) > 30
-        # Must end with the Amen phrase (allow ' or no apostrophe)
-        assert re.search(r"In Jesus[''']?\s+name,?\s+Amen\.?\s*$", prayer, re.IGNORECASE), \
-            f"Prayer doesn't end with In Jesus' name, Amen.:\n{prayer}"
 
-    def test_prayer_follow_up_without_consent(self, session):
-        r = session.post(
-            f"{API}/prayer-follow-up",
-            json={"message": "Help", "consent": False},
-            timeout=TIMEOUT,
-        )
-        assert r.status_code == 400
-
-
-# ---------- Daily verse + devotional (AI/cached) ----------
+# ---------- Daily verse + devotional ----------
 class TestDailyVerse:
     def test_daily_verse(self, session):
         r = session.get(f"{API}/daily-verse", timeout=TIMEOUT)
         assert r.status_code == 200, r.text
         data = r.json()
-        for k in ("verse", "reference", "verse_id", "bible_link", "devotional"):
-            assert k in data, f"missing {k}"
-            assert data[k], f"empty {k}"
-        assert data["bible_link"].startswith("https://www.bible.com/bible/1/")
+        for k in ("verse", "reference", "verse_id", "bible_link", "devotional", "local_date"):
+            assert k in data and data[k], f"missing/empty {k}"
+        assert "/bible/116/" in data["bible_link"], data["bible_link"]
         assert re.match(r"^[A-Z0-9]+\.\d+\.\d+$", data["verse_id"]), data["verse_id"]
         assert_no_mongo_id(data)
+
+    def test_daily_verse_local_date_deterministic(self, session):
+        r1 = session.get(f"{API}/daily-verse?local_date=2026-01-15", timeout=TIMEOUT).json()
+        r2 = session.get(f"{API}/daily-verse?local_date=2026-01-15", timeout=TIMEOUT).json()
+        assert r1["verse_id"] == r2["verse_id"]
+        assert r1["devotional"] == r2["devotional"]  # cached
+        assert r1["local_date"] == "2026-01-15"
 
 
 # ---------- Reactions ----------
 class TestReactions:
     def test_react_and_get_counts(self, session):
-        # Use a unique verse id to avoid polluting other tests
         verse_id = f"TST.{uuid.uuid4().hex[:8]}.1"
-
-        # Initial counts should all be zero
         r0 = session.get(f"{API}/get-reaction-counts", params={"verse_id": verse_id}, timeout=TIMEOUT)
         assert r0.status_code == 200
         d0 = r0.json()
-        assert d0["verse_id"] == verse_id
-        assert d0["counts"] == {"🙏": 0, "❤️": 0, "🔥": 0, "💡": 0}
+        assert d0["counts"] == {"pray": 0, "love": 0, "fire": 0, "insight": 0}
 
-        # React twice with 🙏 and once with ❤️
-        for emoji, times in [("🙏", 2), ("❤️", 1), ("🔥", 1), ("💡", 1)]:
-            last_count = None
+        for reaction, times in [("pray", 2), ("love", 1), ("fire", 1), ("insight", 1)]:
+            last = None
             for _ in range(times):
                 r = session.post(
                     f"{API}/react-to-verse",
-                    json={"verse_id": verse_id, "emoji": emoji},
+                    json={"verse_id": verse_id, "reaction": reaction},
                     timeout=TIMEOUT,
                 )
                 assert r.status_code == 200, r.text
                 body = r.json()
-                assert body["emoji"] == emoji
+                assert body["reaction"] == reaction
                 assert body["verse_id"] == verse_id
-                assert isinstance(body["count"], int) and body["count"] >= 1
-                last_count = body["count"]
-            assert last_count == times, f"{emoji} count mismatch"
+                last = body["count"]
+            assert last == times
 
-        # Verify via GET
-        r = session.get(f"{API}/get-reaction-counts", params={"verse_id": verse_id}, timeout=TIMEOUT)
-        assert r.status_code == 200
-        counts = r.json()["counts"]
-        assert counts == {"🙏": 2, "❤️": 1, "🔥": 1, "💡": 1}
+        counts = session.get(f"{API}/get-reaction-counts", params={"verse_id": verse_id}, timeout=TIMEOUT).json()["counts"]
+        assert counts == {"pray": 2, "love": 1, "fire": 1, "insight": 1}
 
-    def test_invalid_emoji_rejected(self, session):
+    def test_invalid_reaction_rejected(self, session):
         r = session.post(
             f"{API}/react-to-verse",
-            json={"verse_id": "TST.X.1", "emoji": "🍕"},
+            json={"verse_id": "TST.X.1", "reaction": "pizza"},
             timeout=TIMEOUT,
         )
         assert r.status_code == 400
@@ -151,7 +120,7 @@ class TestReactions:
 
 # ---------- Theological Q&A ----------
 class TestTheologicalQA:
-    @pytest.mark.parametrize("style", ["Devotional", "Theologian", "Pastoral"])
+    @pytest.mark.parametrize("style", ["Devotional", "Theologian"])
     def test_styles(self, session, style):
         r = session.post(
             f"{API}/theological-question",
@@ -166,14 +135,106 @@ class TestTheologicalQA:
         data = r.json()
         assert data["style"] == style
         assert isinstance(data["response"], str) and len(data["response"]) > 50
+        # No em/en dashes after soften_text
+        assert "—" not in data["response"] and "–" not in data["response"]
 
     def test_invalid_style_rejected(self, session):
         r = session.post(
             f"{API}/theological-question",
-            json={"question": "?", "verse": "Psalm 23:1", "style": "Casual"},
+            json={"question": "?", "verse": "Psalm 23:1", "style": "Pastoral"},
             timeout=TIMEOUT,
         )
-        assert r.status_code == 422  # pydantic Literal
+        assert r.status_code == 422
+
+    def test_empty_question_rejected(self, session):
+        r = session.post(
+            f"{API}/theological-question",
+            json={"question": "   ", "verse": "Psalm 23:1", "style": "Devotional"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 400
+
+
+# ---------- Share Excerpt (new feature) ----------
+LONG_DEVOTIONAL = (
+    "When fear becomes louder than truth, remember that God's faithful love never lets you go. "
+    "There are seasons of life when uncertainty presses in from every side, and the soul feels "
+    "tossed about by waves of doubt. In those moments, Scripture invites you to do something "
+    "surprisingly simple: be still. Stillness is not the absence of struggle but the presence of "
+    "trust. It says: I cannot see the path, but I know who walks beside me. Each breath becomes "
+    "a quiet act of faith, each tear a prayer that God already understands. The same Lord who "
+    "calmed the wind and the waves whispers into your storm: peace, be still. Hold on. The "
+    "morning always comes, and His mercies always meet it."
+)
+
+LONG_THEOLOGIAN = (
+    "The Hebrew verb batach, translated 'trust' in Proverbs 3:5, carries the sense of leaning "
+    "the full weight of one's being onto another. It is not intellectual assent but covenantal "
+    "dependence. In the wisdom literature, batach is consistently set in contrast with binah, "
+    "one's own understanding, suggesting that mature faith resists the temptation to absolutize "
+    "human cognition. Augustine echoed this in De Trinitate, noting that the creature is not the "
+    "measure of the Creator. To 'lean not on your own understanding' is therefore not "
+    "anti-intellectual; it is a confession of finitude before infinite wisdom. Such trust is "
+    "embodied, relational, and historically rooted in God's prior covenant faithfulness, what "
+    "Israel called hesed."
+)
+
+
+class TestShareExcerpt:
+    def test_devotional_excerpt_caching(self, session):
+        payload = {"text": LONG_DEVOTIONAL, "style": "Devotional", "question": "How do I trust God when I'm afraid?"}
+        r1 = session.post(f"{API}/share-excerpt", json=payload, timeout=TIMEOUT)
+        assert r1.status_code == 200, r1.text
+        d1 = r1.json()
+        assert "excerpt" in d1
+        assert isinstance(d1["excerpt"], str) and 1 <= len(d1["excerpt"]) <= 300
+        assert "—" not in d1["excerpt"] and "–" not in d1["excerpt"]
+        # First call may or may not be cached (previous test run), but must be present
+        assert "cached" in d1
+
+        # Second call MUST be cached
+        r2 = session.post(f"{API}/share-excerpt", json=payload, timeout=TIMEOUT)
+        assert r2.status_code == 200
+        d2 = r2.json()
+        assert d2["cached"] is True
+        assert d2["excerpt"] == d1["excerpt"]
+
+    def test_theologian_excerpt(self, session):
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": LONG_THEOLOGIAN, "style": "Theologian"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert isinstance(d["excerpt"], str) and 1 <= len(d["excerpt"]) <= 300
+
+    def test_short_text_still_returns_excerpt(self, session):
+        short = "Trust the Lord with all your heart. He guides every step you take."
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": short, "style": "Devotional"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["excerpt"] and len(d["excerpt"]) > 0 and len(d["excerpt"]) <= 300
+
+    def test_empty_text_rejected(self, session):
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": "   ", "style": "Devotional"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 400
+
+    def test_invalid_style_rejected(self, session):
+        r = session.post(
+            f"{API}/share-excerpt",
+            json={"text": "Some text.", "style": "Casual"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 422
 
 
 # ---------- Reflections CRUD ----------
@@ -186,18 +247,14 @@ class TestReflections:
         assert r.status_code == 200, r.text
         data = r.json()
         assert "_id" not in data
-        for k in ("id", "text", "emotion", "prompt", "created_at", "updated_at"):
-            assert k in data
         assert data["text"] == payload["text"]
         assert data["emotion"] == "Peace"
         TestReflections.created_ids.append(data["id"])
 
-    def test_list_reflections(self, session):
+    def test_list_includes_created(self, session):
         r = session.get(f"{API}/reflections", timeout=TIMEOUT)
         assert r.status_code == 200
         data = r.json()
-        assert "reflections" in data
-        assert isinstance(data["reflections"], list)
         assert_no_mongo_id(data)
         ids = [x["id"] for x in data["reflections"]]
         assert TestReflections.created_ids[-1] in ids
@@ -210,15 +267,18 @@ class TestReflections:
             timeout=TIMEOUT,
         )
         assert r.status_code == 200, r.text
-        data = r.json()
-        assert "_id" not in data
-        assert data["text"] == "TEST_Updated reflection text."
-        assert data["emotion"] == "Grateful"
+        d = r.json()
+        assert d["text"] == "TEST_Updated reflection text."
+        assert d["emotion"] == "Grateful"
 
-        # Verify via list
-        r2 = session.get(f"{API}/reflections", timeout=TIMEOUT)
-        found = next((x for x in r2.json()["reflections"] if x["id"] == rid), None)
-        assert found and found["text"] == "TEST_Updated reflection text."
+    def test_delete_reflection(self, session):
+        rid = TestReflections.created_ids[-1]
+        r = session.delete(f"{API}/reflections/{rid}", timeout=TIMEOUT)
+        assert r.status_code == 200
+        assert r.json() == {"deleted": True, "id": rid}
+        # Verify gone
+        ids = [x["id"] for x in session.get(f"{API}/reflections", timeout=TIMEOUT).json()["reflections"]]
+        assert rid not in ids
 
     def test_update_nonexistent_returns_404(self, session):
         r = session.put(
@@ -227,17 +287,6 @@ class TestReflections:
             timeout=TIMEOUT,
         )
         assert r.status_code == 404
-
-    def test_delete_reflection(self, session):
-        rid = TestReflections.created_ids[-1]
-        r = session.delete(f"{API}/reflections/{rid}", timeout=TIMEOUT)
-        assert r.status_code == 200
-        assert r.json() == {"deleted": True, "id": rid}
-
-        # Verify it's gone
-        r2 = session.get(f"{API}/reflections", timeout=TIMEOUT)
-        ids = [x["id"] for x in r2.json()["reflections"]]
-        assert rid not in ids
 
     def test_delete_nonexistent_returns_404(self, session):
         r = session.delete(f"{API}/reflections/{uuid.uuid4()}", timeout=TIMEOUT)

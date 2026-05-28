@@ -6,7 +6,6 @@ import {
   Easing,
   Linking,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +25,8 @@ import {
   saveCachedDevotional,
   cacheMatchesToday,
 } from "@/src/lib/daily-devotional";
+import { ShareImageModal } from "@/src/components/ShareImageModal";
+import { getShareExcerpt } from "@/src/lib/share-excerpt";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -50,6 +51,10 @@ const STYLES: Style[] = ["Devotional", "Theologian"];
 const todayLabel = () =>
   new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
+type ShareSource =
+  | { kind: "verse" }
+  | { kind: "qa"; style: Style; text: string; question: string };
+
 export default function ScriptureScreen() {
   const router = useRouter();
   const [verse, setVerse] = useState<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string } | null>(null);
@@ -58,7 +63,7 @@ export default function ScriptureScreen() {
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
-  const [newDayPill, setNewDayPill] = useState(false);
+  const [, setNewDayPill] = useState(false);
   const newDayOpacity = useRef(new Animated.Value(0)).current;
 
   const [question, setQuestion] = useState("");
@@ -66,6 +71,18 @@ export default function ScriptureScreen() {
   const [style, setStyle] = useState<Style>("Devotional");
   const [qaLoading, setQaLoading] = useState(false);
   const [qaResponses, setQaResponses] = useState<Record<Style, string>>({ Devotional: "", Theologian: "" });
+
+  // Share state ----------------------------------------------------------
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareSource, setShareSource] = useState<ShareSource | null>(null);
+  const [sharePreparing, setSharePreparing] = useState(false);
+  const [sharePayload, setSharePayload] = useState<{
+    excerpt: string;
+    fullText: string;
+    reference: string;
+    questionLine?: string;
+    style: Style;
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -168,48 +185,41 @@ export default function ScriptureScreen() {
 
   const currentResponse = qaResponses[style];
 
-  // ---- Share image generation ----
-  const shareCardRef = useRef<View>(null);
-  const [shareTemplate, setShareTemplate] = useState<ShareTemplate>("editorial");
-  const [sharing, setSharing] = useState(false);
-
-  const handleShare = async () => {
-    if (!verse || sharing) return;
-    const next = SHARE_TEMPLATES[Math.floor(Math.random() * SHARE_TEMPLATES.length)];
-    setShareTemplate(next);
-    setSharing(true);
+  // --- Share orchestration ---------------------------------------------
+  const openShare = async (src: ShareSource) => {
+    if (!verse || sharePreparing) return;
+    setShareSource(src);
+    setSharePreparing(true);
     try {
-      // Tiny wait so the new template paints before capture.
-      await new Promise((r) => setTimeout(r, 80));
-      const uri = await captureRef(shareCardRef, {
-        format: "png",
-        quality: 1,
-        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
-        width: SHARE_WIDTH,
-        height: SHARE_HEIGHT,
-      });
-      if (Platform.OS === "web") {
-        try {
-          const a = document.createElement("a");
-          a.href = uri;
-          a.download = "prayers-loft-scripture.png";
-          a.click();
-        } catch {}
-        return;
-      }
-      const available = await Sharing.isAvailableAsync();
-      if (available) {
-        await Sharing.shareAsync(uri, {
-          mimeType: "image/png",
-          dialogTitle: "Share scripture",
-          UTI: "public.png",
+      if (src.kind === "verse") {
+        // Verse share: excerpt is just the verse text (already short).
+        setSharePayload({
+          excerpt: verse.verse,
+          fullText: `${verse.verse}\n\n— ${verse.reference}`,
+          reference: verse.reference,
+          style: "Devotional",
+        });
+      } else {
+        const excerpt = await getShareExcerpt(src.text, src.style, { question: src.question });
+        setSharePayload({
+          excerpt,
+          fullText: src.text,
+          reference: verse.reference,
+          questionLine: src.question,
+          style: src.style,
         });
       }
+      setShareOpen(true);
     } catch (e) {
-      console.warn("scripture share failed", e);
+      console.warn("share prep failed", e);
     } finally {
-      setSharing(false);
+      setSharePreparing(false);
     }
+  };
+
+  const closeShare = () => {
+    setShareOpen(false);
+    setShareSource(null);
   };
 
   return (
@@ -246,8 +256,17 @@ export default function ScriptureScreen() {
                   <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
                     <Ionicons name="open-outline" size={16} color={colors.accent} />
                   </Pressable>
-                  <Pressable onPress={handleShare} testID="share-scripture-button" hitSlop={8} style={styles.metaIconBtn}>
-                    <Ionicons name="share-outline" size={16} color={colors.accent} />
+                  <Pressable
+                    onPress={() => openShare({ kind: "verse" })}
+                    testID="share-scripture-button"
+                    hitSlop={8}
+                    style={styles.metaIconBtn}
+                  >
+                    {sharePreparing && shareSource?.kind === "verse" ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Ionicons name="share-outline" size={16} color={colors.accent} />
+                    )}
                   </Pressable>
                 </View>
               </View>
@@ -321,7 +340,28 @@ export default function ScriptureScreen() {
                   </View>
                 ) : !!currentResponse ? (
                   <View style={styles.qaResponseCard} testID="qa-response">
-                    <Text style={styles.qaResponseStyle}>{style}</Text>
+                    <View style={styles.qaResponseHeader}>
+                      <Text style={styles.qaResponseStyle}>{style}</Text>
+                      <Pressable
+                        onPress={() =>
+                          openShare({
+                            kind: "qa",
+                            style,
+                            text: currentResponse,
+                            question: lastAskedQuestion,
+                          })
+                        }
+                        hitSlop={8}
+                        style={styles.qaShareBtn}
+                        testID="share-qa-button"
+                      >
+                        {sharePreparing && shareSource?.kind === "qa" ? (
+                          <ActivityIndicator size="small" color={colors.accent} />
+                        ) : (
+                          <Ionicons name="share-outline" size={16} color={colors.accent} />
+                        )}
+                      </Pressable>
+                    </View>
                     <Text style={styles.qaResponseText}>{currentResponse}</Text>
                   </View>
                 ) : null}
@@ -335,6 +375,18 @@ export default function ScriptureScreen() {
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
+
+      {sharePayload && (
+        <ShareImageModal
+          visible={shareOpen}
+          onClose={closeShare}
+          excerpt={sharePayload.excerpt}
+          fullText={sharePayload.fullText}
+          reference={sharePayload.reference}
+          question={sharePayload.questionLine}
+          style={sharePayload.style}
+        />
+      )}
     </ScreenBackground>
   );
 }
@@ -456,7 +508,16 @@ const styles = StyleSheet.create({
     minHeight: 80,
     justifyContent: "center",
   },
+  qaResponseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   qaResponseStyle: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.accent, textTransform: "uppercase" },
+  qaShareBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   qaResponseText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 25 },
   reflectCta: {
     alignSelf: "center",
@@ -467,31 +528,4 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   reflectCtaText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
-  newDayPill: {
-    position: "absolute",
-    top: 88,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.85)",
-    borderWidth: 1,
-    borderColor: "rgba(200,169,107,0.25)",
-    zIndex: 50,
-  },
-  newDayPillText: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.text, letterSpacing: 0.2 },
-  offscreen: {
-    position: "absolute",
-    left: -100000,
-    top: 0,
-    opacity: 1,
-  },
-  offscreenAbove: {
-    position: "absolute",
-    top: -10000,
-    left: 0,
-  },
 });

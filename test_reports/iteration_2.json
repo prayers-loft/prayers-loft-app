@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 2 — Full validation of new PNG share feature on Scripture tab. Backend: 23/23 pytest tests PASS including the new POST /api/share-excerpt (Devotional + Theologian both return excerpts under 300 chars with em/en dashes scrubbed; second call returns cached=true with identical excerpt; short text still returns a valid client-friendly excerpt; empty text → 400; invalid style → 422). Daily-verse now correctly uses NLT bible.com version 116 (/bible/116/) and devotional is deterministically cached per local_date (verified by calling 2026-01-15 twice — identical verse_id+devotional). React-to-verse now uses reaction keys pray/love/fire/insight (server-side validation rejects unknown reaction with 400). Theological-question only accepts Devotional|Theologian (Pastoral correctly rejected 422). Reflections CRUD full pass with no MongoDB _id leak. Frontend (mobile viewport 390x844): scripture tab loads, verse-card renders, tapping share-scripture-button opens the 'Share moment' modal with a centered scaled preview of the verse share card; all three aspect pills (Post/Square/Story) switch the preview shape correctly (Story renders a tall 9:16 frame, Post is 4:5, Square is 1:1); all three Devotional templates (Editorial/Reflection/Quote) re-render preview. 'Copy full text' button auto-closes modal after 350ms. 'Cancel' closes modal. Re-opening modal works (no stuck state). Q&A flow end-to-end: typed a question, ask-question-button produced qa-response, share-qa-button opened the share modal with a Claude-excerpted preview (verified Theologian style switch returned a separate Theologian response and the share modal then defaulted to the 'Insight' template with templates re-ordered as Insight/Editorial/Reflection). No layout leak observed: the off-screen full-resolution capture node lives inside the Modal layer and does not push the underlying ScrollView. Deprecated packages and warnings persist from iteration_1 (expo-audio version mismatch, react-native-keyboard-controller pin, shadow* / textShadow* style deprecations, Animated pointerEvents prop) — not regressions from this iteration but still open action items for the main agent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ShareImageModal preview", "issues": ["Minor: the scaled preview frame occasionally shows a faint grey rectangle in the right-side spill region on Post aspect (visible in the Theologian Q&A preview screenshot). The preview wrapper has overflow:hidden so this does not affect the actual captured PNG, but the inner card's transform may render a sliver outside the design intent. Cosmetic only; not blocking."]}
+    ],
+    "react_native_issues": [
+      {"component": "props.pointerEvents (legacy prop)", "issue": "Console still warns 'props.pointerEvents is deprecated. Use style.pointerEvents'. ShareImageModal off-screen capture View uses pointerEvents='none' as a prop (move it into style). Reference: /app/frontend/src/components/ShareImageModal.tsx:298"},
+      {"component": "package: expo-audio version", "issue": "Carried over from iteration_1 — expo-audio version still flagged by Expo doctor as mismatched against current SDK. Reference: /app/frontend/package.json"},
+      {"component": "package: react-native-keyboard-controller", "issue": "Carried over — pin to the version Expo expects. Reference: /app/frontend/package.json"},
+      {"component": "StyleSheet shadow*/textShadow* props", "issue": "Carried over — migrate to boxShadow/textShadow (RN 0.79+/web). Reference: scripture.tsx, prayer.tsx, reflections.tsx StyleSheet blocks."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prayers_loft_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Cosmetic: tighten ShareImageModal previewBox clipping for the Post aspect so the right edge of the scaled card never spills a sliver outside the visible preview frame (visual polish only; PNG capture itself is correct).",
+    "Move pointerEvents='none' from the JSX prop into the inline style on the off-screen capture wrapper in /app/frontend/src/components/ShareImageModal.tsx:297-307 to silence the deprecation warning.",
+    "(Carried over from iteration_1) Align expo-audio and react-native-keyboard-controller versions to those Expo SDK expects; migrate shadow*/textShadow* StyleSheet props."
+  ],
+  "critical_code_review_comments": [
+    "server.py: /api/share-excerpt is well-designed — SHA-256(text+style) cache key, soft fallback (truncated raw text + fallback=true field) so the client UX never breaks even when Claude errors, em/en dash scrub, 300-char hard cap. _excerpt_cache_key returns first 24 hex chars of sha256 which is plenty of entropy for this use case.",
+    "share-excerpt.ts hybrid threshold (260 chars client / 280 server) is sensible. In-memory memo prevents duplicate API calls per session.",
+    "ShareImageModal architecture (off-screen capture node hosted inside the Modal layer) correctly avoids the previous ScrollView layout-leak bug — verified by inspecting the DOM and confirming the underlying scripture screen position is unchanged after opening/closing the modal multiple times.",
+    "api.ts uses process.env.EXPO_PUBLIC_BACKEND_URL throughout, no hardcoded URLs.",
+    "Backend exception in /api/share-excerpt currently returns 200 with fallback excerpt + error string in the body — this leaks raw exception text to the client. Consider returning the fallback excerpt + a generic 'fallback: true' flag without the upstream error string. Reference: server.py:386."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prayers_loft_api.py (rewritten to match current API: reaction key instead of emoji, only Devotional/Theologian styles, NLT bible/116/ link, +5 new share-excerpt tests, +1 daily-verse local_date determinism test)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)",
+    "/app/test_reports/iteration_2.json (new)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% on tested critical flows (share modal open/close, aspect & template switching, copy full text, cancel, Q&A submission, share-qa-button, Devotional↔Theologian style switch with separate share, no ScrollView leak)"},
+  "seed_data_creation": "Tests create transient reflections prefixed with TEST_ and clean them up in the same class. Reactions use unique TST.<uuid>.1 verse ids. Share excerpts cached in MongoDB under deterministic SHA-256 keys (intentional persistence — exercises the cache hit path on re-run).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend public base: https://prayers-loft.preview.emergentagent.com. Pytest: `EXPO_PUBLIC_BACKEND_URL=... pytest /app/backend/tests/test_prayers_loft_api.py -v`. New endpoint POST /api/share-excerpt {text, style: 'Devotional'|'Theologian', question?} returns {excerpt, cached, fallback?}. Frontend testIDs: share-scripture-button (verse share), share-qa-button (Q&A share), theological-question-input, ask-question-button, style-pill-Devotional, style-pill-Theologian, qa-response, verse-card. Share modal uses 'Share moment' as title text (no testID on modal root — use that text to detect visibility). Format pills use labels Post/Square/Story; template pills are Editorial/Reflection/Quote for Devotional and Insight/Editorial/Reflection for Theologian (note: 'Insight' is the same template value as Theologian Insight). Capture is done via react-native-view-shot.captureRef → data-uri on web → browser download; on native → expo-sharing.shareAsync.",
+  "rca_of_issue": "No bugs reproduced this iteration. Verified the previous ScrollView layout-leak bug is fixed: the off-screen full-resolution capture node now lives inside the Modal layer at (left:-99999, top:-99999, pointerEvents='none'), so it cannot push the underlying ScrollView. Confirmed via repeated open/close cycles that scripture screen position and content remain stable."
+}
