@@ -12,7 +12,7 @@ export function ScreenBackground({ children }: { children: React.ReactNode }) {
         style={StyleSheet.absoluteFillObject}
       />
       {/* Soft radial gold glow at top */}
-      <View pointerEvents="none" style={styles.glow} />
+      <View style={styles.glow} />
       {children}
     </View>
   );

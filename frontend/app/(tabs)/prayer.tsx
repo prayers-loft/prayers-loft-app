@@ -215,8 +215,7 @@ export default function PrayerScreen() {
 
       {showAmen && (
         <Animated.View
-          pointerEvents="none"
-          style={[styles.amenOverlay, { opacity: amenOpacity }]}
+          style={[styles.amenOverlay, { opacity: amenOpacity, pointerEvents: "none" }]}
           testID="amen-overlay"
         >
           <Animated.Text style={[styles.amenText, { transform: [{ scale: amenScale }] }]}>
