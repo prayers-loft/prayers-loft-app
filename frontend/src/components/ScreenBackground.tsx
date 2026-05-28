@@ -1,4 +1,5 @@
-// Ambient background with soft layered radial glows for depth.
+// Quiet ambient background. Single very soft warm glow + cool depth gradient.
+// The content should always remain the focus.
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, View } from "react-native";
 import { colors } from "@/src/theme/theme";
@@ -7,14 +8,12 @@ export function ScreenBackground({ children }: { children: React.ReactNode }) {
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={[colors.bgDeep, colors.bg, colors.bgDeep]}
-        locations={[0, 0.5, 1]}
+        colors={[colors.bg, colors.bgDeep]}
+        locations={[0, 1]}
         style={StyleSheet.absoluteFillObject}
       />
-      {/* Top-right warm gold glow */}
-      <View style={[styles.glow, styles.glowGold]} />
-      {/* Bottom-left cool blue glow */}
-      <View style={[styles.glow, styles.glowBlue]} />
+      {/* A single very large, very soft warm glow up top. Quiet atmosphere. */}
+      <View style={styles.glow} pointerEvents="none" />
       {children}
     </View>
   );
@@ -24,22 +23,11 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   glow: {
     position: "absolute",
-    pointerEvents: "none",
-  },
-  glowGold: {
-    top: -140,
+    top: -260,
+    left: -120,
     right: -120,
-    width: 380,
-    height: 380,
-    borderRadius: 380,
-    backgroundColor: "rgba(212,179,106,0.07)",
-  },
-  glowBlue: {
-    bottom: 40,
-    left: -150,
-    width: 360,
-    height: 360,
-    borderRadius: 360,
-    backgroundColor: "rgba(108,140,200,0.05)",
+    height: 600,
+    borderRadius: 600,
+    backgroundColor: "rgba(200,169,107,0.045)",
   },
 });

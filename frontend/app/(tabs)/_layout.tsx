@@ -1,18 +1,18 @@
-// Floating glass tab bar. Translucent, animated active state.
+// Floating glass tab bar — slim, very translucent, calm.
 import { Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, fonts } from "@/src/theme/theme";
+import { colors } from "@/src/theme/theme";
 
 type TabKey = "prayer" | "scripture" | "reflections";
 
-const TAB_META: Record<TabKey, { label: string; icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap }> = {
-  prayer: { label: "Prayer", icon: "leaf-outline", iconFocused: "leaf" },
-  scripture: { label: "Scripture", icon: "book-outline", iconFocused: "book" },
-  reflections: { label: "Reflections", icon: "journal-outline", iconFocused: "journal" },
+const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap; label: string }> = {
+  prayer: { icon: "leaf-outline", iconFocused: "leaf", label: "Prayer" },
+  scripture: { icon: "book-outline", iconFocused: "book", label: "Scripture" },
+  reflections: { icon: "journal-outline", iconFocused: "journal", label: "Reflections" },
 };
 
 export default function TabsLayout() {
@@ -21,9 +21,9 @@ export default function TabsLayout() {
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
-      <Tabs.Screen name="prayer" options={{ title: "Prayer" }} />
-      <Tabs.Screen name="scripture" options={{ title: "Scripture" }} />
-      <Tabs.Screen name="reflections" options={{ title: "Reflections" }} />
+      <Tabs.Screen name="prayer" />
+      <Tabs.Screen name="scripture" />
+      <Tabs.Screen name="reflections" />
     </Tabs>
   );
 }
@@ -34,10 +34,10 @@ function FloatingTabBar(props: any) {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 14) }]}
+      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 12) }]}
       testID="bottom-tab-bar"
     >
-      <BlurView intensity={50} tint="dark" style={styles.bar}>
+      <BlurView intensity={70} tint="dark" style={styles.bar}>
         <View style={styles.barInner}>
           {state.routes.map((route: any, index: number) => {
             const focused = state.index === index;
@@ -48,13 +48,7 @@ function FloatingTabBar(props: any) {
               if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
             };
             return (
-              <TabButton
-                key={route.key}
-                focused={focused}
-                meta={meta}
-                onPress={onPress}
-                testID={`tab-${route.name}`}
-              />
+              <TabButton key={route.key} focused={focused} meta={meta} onPress={onPress} testID={`tab-${route.name}`} />
             );
           })}
         </View>
@@ -70,30 +64,36 @@ function TabButton({
   testID,
 }: {
   focused: boolean;
-  meta: { label: string; icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap };
+  meta: { icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap; label: string };
   onPress: () => void;
   testID: string;
 }) {
-  const scale = useRef(new Animated.Value(focused ? 1 : 0.9)).current;
-  const pillOpacity = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const scale = useRef(new Animated.Value(focused ? 1 : 0.94)).current;
+  const dotOpacity = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(scale, { toValue: focused ? 1 : 0.92, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(pillOpacity, { toValue: focused ? 1 : 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(scale, { toValue: focused ? 1 : 0.94, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(dotOpacity, { toValue: focused ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
-  }, [focused, scale, pillOpacity]);
+  }, [focused, scale, dotOpacity]);
 
   return (
-    <Pressable onPress={onPress} style={styles.tab} testID={testID} accessibilityRole="button" accessibilityState={focused ? { selected: true } : {}}>
-      <Animated.View style={[styles.pill, { opacity: pillOpacity }]} />
-      <Animated.View style={[styles.tabInner, { transform: [{ scale }] }]}>
+    <Pressable
+      onPress={onPress}
+      style={styles.tab}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={meta.label}
+      accessibilityState={focused ? { selected: true } : {}}
+    >
+      <Animated.View style={{ transform: [{ scale }], alignItems: "center", gap: 4 }}>
         <Ionicons
           name={focused ? meta.iconFocused : meta.icon}
           size={20}
           color={focused ? colors.accent : colors.textTertiary}
         />
-        <Text style={[styles.label, focused && styles.labelFocused]}>{meta.label}</Text>
+        <Animated.View style={[styles.dot, { opacity: dotOpacity }]} />
       </Animated.View>
     </Pressable>
   );
@@ -105,32 +105,26 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 18,
+    paddingHorizontal: 32,
     alignItems: "stretch",
   },
   bar: {
-    borderRadius: 28,
+    borderRadius: 32,
     overflow: "hidden",
-    backgroundColor: "rgba(11,16,32,0.55)",
+    backgroundColor: "rgba(15,23,42,0.45)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
   },
   barInner: {
     flexDirection: "row",
-    paddingHorizontal: 6,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
+  tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4 },
+  dot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
   },
-  pill: {
-    ...StyleSheet.absoluteFillObject,
-    margin: 4,
-    borderRadius: 22,
-    backgroundColor: colors.accentSoft,
-  },
-  tabInner: { alignItems: "center", gap: 3 },
-  label: { fontFamily: fonts.sansMedium, fontSize: 10.5, color: colors.textTertiary, letterSpacing: 0.3 },
-  labelFocused: { color: colors.accent, fontFamily: fonts.sansSemibold },
 });

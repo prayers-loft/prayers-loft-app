@@ -358,9 +358,9 @@ function formatDate(iso: string): string {
 
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 14 },
-  hero: { marginTop: 12, marginBottom: 16 },
-  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 },
-  title: { fontFamily: fonts.sansBold, fontSize: 34, color: colors.text, letterSpacing: -0.8, lineHeight: 40 },
+  hero: { marginTop: 18, marginBottom: 18 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
+  title: { fontFamily: fonts.sansSemibold, fontSize: 30, color: colors.text, letterSpacing: -0.5, lineHeight: 38 },
   streakBlock: { backgroundColor: colors.surface1, borderRadius: 22, padding: 22, gap: 18, marginBottom: 4 },
   streakTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   streakLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textTertiary, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 },

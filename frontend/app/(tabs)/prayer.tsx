@@ -164,16 +164,16 @@ export default function PrayerScreen() {
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>Prayer</Text>
             <Text style={styles.title}>Take a breath.</Text>
-            <Text style={styles.subtitle}>What's resting on your heart tonight?</Text>
+            <Text style={styles.subtitle}>You don't need perfect words.</Text>
           </View>
 
-          {/* Conversational input */}
+          {/* Journal-style input */}
           <View style={styles.inputWrap}>
             <TextInput
               value={message}
               onChangeText={setMessage}
               multiline
-              placeholder="I've been feeling…"
+              placeholder="What's resting on your heart tonight?"
               placeholderTextColor={colors.textTertiary}
               style={styles.input}
               testID="prayer-input"
@@ -284,16 +284,17 @@ function IconAction({ icon, label, onPress, disabled, testID }: { icon: keyof ty
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 18 },
-  hero: { marginTop: 12, marginBottom: 20 },
-  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 },
-  title: { fontFamily: fonts.sansBold, fontSize: 34, color: colors.text, letterSpacing: -0.8, lineHeight: 40 },
-  subtitle: { fontFamily: fonts.sans, fontSize: 16, color: colors.textSecondary, marginTop: 10, lineHeight: 24 },
+  scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 160, gap: 22 },
+  hero: { marginTop: 18, marginBottom: 22 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
+  title: { fontFamily: fonts.sansSemibold, fontSize: 32, color: colors.text, letterSpacing: -0.6, lineHeight: 40 },
+  subtitle: { fontFamily: fonts.sans, fontSize: 15, color: colors.textSecondary, marginTop: 10, lineHeight: 23 },
   inputWrap: {
-    backgroundColor: colors.surface1,
-    borderRadius: 22,
-    padding: 18,
-    minHeight: 130,
+    backgroundColor: colors.surface2,
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    minHeight: 150,
     marginBottom: 14,
   },
   input: {
@@ -301,8 +302,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontFamily: fonts.sans,
     fontSize: 16,
-    lineHeight: 24,
-    minHeight: 96,
+    lineHeight: 25,
+    minHeight: 110,
     textAlignVertical: "top",
   },
   primaryBtn: {
