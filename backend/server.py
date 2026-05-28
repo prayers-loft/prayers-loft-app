@@ -7,6 +7,7 @@ import os
 import logging
 import re
 import uuid
+import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
@@ -112,12 +113,26 @@ DAILY_VERSES = [
 BIBLE_VERSION_ID = 116
 
 
-def get_verse_for_today():
-    day_of_year = datetime.now(timezone.utc).timetuple().tm_yday
-    idx = day_of_year % len(DAILY_VERSES)
+def get_verse_for_date(local_date: str):
+    """Deterministic verse selection from a YYYY-MM-DD local-calendar date.
+    All users sharing the same local date receive the same verse and devotional.
+    """
+    seed = int(hashlib.sha256(local_date.encode()).hexdigest()[:8], 16)
+    idx = seed % len(DAILY_VERSES)
     v = DAILY_VERSES[idx]
     verse_id = f"{v['book']}.{v['chapter']}.{v['verse_num']}"
     return {**v, "verse_id": verse_id}
+
+
+def parse_local_date(s: Optional[str]) -> str:
+    """Validate YYYY-MM-DD or fall back to today's UTC date."""
+    if s and re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 # ---------- System prompts ----------
@@ -205,9 +220,20 @@ async def prayer_follow_up(payload: PrayerFollowUp):
 
 
 @api_router.get("/daily-verse")
-async def daily_verse():
-    v = get_verse_for_today()
-    cache_key = f"devo:{v['verse_id']}:{datetime.now(timezone.utc).date().isoformat()}"
+async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None):
+    """Returns the devotional for the user's LOCAL calendar day.
+
+    Query params:
+      local_date: YYYY-MM-DD as seen on the user's device (preferred).
+      tz: IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
+
+    Verse selection is deterministic on local_date so every user sharing the
+    same local day sees the same scripture. Devotional is cached per
+    local_date so it is generated exactly once per day globally.
+    """
+    date_str = parse_local_date(local_date)
+    v = get_verse_for_date(date_str)
+    cache_key = f"devo:{date_str}:{v['verse_id']}"
     cached = await db.devotional_cache.find_one({"_id": cache_key})
     if cached:
         devotional = cached["devotional"]
@@ -219,7 +245,14 @@ async def daily_verse():
                 max_tokens=280,
             )
             devotional = soften_text(devotional)
-            await db.devotional_cache.insert_one({"_id": cache_key, "devotional": devotional, "created_at": now_iso()})
+            await db.devotional_cache.insert_one({
+                "_id": cache_key,
+                "devotional": devotional,
+                "local_date": date_str,
+                "verse_id": v["verse_id"],
+                "tz_sample": tz,
+                "created_at": now_iso(),
+            })
         except Exception:
             logger.exception("devotional generation failed")
             devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
@@ -229,6 +262,7 @@ async def daily_verse():
         "verse_id": v["verse_id"],
         "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
         "devotional": devotional,
+        "local_date": date_str,
     }
 
 

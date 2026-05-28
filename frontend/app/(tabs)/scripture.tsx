@@ -18,6 +18,13 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
+import {
+  detectTimezone,
+  localDateInTz,
+  loadCachedDevotional,
+  saveCachedDevotional,
+  cacheMatchesToday,
+} from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -59,19 +66,43 @@ export default function ScriptureScreen() {
 
   useEffect(() => {
     (async () => {
+      const tz = detectTimezone();
+      const today = localDateInTz(tz);
       try {
-        const v = await api.dailyVerse();
-        setVerse(v);
-        const c = await api.getReactionCounts(v.verse_id);
+        const cached = await loadCachedDevotional();
+        // 1. Same local day + same timezone → use cache instantly. No fetch.
+        if (cacheMatchesToday(cached, tz, today)) {
+          setVerse(cached!.payload);
+          // still load reactions
+          const c = await api.getReactionCounts(cached!.payload.verse_id);
+          setCounts(c.counts);
+          Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+          return;
+        }
+        // 2. New local day (or first run, or tz change) → fetch and save.
+        const payload = await api.dailyVerse(today, tz);
+        setVerse(payload);
+        await saveCachedDevotional({ date: today, tz, payload });
+        const c = await api.getReactionCounts(payload.verse_id);
         setCounts(c.counts);
         Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+        // If we had a previous cached entry (i.e. user crossed midnight),
+        // show the "Today's scripture has arrived" transition pill.
+        if (cached) {
+          setNewDayPill(true);
+          Animated.sequence([
+            Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+            Animated.delay(3500),
+            Animated.timing(newDayOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+          ]).start(() => setNewDayPill(false));
+        }
       } catch (e) {
         console.warn("daily verse load failed", e);
       } finally {
         setLoading(false);
       }
     })();
-  }, [fade]);
+  }, [fade, newDayOpacity]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -375,4 +406,20 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   reflectCtaText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
+  newDayPill: {
+    position: "absolute",
+    top: 88,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.25)",
+    zIndex: 50,
+  },
+  newDayPillText: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.text, letterSpacing: 0.2 },
 });

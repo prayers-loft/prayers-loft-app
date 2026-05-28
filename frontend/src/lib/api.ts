@@ -116,8 +116,15 @@ export const api = {
       body: JSON.stringify({ message, consent: true }),
     }),
 
-  dailyVerse: () =>
-    request<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string }>("/daily-verse"),
+  dailyVerse: (localDate?: string, tz?: string) => {
+    const params = new URLSearchParams();
+    if (localDate) params.set("local_date", localDate);
+    if (tz) params.set("tz", tz);
+    const qs = params.toString();
+    return request<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string; local_date: string }>(
+      `/daily-verse${qs ? `?${qs}` : ""}`
+    );
+  },
 
   reactToVerse: (verse_id: string, reaction: string) =>
     request<{ verse_id: string; reaction: string; count: number }>("/react-to-verse", {
