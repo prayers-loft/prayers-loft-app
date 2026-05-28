@@ -127,7 +127,7 @@ export default function ScriptureScreen() {
               <Text style={styles.verseRefTop}>Today's Verse</Text>
               <Text style={styles.verseText}>"{verse.verse}"</Text>
               <Pressable onPress={openVerse} testID="verse-bible-link">
-                <Text style={styles.verseLink}>— {verse.reference}  ↗</Text>
+                <Text style={styles.verseLink}>{verse.reference}  ↗</Text>
               </Pressable>
             </View>
 

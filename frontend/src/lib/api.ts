@@ -76,7 +76,11 @@ export function parsePrayerReflection(raw: string): PrayerReflection {
   let verseText = "";
   let verseReference = "";
   if (verseLine) {
-    const vm = verseLine.match(/^VERSE:\s*"?(.+?)"?\s*[—–-]\s*(.+)$/i);
+    // Accept either: VERSE: "text" (Reference)   or   VERSE: "text" — Reference
+    let vm = verseLine.match(/^VERSE:\s*"?(.+?)"?\s*\(([^)]+)\)\s*$/i);
+    if (!vm) {
+      vm = verseLine.match(/^VERSE:\s*"?(.+?)"?\s*[—–-]\s*(.+)$/i);
+    }
     if (vm) {
       verseText = vm[1].trim().replace(/^"|"$/g, "");
       verseReference = vm[2].trim();

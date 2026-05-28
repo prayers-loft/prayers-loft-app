@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Platform,
   Pressable,
   Share,
   StyleSheet,
@@ -13,10 +14,13 @@ import {
   Easing,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
+import * as Sharing from "expo-sharing";
+import { captureRef } from "react-native-view-shot";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useRouter } from "expo-router";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
+import { PrayerImageCard, PRAYER_CARD_WIDTH, PRAYER_CARD_HEIGHT } from "@/src/components/PrayerImageCard";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer } from "@/src/lib/local-store";
@@ -36,6 +40,8 @@ export default function PrayerScreen() {
 
   const amenOpacity = useRef(new Animated.Value(0)).current;
   const amenScale = useRef(new Animated.Value(0.85)).current;
+  const shareCardRef = useRef<View>(null);
+  const [sharing, setSharing] = useState(false);
 
   const submitReflection = async () => {
     if (!message.trim() || loading) return;
@@ -165,7 +171,7 @@ export default function PrayerScreen() {
               <View style={styles.verseBlock}>
                 <Text style={styles.verseText}>"{reflection.verseText}"</Text>
                 <Pressable onPress={openVerse} testID="verse-link">
-                  <Text style={styles.verseRef}>— {reflection.verseReference}  ↗</Text>
+                  <Text style={styles.verseRef}>{reflection.verseReference}  ↗</Text>
                 </Pressable>
               </View>
             )}
@@ -197,7 +203,12 @@ export default function PrayerScreen() {
                 disabled={saved}
                 testID="save-prayer-button"
               />
-              <SecondaryButton onPress={handleShare} label="Share ↗" testID="share-prayer-button" />
+              <SecondaryButton
+                onPress={handleShare}
+                label={sharing ? "Preparing…" : "Share ↗"}
+                disabled={sharing}
+                testID="share-prayer-button"
+              />
             </View>
             <Pressable
               onPress={() => router.push("/(tabs)/reflections")}
@@ -222,6 +233,13 @@ export default function PrayerScreen() {
             Amen ✨
           </Animated.Text>
         </Animated.View>
+      )}
+
+      {/* Off-screen shareable image card. Rendered only when a prayer exists. */}
+      {!!prayer && (
+        <View style={styles.offscreen} pointerEvents="none">
+          <PrayerImageCard ref={shareCardRef} prayer={prayer} verseReference={reflection?.verseReference} />
+        </View>
       )}
     </ScreenBackground>
   );
@@ -360,5 +378,11 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(201,168,76,0.6)",
     textShadowRadius: 24,
     letterSpacing: 1,
+  },
+  offscreen: {
+    position: "absolute",
+    left: -10000,
+    top: 0,
+    opacity: 1,
   },
 });

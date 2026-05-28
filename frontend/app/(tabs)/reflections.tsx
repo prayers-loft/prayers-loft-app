@@ -303,7 +303,7 @@ function PrayerEntryCard({
       </View>
       {!!entry.text && <Text style={styles.entryRequest} numberOfLines={2}>"{entry.text}"</Text>}
       <Text style={styles.entryPrayer} numberOfLines={6}>{entry.prayer}</Text>
-      {!!entry.verseReference && <Text style={styles.entryRef}>— {entry.verseReference}</Text>}
+      {!!entry.verseReference && <Text style={styles.entryRef}>{entry.verseReference}</Text>}
       <View style={styles.entryActions}>
         <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}>
           <Text style={[styles.entryAction, styles.entryActionDanger]}>Remove</Text>
