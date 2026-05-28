@@ -46,6 +46,10 @@ export default function PrayerScreen() {
   const submitReflection = async () => {
     if (!message.trim() || loading) return;
     setLoading(true);
+    // Clear any prior reflection/prayer so this feels like a fresh start.
+    setReflection(null);
+    setPrayer("");
+    setSaved(false);
     try {
       const res = await api.prayerRequest(message.trim());
       const parsed = parsePrayerReflection(res.response);
@@ -149,11 +153,11 @@ export default function PrayerScreen() {
           />
         </View>
 
-        {stage === "idle" && (
+        {stage !== "reflection" && (
           <PrimaryButton
             onPress={submitReflection}
             disabled={!message.trim() || loading}
-            label={loading ? "Listening…" : "Begin"}
+            label={loading ? "Listening…" : stage === "prayer" ? "Begin a New Prayer" : "Begin"}
             loading={loading}
             testID="begin-prayer-button"
           />
@@ -218,7 +222,7 @@ export default function PrayerScreen() {
               <Text style={styles.sitWithText}>Want to sit with this? Open Reflections →</Text>
             </Pressable>
             <Pressable onPress={handleStartOver} style={styles.startOver} testID="start-over-button">
-              <Text style={styles.startOverText}>Pray about something else</Text>
+              <Text style={styles.startOverText}>+  Pray About Something Else</Text>
             </Pressable>
           </View>
         )}
@@ -363,8 +367,21 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: "row", gap: 12, marginTop: 18 },
   sitWithLink: { marginTop: 12 },
   sitWithText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.gold },
-  startOver: { marginTop: 4, paddingTop: 4 },
-  startOverText: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.onCardMuted },
+  startOver: {
+    marginTop: 14,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(201,168,76,0.45)",
+    alignItems: "center",
+    backgroundColor: "rgba(201,168,76,0.06)",
+  },
+  startOverText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    color: colors.goldHover,
+    letterSpacing: 0.4,
+  },
   amenOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",

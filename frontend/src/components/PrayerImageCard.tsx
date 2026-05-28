@@ -34,7 +34,7 @@ export const PrayerImageCard = forwardRef<View, Props>(function PrayerImageCard(
 
         <View style={styles.divider} />
 
-        <Text style={styles.eyebrow}>A Prayer</Text>
+        <Text style={styles.eyebrow}>A Prayer For You</Text>
 
         <View style={styles.prayerBlock}>
           {lines.map((line, i) => (
@@ -88,12 +88,12 @@ const styles = StyleSheet.create({
   brand: { fontFamily: fonts.serifBold, fontSize: 52, color: colors.ivory, letterSpacing: 1 },
   divider: { height: 1, backgroundColor: "rgba(201,168,76,0.35)", marginTop: 36, marginBottom: 48, width: 220 },
   eyebrow: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 28,
-    letterSpacing: 8,
+    fontFamily: fonts.serifItalic,
+    fontStyle: "italic",
+    fontSize: 48,
     color: colors.gold,
-    textTransform: "uppercase",
-    marginBottom: 36,
+    marginBottom: 40,
+    letterSpacing: 1,
   },
   prayerBlock: { gap: 22, flex: 1, justifyContent: "center" },
   prayerLine: {
