@@ -112,12 +112,49 @@ export default function PrayerScreen() {
   };
 
   const handleShare = async () => {
-    if (!prayer) return;
-    const text = `${prayer}\n\n— from Prayers Loft`;
+    if (!prayer || sharing) return;
+    const textFallback = `A Prayer For You\n\n${prayer}\n\nfrom Prayers Loft`;
+    setSharing(true);
     try {
-      await Share.share({ message: text });
-    } catch {
-      await Clipboard.setStringAsync(text);
+      // Let the off-screen image card mount, then capture.
+      await new Promise((r) => setTimeout(r, 80));
+      const uri = await captureRef(shareCardRef, {
+        format: "png",
+        quality: 1,
+        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
+        width: PRAYER_CARD_WIDTH,
+        height: PRAYER_CARD_HEIGHT,
+      });
+      if (Platform.OS === "web") {
+        try {
+          const a = document.createElement("a");
+          a.href = uri;
+          a.download = "prayers-loft.png";
+          a.click();
+        } catch {
+          await Clipboard.setStringAsync(textFallback);
+        }
+        return;
+      }
+      const available = await Sharing.isAvailableAsync();
+      if (available) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "image/png",
+          dialogTitle: "A Prayer For You",
+          UTI: "public.png",
+        });
+      } else {
+        await Share.share({ message: textFallback, title: "A Prayer For You" });
+      }
+    } catch (e) {
+      console.warn("share image failed, falling back to text", e);
+      try {
+        await Share.share({ message: textFallback, title: "A Prayer For You" });
+      } catch {
+        await Clipboard.setStringAsync(textFallback);
+      }
+    } finally {
+      setSharing(false);
     }
   };
 
