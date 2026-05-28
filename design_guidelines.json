@@ -1,0 +1,122 @@
+{
+  "theme": "dark",
+  "archetype": "5 (Luxury) mixed with 1 (Organic & Earthy)",
+  "design_philosophy": "A quiet, intimate, and premium spiritual wellness space. We avoid the clinical 'tech' look by using deep midnight gradients, stark ivory cards for focal content, and elegant serif typography. The UI is designed to reduce cognitive load, using soft fades and generous breathing room.",
+  "colors": {
+    "background": {
+      "primary": "bg-gradient-to-b from-[#0a0e1a] to-[#1a1f3a]",
+      "secondary": "bg-[#1a1f3a]",
+      "glass": "bg-[#0a0e1a]/80 backdrop-blur-xl"
+    },
+    "surface": {
+      "card": "bg-[#faf8f3]",
+      "card_dark": "bg-[#ffffff]/5",
+      "pill": "bg-[#ffffff]/10"
+    },
+    "text": {
+      "primary": "text-[#faf8f3]",
+      "secondary": "text-[#faf8f3]/70",
+      "on_card": "text-[#0a0e1a]",
+      "on_card_secondary": "text-[#0a0e1a]/70",
+      "accent": "text-[#c9a84c]"
+    },
+    "accent": {
+      "gold": "#c9a84c",
+      "gold_hover": "#b8973b"
+    },
+    "emotion_chips": {
+      "grateful": "bg-[#c9a84c]/20 text-[#c9a84c] border border-[#c9a84c]/30",
+      "hopeful": "bg-[#8ab4f8]/20 text-[#8ab4f8] border border-[#8ab4f8]/30",
+      "anxious": "bg-[#f88a8a]/20 text-[#f8a8a8] border border-[#f88a8a]/30",
+      "peaceful": "bg-[#8af8b4]/20 text-[#8af8b4] border border-[#8af8b4]/30",
+      "confused": "bg-[#b48af8]/20 text-[#d4b4f8] border border-[#b48af8]/30",
+      "joyful": "bg-[#f8d48a]/20 text-[#f8d48a] border border-[#f8d48a]/30",
+      "tired": "bg-[#a8a8a8]/20 text-[#d4d4d4] border border-[#a8a8a8]/30",
+      "seeking": "bg-[#f8a8d4]/20 text-[#f8a8d4] border border-[#f8a8d4]/30"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font": "font-serif (Crimson Text)",
+      "classes": "font-serif tracking-tight text-[#faf8f3]"
+    },
+    "prayers": {
+      "font": "font-serif (Crimson Text)",
+      "classes": "font-serif text-lg leading-relaxed italic"
+    },
+    "body": {
+      "font": "font-sans (Manrope or Outfit)",
+      "classes": "font-sans text-base leading-relaxed"
+    },
+    "labels": {
+      "classes": "font-sans text-xs uppercase tracking-widest text-[#c9a84c]"
+    }
+  },
+  "spacing_and_layout": {
+    "global_padding": "px-6 pb-32 pt-8",
+    "card_padding": "p-8",
+    "border_radius": {
+      "cards": "rounded-3xl",
+      "buttons": "rounded-full",
+      "chips": "rounded-full"
+    },
+    "gap": "gap-8"
+  },
+  "components": {
+    "bottom_nav": {
+      "structure": "Fixed bottom, z-50, w-full, pb-safe, px-6 py-4",
+      "style": "bg-[#0a0e1a]/90 backdrop-blur-2xl border-t border-white/5",
+      "items": "Prayer, Scripture, Reflections - flex justify-around items-center",
+      "active_state": "text-[#c9a84c] scale-110 transition-transform",
+      "inactive_state": "text-[#faf8f3]/50"
+    },
+    "cards": {
+      "ivory_card": "bg-[#faf8f3] text-[#0a0e1a] rounded-3xl p-8 shadow-xl shadow-black/20",
+      "glass_card": "bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-6"
+    },
+    "buttons": {
+      "primary": "w-full py-4 rounded-full bg-[#c9a84c] text-[#0a0e1a] font-bold text-lg hover:bg-[#b8973b] transition-colors shadow-lg shadow-[#c9a84c]/20",
+      "secondary": "w-full py-4 rounded-full bg-transparent border border-[#c9a84c] text-[#c9a84c] font-bold text-lg hover:bg-[#c9a84c]/10 transition-colors"
+    },
+    "segmented_control": {
+      "style": "flex p-1 bg-black/20 rounded-full",
+      "active": "bg-[#c9a84c] text-[#0a0e1a] rounded-full shadow-md px-4 py-2 text-sm font-semibold",
+      "inactive": "text-[#faf8f3]/70 hover:text-[#faf8f3] px-4 py-2 text-sm font-medium"
+    },
+    "text_area": {
+      "style": "w-full bg-transparent border-none focus:ring-0 text-[#faf8f3] placeholder:text-[#faf8f3]/30 resize-none font-serif text-xl leading-relaxed outline-none"
+    }
+  },
+  "animations": {
+    "page_transitions": "Soft fade in/out using framer-motion (opacity: 0 -> 1, y: 10 -> 0)",
+    "amen_animation": "Staggered fade up of text, glowing effect on 'Amen ✨', subtle scale pulse",
+    "quote_carousel": "AnimatePresence with opacity fade and slight y-axis drift, 5s interval"
+  },
+  "media": {
+    "ambient_texture": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/31ae838c-cc50-49ab-a7d7-3172d2474d69/images/f82e3afe1021077c92e7d0d9b60e9514d2fa0adbd9ad8e629509f3e9e2d51be3.png",
+      "description": "Subtle midnight gold dust texture, use as absolute background with opacity-10 or mix-blend-screen for ambient depth behind the main gradient"
+    }
+  },
+  "features": {
+    "prayer_assistant": {
+      "flow": "Textarea -> AI Reflection (glass card) -> 'Pray with me?' (primary btn) -> Generated Prayer (serif, italic, staggered reveal) -> Save/Share (row of secondary btns)"
+    },
+    "scripture_unplugged": {
+      "layout": "Rotating Quote Banner (top) -> Verse Card (Ivory card, massive impact) -> Emoji Reactions (flex row) -> Devotional (text block) -> Q&A Toggle (segmented control) -> Content -> 'Reflect' CTA"
+    },
+    "reflections": {
+      "layout": "Rotating Prompt (gold serif) -> Textarea -> Emotion Chips (wrap flex) -> Saved Entries (list of glass cards with 🕊️ tag if prayer)"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use Manrope or Outfit for sans-serif UI text instead of Inter to comply with anti-default rules while maintaining the clean aesthetic requested.",
+    "Ensure the Ivory cards (#faf8f3) use dark text (#0a0e1a) for readability. Do not put light text on the ivory cards.",
+    "Build as a mobile-first web app mimicking a native Expo feel. Center the main container on desktop with a max-width of 'max-w-md' and black background outside it to simulate a phone screen (mx-auto min-h-screen relative overflow-hidden).",
+    "Implement the bottom tab navigation as fixed at the bottom inside the max-w-md container.",
+    "Use Framer Motion heavily for the 'Amen ✨' stagger effect and quote banner transitions.",
+    "Add 'data-testid' to all buttons, tabs, and interactable elements.",
+    "Do not use placeholder images. Use the provided ambient_texture for the background overlay.",
+    "Install and use lucide-react for the ambient sound toggle (🔔/🔕) and tab icons if needed."
+  ]
+}
