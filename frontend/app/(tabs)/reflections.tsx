@@ -261,6 +261,8 @@ function ReflectionCard({
   onDelete: () => void;
 }) {
   const ec = entry.emotion && emotionColors[entry.emotion] ? emotionColors[entry.emotion] : null;
+  const [expanded, setExpanded] = useState(false);
+  const isLong = entry.text.length > 220 || (entry.text.match(/\n/g)?.length ?? 0) >= 4;
   return (
     <View style={styles.entryCard} testID={`reflection-card-${entry.id}`}>
       <View style={styles.entryHeader}>
@@ -273,7 +275,12 @@ function ReflectionCard({
         )}
         <Text style={styles.entryDate}>{formatDate(entry.created_at)}</Text>
       </View>
-      <Text style={styles.entryText} numberOfLines={5}>{entry.text}</Text>
+      <Text style={styles.entryText} numberOfLines={expanded ? undefined : 5}>{entry.text}</Text>
+      {isLong && (
+        <Pressable onPress={() => setExpanded((v) => !v)} testID={`toggle-${entry.id}`}>
+          <Text style={styles.showMore}>{expanded ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      )}
       <View style={styles.entryActions}>
         <Pressable onPress={onEdit} testID={`edit-${entry.id}`}>
           <Text style={styles.entryAction}>Edit</Text>
@@ -293,6 +300,8 @@ function PrayerEntryCard({
   entry: { id: string; text: string; prayer: string; created_at: string; verseReference?: string };
   onDelete: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = entry.prayer.length > 220 || (entry.prayer.match(/\n/g)?.length ?? 0) >= 5;
   return (
     <View style={[styles.entryCard, styles.entryCardPrayer]} testID={`prayer-saved-card-${entry.id}`}>
       <View style={styles.entryHeader}>
@@ -302,7 +311,12 @@ function PrayerEntryCard({
         <Text style={styles.entryDate}>{formatDate(entry.created_at)}</Text>
       </View>
       {!!entry.text && <Text style={styles.entryRequest} numberOfLines={2}>"{entry.text}"</Text>}
-      <Text style={styles.entryPrayer} numberOfLines={6}>{entry.prayer}</Text>
+      <Text style={styles.entryPrayer} numberOfLines={expanded ? undefined : 6}>{entry.prayer}</Text>
+      {isLong && (
+        <Pressable onPress={() => setExpanded((v) => !v)} testID={`toggle-prayer-${entry.id}`}>
+          <Text style={styles.showMore}>{expanded ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      )}
       {!!entry.verseReference && <Text style={styles.entryRef}>{entry.verseReference}</Text>}
       <View style={styles.entryActions}>
         <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}>
@@ -391,6 +405,7 @@ const styles = StyleSheet.create({
   entryRequest: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
   entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.ivory, fontSize: 15, lineHeight: 22 },
   entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.gold },
+  showMore: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold, marginTop: 4 },
   entryActions: { flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 4 },
   entryAction: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold },
   entryActionDanger: { color: "#f8a8a8" },
