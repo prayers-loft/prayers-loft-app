@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,8 +15,17 @@ import {
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Sharing from "expo-sharing";
+import { captureRef } from "react-native-view-shot";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
+import {
+  ScriptureShareCard,
+  SHARE_WIDTH,
+  SHARE_HEIGHT,
+  SHARE_TEMPLATES,
+  type ShareTemplate,
+} from "@/src/components/ScriptureShareCard";
 import { colors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import {
@@ -57,6 +67,8 @@ export default function ScriptureScreen() {
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
+  const [newDayPill, setNewDayPill] = useState(false);
+  const newDayOpacity = useRef(new Animated.Value(0)).current;
 
   const [question, setQuestion] = useState("");
   const [lastAskedQuestion, setLastAskedQuestion] = useState<string>("");
@@ -165,6 +177,51 @@ export default function ScriptureScreen() {
 
   const currentResponse = qaResponses[style];
 
+  // ---- Share image generation ----
+  const shareCardRef = useRef<View>(null);
+  const [shareTemplate, setShareTemplate] = useState<ShareTemplate>("editorial");
+  const [sharing, setSharing] = useState(false);
+
+  const handleShare = async () => {
+    if (!verse || sharing) return;
+    // Pick a fresh template each share for variety.
+    const next = SHARE_TEMPLATES[Math.floor(Math.random() * SHARE_TEMPLATES.length)];
+    setShareTemplate(next);
+    setSharing(true);
+    try {
+      // Wait for the off-screen card to mount + paint with the new template.
+      await new Promise((r) => setTimeout(r, 120));
+      const uri = await captureRef(shareCardRef, {
+        format: "png",
+        quality: 1,
+        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
+        width: SHARE_WIDTH,
+        height: SHARE_HEIGHT,
+      });
+      if (Platform.OS === "web") {
+        try {
+          const a = document.createElement("a");
+          a.href = uri;
+          a.download = "prayers-loft-scripture.png";
+          a.click();
+        } catch {}
+        return;
+      }
+      const available = await Sharing.isAvailableAsync();
+      if (available) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "image/png",
+          dialogTitle: "Share scripture",
+          UTI: "public.png",
+        });
+      }
+    } catch (e) {
+      console.warn("scripture share failed", e);
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <ScreenBackground>
       <ScreenHeader />
@@ -195,9 +252,18 @@ export default function ScriptureScreen() {
             <View style={styles.verseCard} testID="verse-card">
               <View style={styles.metaRow}>
                 <Text style={styles.metaText}>NLT · {verse.reference}</Text>
-                <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8}>
-                  <Ionicons name="open-outline" size={16} color={colors.accent} />
-                </Pressable>
+                <View style={styles.metaActions}>
+                  <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
+                    <Ionicons name="open-outline" size={16} color={colors.accent} />
+                  </Pressable>
+                  <Pressable onPress={handleShare} disabled={sharing} testID="share-scripture-button" hitSlop={8} style={styles.metaIconBtn}>
+                    {sharing ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Ionicons name="share-outline" size={16} color={colors.accent} />
+                    )}
+                  </Pressable>
+                </View>
               </View>
               <Text style={styles.verseText}>"{verse.verse}"</Text>
             </View>
@@ -283,6 +349,18 @@ export default function ScriptureScreen() {
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
+
+      {/* Off-screen share card for image capture */}
+      {verse && (
+        <View style={styles.offscreen} pointerEvents="none">
+          <ScriptureShareCard
+            ref={shareCardRef}
+            verse={verse.verse}
+            reference={verse.reference}
+            template={shareTemplate}
+          />
+        </View>
+      )}
     </ScreenBackground>
   );
 }
@@ -327,6 +405,15 @@ const styles = StyleSheet.create({
   },
   metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   metaText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase" },
+  metaActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  metaIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   verseText: { fontFamily: fonts.serif, fontSize: 24, color: colors.text, lineHeight: 36, letterSpacing: 0.1 },
   reactionsRow: { flexDirection: "row", gap: 8 },
   reactionBtn: {
@@ -422,4 +509,10 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   newDayPillText: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.text, letterSpacing: 0.2 },
+  offscreen: {
+    position: "absolute",
+    left: -100000,
+    top: 0,
+    opacity: 1,
+  },
 });
