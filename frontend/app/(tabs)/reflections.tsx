@@ -33,6 +33,39 @@ const DAILY_PROMPTS = [
 const EMOTIONS = ["Grateful", "Hopeful", "Anxious", "Peaceful", "Confused", "Joyful", "Tired", "Seeking"] as const;
 type Emotion = (typeof EMOTIONS)[number];
 
+// --- Streak helpers ---
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function computeStreak(activeDays: Set<string>): number {
+  let streak = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // Allow the streak to count from yesterday if user hasn't journaled today yet.
+  let cursor = new Date(today);
+  if (!activeDays.has(ymd(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while (activeDays.has(ymd(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function lastNDays(n: number): Date[] {
+  const out: Date[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    out.push(d);
+  }
+  return out;
+}
+
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
 type ServerEntry = { id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string };
 
 type CombinedEntry =
@@ -146,6 +179,19 @@ export default function ReflectionsScreen() {
     return [...refl, ...pray].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }, [entries, savedPrayers]);
 
+  // Build set of active days (any reflection or saved prayer) for streak + calendar.
+  const activeDays = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of combined) {
+      const d = new Date(c.created_at);
+      if (!Number.isNaN(d.getTime())) set.add(ymd(d));
+    }
+    return set;
+  }, [combined]);
+
+  const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
+  const last14 = useMemo(() => lastNDays(14), []);
+
   return (
     <ScreenBackground>
       <ScreenHeader />
@@ -156,6 +202,8 @@ export default function ReflectionsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.eyebrow}>Reflections</Text>
+
+        <StreakCard streak={streak} days={last14} activeDays={activeDays} />
 
         <View style={styles.promptCard} testID="daily-prompt">
           <Text style={styles.promptLabel}>Today's Prompt</Text>
@@ -332,6 +380,65 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function StreakCard({
+  streak,
+  days,
+  activeDays,
+}: {
+  streak: number;
+  days: Date[];
+  activeDays: Set<string>;
+}) {
+  const todayStr = ymd(new Date());
+  const headline =
+    streak === 0
+      ? "Begin your streak today"
+      : streak === 1
+      ? "1 day streak"
+      : `${streak} day streak`;
+  const subline =
+    streak === 0
+      ? "A single reflection is enough to begin."
+      : streak < 3
+      ? "A quiet beginning. Keep going."
+      : streak < 7
+      ? "Faithful daily presence. Beautiful."
+      : "A sustained practice of stillness.";
+  return (
+    <View style={styles.streakCard} testID="streak-card">
+      <View style={styles.streakHeader}>
+        <View>
+          <Text style={styles.streakLabel}>Your Streak</Text>
+          <Text style={styles.streakHeadline}>{headline}</Text>
+          <Text style={styles.streakSub}>{subline}</Text>
+        </View>
+        <Text style={styles.streakFlame}>{streak >= 3 ? "🔥" : "🕯️"}</Text>
+      </View>
+      <View style={styles.streakRow} testID="streak-row">
+        {days.map((d) => {
+          const key = ymd(d);
+          const active = activeDays.has(key);
+          const isToday = key === todayStr;
+          return (
+            <View key={key} style={styles.streakCell}>
+              <View
+                style={[
+                  styles.streakDot,
+                  active && styles.streakDotActive,
+                  isToday && !active && styles.streakDotToday,
+                ]}
+              />
+              <Text style={[styles.streakDay, isToday && styles.streakDayToday]}>
+                {WEEKDAY_LETTERS[d.getDay()]}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingBottom: 64, gap: 14 },
   eyebrow: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 8 },
@@ -406,6 +513,38 @@ const styles = StyleSheet.create({
   entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.ivory, fontSize: 15, lineHeight: 22 },
   entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.gold },
   showMore: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold, marginTop: 4 },
+  streakCard: {
+    backgroundColor: colors.glassBg,
+    borderColor: "rgba(201,168,76,0.25)",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 18,
+    gap: 14,
+  },
+  streakHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+  streakLabel: { fontFamily: fonts.sansSemibold, fontSize: 10, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginBottom: 4 },
+  streakHeadline: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.ivory, lineHeight: 28 },
+  streakSub: { fontFamily: fonts.serifItalic, fontStyle: "italic", fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  streakFlame: { fontSize: 30 },
+  streakRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
+  streakCell: { alignItems: "center", gap: 6, flex: 1 },
+  streakDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "rgba(250,248,243,0.12)",
+  },
+  streakDotActive: {
+    backgroundColor: colors.gold,
+    boxShadow: "0 0 6px rgba(201,168,76,0.6)",
+  },
+  streakDotToday: {
+    borderWidth: 1.5,
+    borderColor: colors.gold,
+    backgroundColor: "transparent",
+  },
+  streakDay: { fontFamily: fonts.sansMedium, fontSize: 10, color: colors.textMuted },
+  streakDayToday: { color: colors.gold, fontFamily: fonts.sansSemibold },
   entryActions: { flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 4 },
   entryAction: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold },
   entryActionDanger: { color: "#f8a8a8" },

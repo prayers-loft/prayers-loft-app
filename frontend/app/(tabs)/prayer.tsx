@@ -42,6 +42,7 @@ export default function PrayerScreen() {
   const amenScale = useRef(new Animated.Value(0.85)).current;
   const shareCardRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
+  const [sharingImage, setSharingImage] = useState(false);
 
   const submitReflection = async () => {
     if (!message.trim() || loading) return;
@@ -127,6 +128,40 @@ export default function PrayerScreen() {
       }
     } finally {
       setSharing(false);
+    }
+  };
+
+  const handleShareImage = async () => {
+    if (!prayer || sharingImage) return;
+    setSharingImage(true);
+    try {
+      await new Promise((r) => setTimeout(r, 80));
+      const uri = await captureRef(shareCardRef, {
+        format: "png",
+        quality: 1,
+        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
+        width: PRAYER_CARD_WIDTH,
+        height: PRAYER_CARD_HEIGHT,
+      });
+      if (Platform.OS === "web") {
+        const a = document.createElement("a");
+        a.href = uri;
+        a.download = "prayers-loft.png";
+        a.click();
+        return;
+      }
+      const available = await Sharing.isAvailableAsync();
+      if (available) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "image/png",
+          dialogTitle: "A Prayer For You",
+          UTI: "public.png",
+        });
+      }
+    } catch (e) {
+      console.warn("share image failed", e);
+    } finally {
+      setSharingImage(false);
     }
   };
 
@@ -218,9 +253,15 @@ export default function PrayerScreen() {
               />
               <SecondaryButton
                 onPress={handleShare}
-                label={sharing ? "Preparing…" : "Share ↗"}
+                label={sharing ? "…" : "Share ↗"}
                 disabled={sharing}
                 testID="share-prayer-button"
+              />
+              <SecondaryButton
+                onPress={handleShareImage}
+                label={sharingImage ? "…" : "Image 🖼️"}
+                disabled={sharingImage}
+                testID="share-image-button"
               />
             </View>
             <Pressable
@@ -248,8 +289,8 @@ export default function PrayerScreen() {
         </Animated.View>
       )}
 
-      {/* Off-screen shareable image card kept available for future use. */}
-      {false && !!prayer && (
+      {/* Off-screen shareable image card. Captured by react-native-view-shot when user taps "Image". */}
+      {!!prayer && (
         <View style={styles.offscreen} pointerEvents="none">
           <PrayerImageCard ref={shareCardRef} prayer={prayer} verseReference={reflection?.verseReference} />
         </View>
