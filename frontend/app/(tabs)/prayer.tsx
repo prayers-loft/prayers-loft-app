@@ -50,6 +50,7 @@ export default function PrayerScreen() {
   const prefetchedRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
   const shareCardRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
+  const [shareMounted, setShareMounted] = useState(false);
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
@@ -262,14 +263,17 @@ export default function PrayerScreen() {
         </Animated.View>
       )}
 
-      {/* Off-screen prayer image card for PNG share capture */}
-      {!!prayer && (
-        <View style={styles.offscreen} pointerEvents="none">
-          <PrayerImageCard
-            ref={shareCardRef}
-            prayer={prayer}
-            verseReference={reflection?.verseReference}
-          />
+      {/* Off-screen prayer image card. Only mounted during share, wrapped in a
+          1×1 clipped container so it can never leak onto the screen. */}
+      {shareMounted && !!prayer && (
+        <View style={styles.offscreenClip} pointerEvents="none">
+          <View style={styles.offscreenShift}>
+            <PrayerImageCard
+              ref={shareCardRef}
+              prayer={prayer}
+              verseReference={reflection?.verseReference}
+            />
+          </View>
         </View>
       )}
     </ScreenBackground>
@@ -402,5 +406,16 @@ const styles = StyleSheet.create({
     fontSize: 56,
     color: colors.accent,
     letterSpacing: 1,
+  },
+  offscreenClip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+  },
+  offscreenShift: {
+    transform: [{ translateX: -5000 }],
   },
 });
