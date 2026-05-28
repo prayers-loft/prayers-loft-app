@@ -5,8 +5,8 @@ import {
   Animated,
   Easing,
   Linking,
-  Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -15,17 +15,8 @@ import {
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as Sharing from "expo-sharing";
-import { captureRef } from "react-native-view-shot";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
-import {
-  ScriptureShareCard,
-  SHARE_WIDTH,
-  SHARE_HEIGHT,
-  SHARE_TEMPLATES,
-  type ShareTemplate,
-} from "@/src/components/ScriptureShareCard";
 import { colors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import {
@@ -255,12 +246,8 @@ export default function ScriptureScreen() {
                   <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
                     <Ionicons name="open-outline" size={16} color={colors.accent} />
                   </Pressable>
-                  <Pressable onPress={handleShare} disabled={sharing} testID="share-scripture-button" hitSlop={8} style={styles.metaIconBtn}>
-                    {sharing ? (
-                      <ActivityIndicator size="small" color={colors.accent} />
-                    ) : (
-                      <Ionicons name="share-outline" size={16} color={colors.accent} />
-                    )}
+                  <Pressable onPress={handleShare} testID="share-scripture-button" hitSlop={8} style={styles.metaIconBtn}>
+                    <Ionicons name="share-outline" size={16} color={colors.accent} />
                   </Pressable>
                 </View>
               </View>
@@ -348,19 +335,6 @@ export default function ScriptureScreen() {
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
-
-      {/* Off-screen share card. Positioned above the viewport so it renders
-          fully but is never visible. captureRef snapshots it cleanly. */}
-      {verse && (
-        <View style={styles.offscreenAbove} pointerEvents="none">
-          <ScriptureShareCard
-            ref={shareCardRef}
-            verse={verse.verse}
-            reference={verse.reference}
-            template={shareTemplate}
-          />
-        </View>
-      )}
     </ScreenBackground>
   );
 }
