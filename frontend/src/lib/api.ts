@@ -119,16 +119,16 @@ export const api = {
   dailyVerse: () =>
     request<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string }>("/daily-verse"),
 
-  reactToVerse: (verse_id: string, emoji: string) =>
-    request<{ verse_id: string; emoji: string; count: number }>("/react-to-verse", {
+  reactToVerse: (verse_id: string, reaction: string) =>
+    request<{ verse_id: string; reaction: string; count: number }>("/react-to-verse", {
       method: "POST",
-      body: JSON.stringify({ verse_id, emoji }),
+      body: JSON.stringify({ verse_id, reaction }),
     }),
 
   getReactionCounts: (verse_id: string) =>
     request<{ verse_id: string; counts: Record<string, number> }>(`/get-reaction-counts?verse_id=${encodeURIComponent(verse_id)}`),
 
-  theologicalQuestion: (question: string, verse: string, style: "Devotional" | "Theologian" | "Pastoral") =>
+  theologicalQuestion: (question: string, verse: string, style: "Devotional" | "Theologian") =>
     request<{ response: string; style: string }>("/theological-question", {
       method: "POST",
       body: JSON.stringify({ question, verse, style }),

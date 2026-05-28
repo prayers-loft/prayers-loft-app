@@ -24,7 +24,8 @@ db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 AI_PROVIDER = "anthropic"
-AI_MODEL = "claude-sonnet-4-5-20250929"
+# Switched to Haiku 4.5 for faster responses (1-3s vs 5-8s on Sonnet) while keeping high quality.
+AI_MODEL = "claude-haiku-4-5-20251001"
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -65,12 +66,12 @@ class PrayerFollowUp(BaseModel):
 class TheologicalQuestion(BaseModel):
     question: str
     verse: str
-    style: Literal["Devotional", "Theologian", "Pastoral"]
+    style: Literal["Devotional", "Theologian"]
 
 
 class ReactionRequest(BaseModel):
     verse_id: str
-    emoji: str
+    reaction: str
 
 
 class ReflectionCreate(BaseModel):
@@ -85,22 +86,25 @@ class ReflectionUpdate(BaseModel):
 
 
 # ---------- Daily verse rotation ----------
+# NLT (New Living Translation) verses with Bible.com NLT version id (116) for citation links.
 DAILY_VERSES = [
-    {"reference": "Psalm 23:1", "verse": "The Lord is my shepherd; I shall not want.", "book": "PSA", "chapter": 23, "verse_num": 1},
-    {"reference": "Jeremiah 29:11", "verse": "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.", "book": "JER", "chapter": 29, "verse_num": 11},
-    {"reference": "Philippians 4:6-7", "verse": "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.", "book": "PHP", "chapter": 4, "verse_num": 6},
-    {"reference": "Isaiah 41:10", "verse": "So do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you; I will uphold you with my righteous right hand.", "book": "ISA", "chapter": 41, "verse_num": 10},
-    {"reference": "Romans 8:28", "verse": "And we know that in all things God works for the good of those who love him, who have been called according to his purpose.", "book": "ROM", "chapter": 8, "verse_num": 28},
-    {"reference": "Proverbs 3:5-6", "verse": "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.", "book": "PRO", "chapter": 3, "verse_num": 5},
-    {"reference": "Matthew 11:28", "verse": "Come to me, all you who are weary and burdened, and I will give you rest.", "book": "MAT", "chapter": 11, "verse_num": 28},
-    {"reference": "Psalm 46:10", "verse": "Be still, and know that I am God.", "book": "PSA", "chapter": 46, "verse_num": 10},
-    {"reference": "2 Corinthians 12:9", "verse": "But he said to me, 'My grace is sufficient for you, for my power is made perfect in weakness.'", "book": "2CO", "chapter": 12, "verse_num": 9},
-    {"reference": "John 14:27", "verse": "Peace I leave with you; my peace I give you. I do not give to you as the world gives. Do not let your hearts be troubled and do not be afraid.", "book": "JHN", "chapter": 14, "verse_num": 27},
-    {"reference": "Romans 12:12", "verse": "Be joyful in hope, patient in affliction, faithful in prayer.", "book": "ROM", "chapter": 12, "verse_num": 12},
-    {"reference": "Lamentations 3:22-23", "verse": "Because of the Lord's great love we are not consumed, for his compassions never fail. They are new every morning; great is your faithfulness.", "book": "LAM", "chapter": 3, "verse_num": 22},
-    {"reference": "Psalm 34:18", "verse": "The Lord is close to the brokenhearted and saves those who are crushed in spirit.", "book": "PSA", "chapter": 34, "verse_num": 18},
-    {"reference": "Joshua 1:9", "verse": "Have I not commanded you? Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.", "book": "JOS", "chapter": 1, "verse_num": 9},
+    {"reference": "Psalm 23:1", "verse": "The Lord is my shepherd; I have all that I need.", "book": "PSA", "chapter": 23, "verse_num": 1},
+    {"reference": "Jeremiah 29:11", "verse": "'For I know the plans I have for you,' says the Lord. 'They are plans for good and not for disaster, to give you a future and a hope.'", "book": "JER", "chapter": 29, "verse_num": 11},
+    {"reference": "Philippians 4:6-7", "verse": "Don't worry about anything; instead, pray about everything. Tell God what you need, and thank him for all he has done. Then you will experience God's peace, which exceeds anything we can understand. His peace will guard your hearts and minds as you live in Christ Jesus.", "book": "PHP", "chapter": 4, "verse_num": 6},
+    {"reference": "Isaiah 41:10", "verse": "Don't be afraid, for I am with you. Don't be discouraged, for I am your God. I will strengthen you and help you. I will hold you up with my victorious right hand.", "book": "ISA", "chapter": 41, "verse_num": 10},
+    {"reference": "Romans 8:28", "verse": "And we know that God causes everything to work together for the good of those who love God and are called according to his purpose for them.", "book": "ROM", "chapter": 8, "verse_num": 28},
+    {"reference": "Proverbs 3:5-6", "verse": "Trust in the Lord with all your heart; do not depend on your own understanding. Seek his will in all you do, and he will show you which path to take.", "book": "PRO", "chapter": 3, "verse_num": 5},
+    {"reference": "Matthew 11:28", "verse": "Then Jesus said, 'Come to me, all of you who are weary and carry heavy burdens, and I will give you rest.'", "book": "MAT", "chapter": 11, "verse_num": 28},
+    {"reference": "Psalm 46:10", "verse": "'Be still, and know that I am God! I will be honored by every nation. I will be honored throughout the world.'", "book": "PSA", "chapter": 46, "verse_num": 10},
+    {"reference": "2 Corinthians 12:9", "verse": "Each time he said, 'My grace is all you need. My power works best in weakness.' So now I am glad to boast about my weaknesses, so that the power of Christ can work through me.", "book": "2CO", "chapter": 12, "verse_num": 9},
+    {"reference": "John 14:27", "verse": "I am leaving you with a gift, peace of mind and heart. And the peace I give is a gift the world cannot give. So don't be troubled or afraid.", "book": "JHN", "chapter": 14, "verse_num": 27},
+    {"reference": "Romans 12:12", "verse": "Rejoice in our confident hope. Be patient in trouble, and keep on praying.", "book": "ROM", "chapter": 12, "verse_num": 12},
+    {"reference": "Lamentations 3:22-23", "verse": "The faithful love of the Lord never ends! His mercies never cease. Great is his faithfulness; his mercies begin afresh each morning.", "book": "LAM", "chapter": 3, "verse_num": 22},
+    {"reference": "Psalm 34:18", "verse": "The Lord is close to the brokenhearted; he rescues those whose spirits are crushed.", "book": "PSA", "chapter": 34, "verse_num": 18},
+    {"reference": "Joshua 1:9", "verse": "This is my command, be strong and courageous! Do not be afraid or discouraged. For the Lord your God is with you wherever you go.", "book": "JOS", "chapter": 1, "verse_num": 9},
 ]
+# NLT Bible.com version id used for citation links.
+BIBLE_VERSION_ID = 116
 
 
 def get_verse_for_today():
@@ -116,14 +120,15 @@ PRAYER_REQUEST_SYSTEM = """You are a warm, spiritually grounded companion in the
 
 1. A brief, empathetic opening acknowledging their feelings (1 to 2 sentences, warm like a trusted elder, never clinical).
 2. Identify ONE relevant biblical character or figure who experienced something similar. Use this opening: "This reminds me of [Name]..." then share a 2 to 3 sentence reflection on how their story speaks to this situation.
-3. Cite ONE specific Bible verse on its own line, formatted exactly as: VERSE: "<verse text>" (<Book Chapter:Verse>)
-   Use a real verse. Use standard references like "Psalm 23:1", "Jeremiah 29:11", "Philippians 4:6-7".
+3. Cite ONE specific Bible verse (NLT - New Living Translation) on its own line, formatted exactly as: VERSE: "<verse text>" (<Book Chapter:Verse>)
+   Use the real NLT text. Use standard references like "Psalm 23:1", "Jeremiah 29:11", "Philippians 4:6-7".
 4. End with this exact question on its own line: "Would you like me to pray with you about this?"
 
 CRITICAL STYLE RULES:
 - DO NOT use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or "and" instead.
 - Write like a real person speaking softly to a friend. Avoid clinical phrasing, lists, bullets, headers, or markdown.
-- Keep the tone warm, intimate, and non preachy. Plain flowing prose only."""
+- Keep the tone warm, intimate, and non preachy. Plain flowing prose only.
+- Keep it brief: total response under 120 words."""
 
 PRAYER_FOLLOWUP_SYSTEM = """You are crafting a personal prayer for the user in the Prayers Loft app. Based on their request, write a short, beautifully written, Jesus centered prayer in the FIRST PERSON (the user is praying, not you).
 
@@ -133,12 +138,13 @@ Requirements:
 - Speak as the user would, with vulnerability and trust.
 - End with "In Jesus' name, Amen." on its own final line.
 - No commentary, no headers, only the prayer itself.
+- Keep it concise: under 80 words total.
 
 CRITICAL STYLE RULES:
 - DO NOT use em dashes (—) or en dashes (–). Use commas, periods, or natural sentence breaks instead.
 - Tone: tender, sincere, like a quiet whisper from the heart. Sound human, never robotic."""
 
-DEVOTIONAL_SYSTEM = """You are writing a brief daily devotional for the Prayers Loft app. The user will give you a Bible verse and reference. Write a warm, reflective devotional in 2 to 3 short paragraphs (about 100 to 150 words total).
+DEVOTIONAL_SYSTEM = """You are writing a brief daily devotional for the Prayers Loft app. The user will give you a Bible verse (NLT) and reference. Write a warm, reflective devotional in 2 short paragraphs (about 80 to 120 words total).
 
 Tone: feels like a quiet morning conversation with a trusted friend, not a sermon. Spiritually grounded, intimate, non preachy. No headers, no bullets, just flowing prose. Speak directly to the reader using "you".
 
@@ -147,19 +153,20 @@ CRITICAL STYLE RULES:
 - Write like a human, never like an AI. Avoid hedging phrases and clinical tone."""
 
 THEOLOGICAL_SYSTEMS = {
-    "Devotional": "You are a warm, personal spiritual companion. Answer the user's theological question through the lens of the given Bible verse in a devotional style, heartfelt and personal, like a friend sharing their faith over coffee. 2 to 3 short paragraphs. Avoid jargon. No headers. CRITICAL: do not use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or natural pauses instead. Sound human.",
-    "Theologian": "You are a thoughtful Christian theologian. Answer the user's question through the lens of the given Bible verse with scholarly depth, referencing original languages, historical context, and theological tradition where helpful. Stay clear and accessible. 2 to 3 paragraphs. No headers. CRITICAL: do not use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or natural pauses instead. Sound like a real teacher, not an AI.",
-    "Pastoral": "You are a gentle pastoral counselor. Answer the user's question through the lens of the given Bible verse with the tone of a wise pastor, empathetic, gentle, focused on the heart of the reader. Offer comfort and practical spiritual encouragement. 2 to 3 short paragraphs. No headers. CRITICAL: do not use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or natural pauses instead. Sound warm and human.",
+    "Devotional": "You are a warm, personal spiritual companion. Answer the user's theological question through the lens of the given Bible verse (NLT) in a devotional style, heartfelt and personal, like a friend sharing their faith over coffee. 2 short paragraphs, under 120 words total. Avoid jargon. No headers. CRITICAL: do not use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or natural pauses instead. Sound human.",
+    "Theologian": "You are a thoughtful Christian theologian. Answer the user's question through the lens of the given Bible verse (NLT) with scholarly depth, referencing original languages, historical context, and theological tradition where helpful. Stay clear and accessible. 2 paragraphs, under 140 words total. No headers. CRITICAL: do not use em dashes (—) or en dashes (–) anywhere in your response. Use commas, periods, or natural pauses instead. Sound like a real teacher, not an AI.",
 }
 
 
 def soften_text(text: str) -> str:
-    """Replace em/en dashes with natural punctuation so AI output feels human."""
+    """Replace em/en dashes and markdown headers so AI output feels human."""
     if not text:
         return text
+    # Strip leading markdown headers like "# Title" or "## Title".
+    text = re.sub(r"^\s*#{1,6}\s.+?(?:\n|$)", "", text, count=1, flags=re.MULTILINE)
     # Em/en dashes between spaces become a comma + space.
     text = re.sub(r"\s*[—–]\s*", ", ", text)
-    return text
+    return text.strip()
 
 
 # ---------- Routes ----------
@@ -214,31 +221,34 @@ async def daily_verse():
         "verse": v["verse"],
         "reference": v["reference"],
         "verse_id": v["verse_id"],
-        "bible_link": f"https://www.bible.com/bible/1/{v['book']}.{v['chapter']}.{v['verse_num']}",
+        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
         "devotional": devotional,
     }
 
 
+VALID_REACTIONS = {"pray", "love", "fire", "insight"}
+
+
 @api_router.post("/react-to-verse")
 async def react_to_verse(payload: ReactionRequest):
-    if payload.emoji not in {"🙏", "❤️", "🔥", "💡"}:
-        raise HTTPException(status_code=400, detail="Invalid emoji")
+    if payload.reaction not in VALID_REACTIONS:
+        raise HTTPException(status_code=400, detail="Invalid reaction")
     await db.reactions.update_one(
-        {"verse_id": payload.verse_id, "emoji": payload.emoji},
+        {"verse_id": payload.verse_id, "reaction": payload.reaction},
         {"$inc": {"count": 1}, "$set": {"updated_at": now_iso()}},
         upsert=True,
     )
-    doc = await db.reactions.find_one({"verse_id": payload.verse_id, "emoji": payload.emoji}, {"_id": 0})
-    return {"verse_id": payload.verse_id, "emoji": payload.emoji, "count": doc.get("count", 1) if doc else 1}
+    doc = await db.reactions.find_one({"verse_id": payload.verse_id, "reaction": payload.reaction}, {"_id": 0})
+    return {"verse_id": payload.verse_id, "reaction": payload.reaction, "count": doc.get("count", 1) if doc else 1}
 
 
 @api_router.get("/get-reaction-counts")
 async def get_reaction_counts(verse_id: str):
-    counts = {"🙏": 0, "❤️": 0, "🔥": 0, "💡": 0}
-    cursor = db.reactions.find({"verse_id": verse_id}, {"_id": 0, "emoji": 1, "count": 1})
+    counts = {r: 0 for r in VALID_REACTIONS}
+    cursor = db.reactions.find({"verse_id": verse_id}, {"_id": 0, "reaction": 1, "count": 1})
     async for doc in cursor:
-        if doc["emoji"] in counts:
-            counts[doc["emoji"]] = doc["count"]
+        if doc.get("reaction") in counts:
+            counts[doc["reaction"]] = doc["count"]
     return {"verse_id": verse_id, "counts": counts}
 
 

@@ -1,4 +1,4 @@
-// Bottom tab navigation for Prayers Loft.
+// Bottom tab navigation for Prayers Loft. Contemporary icon-based design.
 import { Tabs } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,10 +7,10 @@ import { colors, fonts } from "@/src/theme/theme";
 
 type TabKey = "prayer" | "scripture" | "reflections";
 
-const TAB_META: Record<TabKey, { label: string; icon: keyof typeof Ionicons.glyphMap; emoji: string }> = {
-  prayer: { label: "Prayer", icon: "leaf-outline", emoji: "🕊️" },
-  scripture: { label: "Scripture", icon: "book-outline", emoji: "📖" },
-  reflections: { label: "Reflections", icon: "journal-outline", emoji: "📓" },
+const TAB_META: Record<TabKey, { label: string; icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap }> = {
+  prayer: { label: "Prayer", icon: "leaf-outline", iconFocused: "leaf" },
+  scripture: { label: "Scripture", icon: "book-outline", iconFocused: "book" },
+  reflections: { label: "Reflections", icon: "journal-outline", iconFocused: "journal" },
 };
 
 export default function TabsLayout() {
@@ -50,9 +50,14 @@ function CustomTabBar(props: any) {
             accessibilityRole="button"
             accessibilityState={focused ? { selected: true } : {}}
           >
-            <Text style={[styles.emoji, focused && styles.emojiFocused]}>{meta.emoji}</Text>
+            <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
+              <Ionicons
+                name={focused ? meta.iconFocused : meta.icon}
+                size={20}
+                color={focused ? colors.gold : colors.textSecondary}
+              />
+            </View>
             <Text style={[styles.label, focused && styles.labelFocused]}>{meta.label}</Text>
-            {focused && <View style={styles.dot} />}
           </Pressable>
         );
       })}
@@ -69,10 +74,17 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingHorizontal: 12,
   },
-  tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 6, gap: 4 },
-  emoji: { fontSize: 22, opacity: 0.45 },
-  emojiFocused: { opacity: 1, transform: [{ scale: 1.08 }] },
-  label: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textMuted, letterSpacing: 0.4 },
+  tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4, gap: 4 },
+  iconWrap: {
+    width: 40,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  iconWrapFocused: {
+    backgroundColor: "rgba(201,168,76,0.12)",
+  },
+  label: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textMuted, letterSpacing: 0.3 },
   labelFocused: { color: colors.gold, fontFamily: fonts.sansSemibold },
-  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.gold, marginTop: 2 },
 });

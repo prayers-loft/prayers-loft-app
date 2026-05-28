@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
@@ -407,12 +408,18 @@ function StreakCard({
   return (
     <View style={styles.streakCard} testID="streak-card">
       <View style={styles.streakHeader}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.streakLabel}>Your Streak</Text>
           <Text style={styles.streakHeadline}>{headline}</Text>
           <Text style={styles.streakSub}>{subline}</Text>
         </View>
-        <Text style={styles.streakFlame}>{streak >= 3 ? "🔥" : "🕯️"}</Text>
+        <View style={styles.streakIconWrap}>
+          <Ionicons
+            name={streak >= 3 ? "flame" : "leaf-outline"}
+            size={26}
+            color={streak >= 3 ? colors.gold : colors.textSecondary}
+          />
+        </View>
       </View>
       <View style={styles.streakRow} testID="streak-row">
         {days.map((d) => {
@@ -443,26 +450,27 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingBottom: 64, gap: 14 },
   eyebrow: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 8 },
   promptCard: {
-    backgroundColor: colors.glassBg,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderColor: colors.glassBorder,
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 18,
     padding: 20,
-    gap: 6,
+    gap: 8,
   },
   promptLabel: { fontFamily: fonts.sansSemibold, fontSize: 10, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase" },
-  promptText: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.ivory, fontSize: 18, lineHeight: 26 },
+  promptText: { fontFamily: fonts.serif, color: colors.ivory, fontSize: 17, lineHeight: 25 },
   input: {
-    backgroundColor: colors.glassBg,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderColor: colors.glassBorder,
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 18,
     padding: 18,
     color: colors.ivory,
-    fontFamily: fonts.serif,
-    fontSize: 17,
+    fontFamily: fonts.sans,
+    fontSize: 16,
     minHeight: 130,
     textAlignVertical: "top",
+    lineHeight: 24,
   },
   chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
@@ -474,30 +482,30 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: fonts.sansSemibold, fontSize: 13 },
   saveBtn: {
     backgroundColor: colors.gold,
-    borderRadius: 999,
+    borderRadius: 14,
     paddingVertical: 15,
     alignItems: "center",
     marginTop: 4,
   },
-  saveBtnDisabled: { opacity: 0.4 },
+  saveBtnDisabled: { opacity: 0.35 },
   saveBtnText: { fontFamily: fonts.sansBold, color: colors.bgTop, fontSize: 15, letterSpacing: 0.3 },
   cancelLink: { alignItems: "center", paddingVertical: 6 },
   cancelLinkText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.textSecondary },
   sectionLabel: { fontFamily: fonts.sansSemibold, fontSize: 11, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginTop: 16 },
   emptyCard: {
-    backgroundColor: colors.glassBg,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderColor: colors.glassBorder,
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 18,
     padding: 28,
     alignItems: "center",
   },
-  emptyText: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.textSecondary, fontSize: 15 },
+  emptyText: { fontFamily: fonts.serif, color: colors.textSecondary, fontSize: 15 },
   entryCard: {
-    backgroundColor: colors.glassBg,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderColor: colors.glassBorder,
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 18,
     gap: 10,
   },
@@ -509,23 +517,30 @@ const styles = StyleSheet.create({
   prayerTagText: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.gold },
   entryDate: { fontFamily: fonts.sans, fontSize: 12, color: colors.textMuted },
   entryText: { fontFamily: fonts.serif, color: colors.ivory, fontSize: 15, lineHeight: 22 },
-  entryRequest: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
+  entryRequest: { fontFamily: fonts.sans, color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
   entryPrayer: { fontFamily: fonts.serifItalic, fontStyle: "italic", color: colors.ivory, fontSize: 15, lineHeight: 22 },
   entryRef: { fontFamily: fonts.sansSemibold, fontSize: 12, color: colors.gold },
   showMore: { fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.gold, marginTop: 4 },
   streakCard: {
-    backgroundColor: colors.glassBg,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderColor: "rgba(201,168,76,0.25)",
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 18,
     padding: 18,
     gap: 14,
   },
   streakHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
   streakLabel: { fontFamily: fonts.sansSemibold, fontSize: 10, letterSpacing: 2.5, color: colors.gold, textTransform: "uppercase", marginBottom: 4 },
-  streakHeadline: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.ivory, lineHeight: 28 },
-  streakSub: { fontFamily: fonts.serifItalic, fontStyle: "italic", fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  streakFlame: { fontSize: 30 },
+  streakHeadline: { fontFamily: fonts.sansBold, fontSize: 22, color: colors.ivory, lineHeight: 28, letterSpacing: -0.3 },
+  streakSub: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  streakIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(201,168,76,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   streakRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
   streakCell: { alignItems: "center", gap: 6, flex: 1 },
   streakDot: {
@@ -536,7 +551,6 @@ const styles = StyleSheet.create({
   },
   streakDotActive: {
     backgroundColor: colors.gold,
-    boxShadow: "0 0 6px rgba(201,168,76,0.6)",
   },
   streakDotToday: {
     borderWidth: 1.5,
