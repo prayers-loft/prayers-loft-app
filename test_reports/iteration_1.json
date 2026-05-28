@@ -1,0 +1,46 @@
+{
+  "summary": "First testing iteration for Prayers Loft (Expo RN + FastAPI + MongoDB). Backend: 19/19 pytest tests PASS (root, prayer-request with VERSE/closing question, prayer-follow-up ending with 'In Jesus name, Amen.', daily-verse w/ devotional+bible_link+verse_id, react-to-verse increment + invalid emoji 400, get-reaction-counts aggregation, theological-question for all 3 styles + invalid style 422, reflections full CRUD with _id correctly excluded, 404s on missing IDs, 400 on empty text/consent). Frontend (mobile viewport 390x844): App loads at /, redirects to /prayer, header shows 'Prayers Loft' brand + ambient toggle, bottom tab bar present. Prayer flow works end-to-end: typed request -> Begin -> reflection card with VERSE block + bible link + 'Yes, Pray With Me' -> prayer card with Amen overlay animation -> Save persists ('Saved ✓') and Share button present. Scripture tab: rotating banner, verse card with bible_link, all 4 emoji reactions tap and increment counts in real time (verified 🙏 0->1, 🔥 0->1), devotional card, theological Q&A with 3 style pills returned answer for Pastoral style. Reflections tab: daily prompt visible, can type entry + tap emotion chip + Save -> entry card appears with chip + date + Edit/Delete, and previously Saved prayer from Prayer tab appears tagged with 🕊️ 'Saved prayer'. Deprecated packages detected: expo-audio version mismatch (56.0.11 vs expected ~1.1.1) and react-native-keyboard-controller 1.18.6 vs expected 1.18.5 reported by Expo doctor in logs. Deprecation warnings in console: 'shadow*' and 'textShadow*' style props deprecated (use boxShadow/textShadow), and 'props.pointerEvents is deprecated' on amen-overlay.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "package: expo-audio", "issue": "expo-audio@56.0.11 is installed but Expo expects ~1.1.1 — this looks like a wrong/major-version mismatch flagged in /var/log/supervisor/expo.err.log. Verify the correct version for current Expo SDK and align via yarn. Reference: /app/frontend/package.json"},
+      {"component": "package: react-native-keyboard-controller", "issue": "Version 1.18.6 installed; Expo expects 1.18.5. Pin to 1.18.5 for compatibility. Reference: /app/frontend/package.json"},
+      {"component": "StyleSheet shadow props", "issue": "Console warns 'shadow*' style props are deprecated; use boxShadow on web/RN 0.79+. Multiple cards use shadowColor/shadowOpacity/shadowRadius/shadowOffset (prayerCard, reflectionCard, primaryBtn). Reference: /app/frontend/app/(tabs)/prayer.tsx:283-318, similar in scripture/reflections styles."},
+      {"component": "StyleSheet textShadow props", "issue": "Console warns 'textShadow*' style props are deprecated; use textShadow. Reference: /app/frontend/app/(tabs)/prayer.tsx:357-363 (amenText)."},
+      {"component": "Animated.View pointerEvents prop", "issue": "Console warns 'props.pointerEvents is deprecated. Use style.pointerEvents'. Move pointerEvents into style. Reference: /app/frontend/app/(tabs)/prayer.tsx:217-220 (amen-overlay)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prayers_loft_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Align expo-audio to the version Expo SDK expects (~1.1.1) via yarn; current 56.0.11 looks incorrect and may cause runtime failures on native builds.",
+    "Pin react-native-keyboard-controller to 1.18.5 to match Expo SDK expectation.",
+    "Migrate StyleSheet shadow* props to boxShadow and textShadow* to textShadow (RN 0.79+/web) across prayer.tsx, scripture.tsx, reflections.tsx to silence deprecation warnings.",
+    "Move pointerEvents='none' from the Animated.View prop into its style object for the amen-overlay in prayer.tsx."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 302 lines, well-organized — no DRY violation. AI errors return 500 with detail string from upstream which leaks raw exception text; consider returning a generic message and only logging the detail server-side.",
+    "All routes validate via Pydantic; reactions filtered to allowed emoji set. Reflections endpoints correctly project away _id ({'_id': 0}) — verified in tests no _id leaks.",
+    "Frontend api client correctly uses process.env.EXPO_PUBLIC_BACKEND_URL (no hardcoded URLs).",
+    "Frontend handles loading/error states (loading flags + try/catch) but errors are swallowed with console.warn only — no user-visible error toast/snackbar for failed AI calls. Consider adding an inline error UI."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prayers_loft_api.py (new)",
+    "/app/test_reports/iteration_1.json (new)",
+    "/app/test_reports/pytest/pytest_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% on tested critical flows (prayer flow, reactions, theological Q&A, reflections create, navigation, Save persistence)"},
+  "seed_data_creation": "Tests create transient reflections prefixed with TEST_ and delete them in the same test class. A TEST_E2E reflection entry was created via UI and deleted via UI delete button. Reactions for verse_id starting with 'TST.' use random UUIDs and are not cleaned up but do not collide with the real daily verse_id.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend public base URL: https://prayers-loft.preview.emergentagent.com. Run: pytest /app/backend/tests/test_prayers_loft_api.py -v (uses EXPO_PUBLIC_BACKEND_URL). Frontend testIDs are comprehensive — see scripture.tsx, prayer.tsx, reflections.tsx for the full list. Amen overlay testID: amen-overlay. Theological answer testID: qa-response (NOT theological-answer). Reflections entry card testID pattern: reflection-card-<uuid>; delete: delete-reflection-<uuid>. Saved prayer card from Prayer tab on Reflections screen: prayer-saved-card-<uuid> / delete-prayer-<uuid>.",
+  "rca_of_issue": "No bugs reproduced. Only deprecation warnings and one suspicious package version (expo-audio 56.0.11) reported as action items for the main agent."
+}
