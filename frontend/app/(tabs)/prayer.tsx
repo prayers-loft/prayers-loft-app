@@ -113,45 +113,17 @@ export default function PrayerScreen() {
 
   const handleShare = async () => {
     if (!prayer || sharing) return;
-    const textFallback = `A Prayer For You\n\n${prayer}\n\nfrom Prayers Loft`;
+    const verseLine = reflection?.verseReference ? `\n${reflection.verseReference}\n` : "\n";
+    const text = `A Prayer For You\n\n${prayer}${verseLine}\nfrom Prayers Loft`;
     setSharing(true);
     try {
-      // Let the off-screen image card mount, then capture.
-      await new Promise((r) => setTimeout(r, 80));
-      const uri = await captureRef(shareCardRef, {
-        format: "png",
-        quality: 1,
-        result: Platform.OS === "web" ? "data-uri" : "tmpfile",
-        width: PRAYER_CARD_WIDTH,
-        height: PRAYER_CARD_HEIGHT,
-      });
-      if (Platform.OS === "web") {
-        try {
-          const a = document.createElement("a");
-          a.href = uri;
-          a.download = "prayers-loft.png";
-          a.click();
-        } catch {
-          await Clipboard.setStringAsync(textFallback);
-        }
-        return;
-      }
-      const available = await Sharing.isAvailableAsync();
-      if (available) {
-        await Sharing.shareAsync(uri, {
-          mimeType: "image/png",
-          dialogTitle: "A Prayer For You",
-          UTI: "public.png",
-        });
-      } else {
-        await Share.share({ message: textFallback, title: "A Prayer For You" });
-      }
+      await Share.share({ message: text, title: "A Prayer For You" });
     } catch (e) {
-      console.warn("share image failed, falling back to text", e);
+      console.warn("share failed", e);
       try {
-        await Share.share({ message: textFallback, title: "A Prayer For You" });
+        await Clipboard.setStringAsync(text);
       } catch {
-        await Clipboard.setStringAsync(textFallback);
+        // ignore
       }
     } finally {
       setSharing(false);
@@ -276,8 +248,8 @@ export default function PrayerScreen() {
         </Animated.View>
       )}
 
-      {/* Off-screen shareable image card. Rendered only when a prayer exists. */}
-      {!!prayer && (
+      {/* Off-screen shareable image card kept available for future use. */}
+      {false && !!prayer && (
         <View style={styles.offscreen} pointerEvents="none">
           <PrayerImageCard ref={shareCardRef} prayer={prayer} verseReference={reflection?.verseReference} />
         </View>
