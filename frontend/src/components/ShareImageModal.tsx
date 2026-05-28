@@ -295,7 +295,6 @@ export function ShareImageModal({
         ScrollView. `pointerEvents="none"` keeps it inert.
       */}
       <View
-        pointerEvents="none"
         style={{
           position: "absolute",
           left: -99999,
@@ -303,6 +302,7 @@ export function ShareImageModal({
           width: dims.width,
           height: dims.height,
           opacity: 0.99, // Keep non-zero so view-shot doesn't think it's hidden.
+          pointerEvents: "none",
         }}
       >
         <View ref={captureRefView} collapsable={false} style={{ width: dims.width, height: dims.height }}>

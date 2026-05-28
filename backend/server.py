@@ -381,9 +381,9 @@ async def share_excerpt(payload: ShareExcerptRequest):
         return {"excerpt": excerpt, "cached": False}
     except Exception as e:
         logger.exception("share-excerpt failed")
-        # Soft fallback so client UX never breaks.
+        # Soft fallback so client UX never breaks. Do not leak internal error.
         excerpt = (text[:277] + "...") if len(text) > 280 else text
-        return {"excerpt": excerpt, "cached": False, "fallback": True, "error": str(e)}
+        return {"excerpt": excerpt, "cached": False, "fallback": True}
 
 
 @api_router.post("/reflections")
