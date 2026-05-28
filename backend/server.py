@@ -42,12 +42,17 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def ai_chat(system_message: str, user_text: str, session_id: Optional[str] = None) -> str:
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=session_id or str(uuid.uuid4()),
-        system_message=system_message,
-    ).with_model(AI_PROVIDER, AI_MODEL)
+async def ai_chat(system_message: str, user_text: str, session_id: Optional[str] = None, max_tokens: int = 320) -> str:
+    chat = (
+        LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=session_id or str(uuid.uuid4()),
+            system_message=system_message,
+        )
+        .with_model(AI_PROVIDER, AI_MODEL)
+        # Cap output length and lower temperature for faster, tighter responses.
+        .with_params(max_tokens=max_tokens, temperature=0.7)
+    )
     msg = UserMessage(text=user_text)
     response = await chat.send_message(msg)
     return response if isinstance(response, str) else str(response)
@@ -180,7 +185,7 @@ async def prayer_request(payload: PrayerRequest):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     try:
-        response = await ai_chat(PRAYER_REQUEST_SYSTEM, payload.message.strip())
+        response = await ai_chat(PRAYER_REQUEST_SYSTEM, payload.message.strip(), max_tokens=350)
         return {"response": soften_text(response)}
     except Exception as e:
         logger.exception("prayer-request failed")
@@ -192,7 +197,7 @@ async def prayer_follow_up(payload: PrayerFollowUp):
     if not payload.consent:
         raise HTTPException(status_code=400, detail="Consent required")
     try:
-        prayer = await ai_chat(PRAYER_FOLLOWUP_SYSTEM, payload.message.strip())
+        prayer = await ai_chat(PRAYER_FOLLOWUP_SYSTEM, payload.message.strip(), max_tokens=220)
         return {"prayer": soften_text(prayer)}
     except Exception as e:
         logger.exception("prayer-follow-up failed")
@@ -211,6 +216,7 @@ async def daily_verse():
             devotional = await ai_chat(
                 DEVOTIONAL_SYSTEM,
                 f"Verse: \"{v['verse']}\" ({v['reference']})",
+                max_tokens=280,
             )
             devotional = soften_text(devotional)
             await db.devotional_cache.insert_one({"_id": cache_key, "devotional": devotional, "created_at": now_iso()})

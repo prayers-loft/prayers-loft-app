@@ -47,15 +47,19 @@ export default function PrayerScreen() {
   const submitReflection = async () => {
     if (!message.trim() || loading) return;
     setLoading(true);
-    // Clear any prior reflection/prayer so this feels like a fresh start.
+    // Clear any prior reflection/prayer and prefetch so this feels like a fresh start.
     setReflection(null);
     setPrayer("");
     setSaved(false);
+    prefetchedPrayerRef.current = null;
+    const msg = message.trim();
     try {
-      const res = await api.prayerRequest(message.trim());
+      const res = await api.prayerRequest(msg);
       const parsed = parsePrayerReflection(res.response);
       setReflection(parsed);
       setStage("reflection");
+      // Kick off the prayer follow-up in the background while the user reads.
+      startPrefetch(msg);
     } catch (e) {
       console.warn("prayer request failed", e);
     } finally {
@@ -66,9 +70,17 @@ export default function PrayerScreen() {
   const submitPrayer = async () => {
     if (loading) return;
     setLoading(true);
+    const msg = message.trim();
+    // If we don't already have a prefetch for this exact message, start one now.
+    if (!prefetchedPrayerRef.current || prefetchedPrayerRef.current.key !== msg) {
+      startPrefetch(msg);
+    }
+    const inflight = prefetchedPrayerRef.current!.promise;
     try {
-      const res = await api.prayerFollowUp(message.trim());
-      setPrayer(res.prayer);
+      const result = await inflight;
+      // If prefetch failed (empty), retry once directly.
+      const finalPrayer = result || (await api.prayerFollowUp(msg)).prayer;
+      setPrayer(finalPrayer);
       setStage("prayer");
       // Trigger Amen animation
       setShowAmen(true);
@@ -95,6 +107,7 @@ export default function PrayerScreen() {
     setPrayer("");
     setSaved(false);
     setStage("idle");
+    prefetchedPrayerRef.current = null;
   };
 
   const handleSave = async () => {
