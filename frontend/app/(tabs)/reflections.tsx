@@ -365,7 +365,17 @@ function ReflectionCard({ entry, onEdit, onDelete }: { entry: { id: string; text
   );
 }
 
-function PrayerEntryCard({ entry, onDelete }: { entry: { id: string; text: string; prayer: string; created_at: string; verseReference?: string }; onDelete: () => void }) {
+function PrayerEntryCard({
+  entry,
+  onDelete,
+  onShare,
+  sharing,
+}: {
+  entry: { id: string; text: string; prayer: string; created_at: string; verseReference?: string };
+  onDelete: () => void;
+  onShare: () => void;
+  sharing?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isLong = entry.prayer.length > 220 || (entry.prayer.match(/\n/g)?.length ?? 0) >= 5;
   return (
@@ -386,7 +396,25 @@ function PrayerEntryCard({ entry, onDelete }: { entry: { id: string; text: strin
       )}
       {!!entry.verseReference && <Text style={styles.entryRef}>{entry.verseReference}</Text>}
       <View style={styles.entryActions}>
-        <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}><Text style={[styles.entryAction, styles.entryActionDanger]}>Remove</Text></Pressable>
+        <Pressable
+          onPress={onShare}
+          disabled={sharing}
+          testID={`share-prayer-${entry.id}`}
+          hitSlop={6}
+          style={styles.prayerEntryShareBtn}
+        >
+          {sharing ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <>
+              <Ionicons name="share-outline" size={13} color={colors.accent} />
+              <Text style={styles.entryAction}>Share</Text>
+            </>
+          )}
+        </Pressable>
+        <Pressable onPress={onDelete} testID={`delete-prayer-${entry.id}`}>
+          <Text style={[styles.entryAction, styles.entryActionDanger]}>Remove</Text>
+        </Pressable>
       </View>
     </View>
   );
