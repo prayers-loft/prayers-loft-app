@@ -122,6 +122,10 @@ export default function ReflectionsScreen() {
       await load();
       if (!editingId) {
         track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!emotion });
+        // Trigger #4: after 5+ saved reflections, surface the upgrade prompt once.
+        try {
+          if (entries.length + 1 >= 5) requestUpgradePrompt("five_reflections");
+        } catch {}
       }
     } catch (e) {
       console.warn("save reflection failed", e);
