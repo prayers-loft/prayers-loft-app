@@ -87,12 +87,14 @@ function TabButton({
       accessibilityLabel={meta.label}
       accessibilityState={focused ? { selected: true } : {}}
     >
-      <Animated.View style={{ transform: [{ scale }], alignItems: "center", gap: 4 }}>
-        <Ionicons
-          name={focused ? meta.iconFocused : meta.icon}
-          size={20}
-          color={focused ? colors.accent : colors.textTertiary}
-        />
+      <Animated.View style={[styles.tabInner, { transform: [{ scale }] }]}>
+        <View style={styles.iconSlot}>
+          <Ionicons
+            name={focused ? meta.iconFocused : meta.icon}
+            size={20}
+            color={focused ? colors.accent : colors.textTertiary}
+          />
+        </View>
         <Text
           style={[
             styles.label,
@@ -100,6 +102,7 @@ function TabButton({
             focused && styles.labelFocused,
           ]}
           numberOfLines={1}
+          allowFontScaling={false}
         >
           {meta.label}
         </Text>
@@ -130,13 +133,32 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 8,
   },
-  tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4 },
+  tab: { flex: 1, alignItems: "stretch", justifyContent: "center", paddingVertical: 4 },
+  tabInner: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  iconSlot: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   label: {
     fontFamily: fonts.sansMedium,
     fontSize: 9.5,
     letterSpacing: 1,
+    // The trailing letter-spacing pushes the text's bounding box wider on the
+    // right than visually balanced. Mirror that as left padding so the
+    // perceived center matches the geometric center of the column.
+    paddingLeft: 1,
     textTransform: "uppercase",
+    textAlign: "center",
+    alignSelf: "center",
     marginTop: 1,
+    includeFontPadding: false,
   },
   labelFocused: {
     fontFamily: fonts.sansSemibold,
@@ -147,5 +169,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: colors.accent,
     marginTop: 2,
+    alignSelf: "center",
   },
 });
