@@ -1,11 +1,11 @@
 // Floating glass tab bar — slim, very translucent, calm.
 import { Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/src/theme/theme";
+import { colors, fonts } from "@/src/theme/theme";
 
 type TabKey = "prayer" | "scripture" | "reflections";
 
@@ -93,6 +93,16 @@ function TabButton({
           size={20}
           color={focused ? colors.accent : colors.textTertiary}
         />
+        <Text
+          style={[
+            styles.label,
+            { color: focused ? colors.accent : colors.textTertiary },
+            focused && styles.labelFocused,
+          ]}
+          numberOfLines={1}
+        >
+          {meta.label}
+        </Text>
         <Animated.View style={[styles.dot, { opacity: dotOpacity }]} />
       </Animated.View>
     </Pressable>
@@ -121,10 +131,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4 },
+  label: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10.5,
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    marginTop: 1,
+  },
+  labelFocused: {
+    fontFamily: fonts.sansSemibold,
+  },
   dot: {
     width: 4,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.accent,
+    marginTop: 2,
   },
 });
