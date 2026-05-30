@@ -133,8 +133,8 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4 },
   label: {
     fontFamily: fonts.sansMedium,
-    fontSize: 10.5,
-    letterSpacing: 1.4,
+    fontSize: 9.5,
+    letterSpacing: 1,
     textTransform: "uppercase",
     marginTop: 1,
   },

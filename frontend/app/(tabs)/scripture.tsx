@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
   hero: { marginTop: 18, marginBottom: 6 },
   eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
-  title: { fontFamily: fonts.sansSemibold, fontSize: 30, color: colors.text, letterSpacing: -0.5, lineHeight: 38 },
+  title: { fontFamily: fonts.sansSemibold, fontSize: 24, color: colors.text, letterSpacing: -0.4, lineHeight: 30 },
   dateLine: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 10 },
   banner: { paddingVertical: 10, alignItems: "center" },
   bannerText: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 13, textAlign: "center", letterSpacing: 0.2 },

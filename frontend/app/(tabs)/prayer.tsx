@@ -317,8 +317,8 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 160, gap: 22 },
   hero: { marginTop: 18, marginBottom: 22 },
   eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
-  title: { fontFamily: fonts.sansSemibold, fontSize: 32, color: colors.text, letterSpacing: -0.6, lineHeight: 40 },
-  subtitle: { fontFamily: fonts.sans, fontSize: 15, color: colors.textSecondary, marginTop: 10, lineHeight: 23 },
+  title: { fontFamily: fonts.sansSemibold, fontSize: 26, color: colors.text, letterSpacing: -0.5, lineHeight: 32 },
+  subtitle: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 21 },
   inputWrap: {
     backgroundColor: colors.surface2,
     borderRadius: 24,
