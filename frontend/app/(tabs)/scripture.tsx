@@ -488,6 +488,23 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 10,
   },
+  devoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  devoShareBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(200,169,107,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.22)",
+    marginBottom: 10,
+  },
   devotionalCard: {
     backgroundColor: colors.surface1,
     borderRadius: 20,

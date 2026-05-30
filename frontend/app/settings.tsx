@@ -160,6 +160,8 @@ export default function SettingsScreen() {
                 onValueChange={(v) => onTogglePref("notificationsEnabled", v)}
                 trackColor={{ true: colors.accent, false: "#33405A" }}
                 thumbColor="#F8FAFC"
+                accessibilityLabel="Daily reminder"
+                accessibilityHint="A gentle nudge to pause and pray"
               />
             }
           />
@@ -181,6 +183,8 @@ export default function SettingsScreen() {
                 onValueChange={(v) => onTogglePref("ambientDefaultOn", v)}
                 trackColor={{ true: colors.accent, false: "#33405A" }}
                 thumbColor="#F8FAFC"
+                accessibilityLabel="Ambient sound on by default"
+                accessibilityHint="Soft background tones during prayer"
               />
             }
           />
@@ -214,6 +218,8 @@ export default function SettingsScreen() {
                 onValueChange={(v) => onTogglePref("analyticsOptIn", v)}
                 trackColor={{ true: colors.accent, false: "#33405A" }}
                 thumbColor="#F8FAFC"
+                accessibilityLabel="Improve Prayers Loft"
+                accessibilityHint="Share anonymous usage signals"
               />
             }
           />

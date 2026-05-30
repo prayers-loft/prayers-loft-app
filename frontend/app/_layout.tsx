@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import Head from "expo-router/head";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
@@ -47,6 +48,13 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <KeyboardProvider>
+        <Head>
+          <title>Prayers Loft</title>
+          <meta
+            name="description"
+            content="A quiet place to pray, reflect, and remember. Prayer assistant, daily scripture, and reflections — by Prayers Loft."
+          />
+        </Head>
         <StatusBar style="light" />
         <View style={{ flex: 1, backgroundColor: "#0a0e1a" }}>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0a0e1a" } }} />

@@ -19,7 +19,6 @@ let inMemory: { id: string; createdAt: string } | null = null;
 function newId(): string {
   // Crypto.randomUUID exists in expo-crypto >= 13.x.
   try {
-    // @ts-expect-error — method exists at runtime even when TS lib types lag.
     if (typeof Crypto.randomUUID === "function") return Crypto.randomUUID();
   } catch {}
   // Fallback: random hex.
