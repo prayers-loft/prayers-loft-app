@@ -1,0 +1,23 @@
+
+========================================================
+  Prayers Loft — E2E Coverage Summary
+========================================================
+  Generated: 2026-05-30T02:51:48.768Z
+
+  OVERALL: 33 passed / 0 failed  (total 33)
+
+  By user journey:
+  --------------------------------------------------------
+  ✓  Smoke (boot, nav, shell)                 3/3
+  ✓  Prayer generation                        3/3
+  ✓  Scripture / daily verse / Q&A            6/6
+  ✓  Reflections journal                      4/4
+  ✓  Share image generation + save            7/7
+  ✓  Data persistence (local storage)         3/3
+  ✓  Tab navigation                           3/3
+  ✓  Offline / degraded mode                  2/2
+  ✓  Guest mode (no auth)                     2/2
+
+  HTML report: playwright-report/index.html
+  JSON detail: coverage-summary.json
+========================================================

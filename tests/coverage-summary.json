@@ -1,0 +1,273 @@
+{
+  "generated_at": "2026-05-30T02:51:48.768Z",
+  "overall": {
+    "total": 33,
+    "passed": 33,
+    "failed": 0
+  },
+  "byJourney": [
+    {
+      "journey": "smoke",
+      "label": "Smoke (boot, nav, shell)",
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "journey": "prayer",
+      "label": "Prayer generation",
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "journey": "scripture",
+      "label": "Scripture / daily verse / Q&A",
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "journey": "reflections",
+      "label": "Reflections journal",
+      "total": 4,
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "journey": "share",
+      "label": "Share image generation + save",
+      "total": 7,
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "journey": "persistence",
+      "label": "Data persistence (local storage)",
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "journey": "navigation",
+      "label": "Tab navigation",
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "journey": "offline",
+      "label": "Offline / degraded mode",
+      "total": 2,
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "journey": "guest-mode",
+      "label": "Guest mode (no auth)",
+      "total": 2,
+      "passed": 2,
+      "failed": 0
+    }
+  ],
+  "tests": [
+    {
+      "title": "01-smoke.spec.ts > @smoke shell > cold launch reaches Prayer tab and renders shell",
+      "file": "01-smoke.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "01-smoke.spec.ts > @smoke shell > all three tabs are present and navigable",
+      "file": "01-smoke.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "01-smoke.spec.ts > @smoke shell > tab labels are present in DOM",
+      "file": "01-smoke.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "02-prayer.spec.ts > @prayer prayer assistant > generates a prayer from a user thought",
+      "file": "02-prayer.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "02-prayer.spec.ts > @prayer prayer assistant > saving a prayer reflects the disabled \"Saved\" state",
+      "file": "02-prayer.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "02-prayer.spec.ts > @prayer prayer assistant > start-over resets the prayer screen",
+      "file": "02-prayer.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > daily verse + devotional load on first navigation",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > verse rotating banner is present",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > reactions row updates count on tap",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > theological Q&A returns a Devotional response",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > switching to Theologian fetches a second response",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "03-scripture.spec.ts > @scripture scripture & q&a > reflect-on-verse CTA navigates to Reflections",
+      "file": "03-scripture.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "04-reflections.spec.ts > @reflections journal > save a reflection and confirm it appears",
+      "file": "04-reflections.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "04-reflections.spec.ts > @reflections journal > reflections persist across reload",
+      "file": "04-reflections.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "04-reflections.spec.ts > @reflections journal > streak card is present",
+      "file": "04-reflections.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "04-reflections.spec.ts > @reflections journal > empty-state shows when no reflections exist (fresh storage)",
+      "file": "04-reflections.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > scripture verse share opens the modal",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > devotional share generates a Claude excerpt and opens the modal",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > Q&A share opens the modal with the Theologian excerpt",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > aspect and template selectors switch the preview",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > Save Image (web) triggers a PNG download or completes without error",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > prayer share opens the modal with PrayerShareCard templates",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "05-share.spec.ts > @share share image flows > backdrop dismisses the share modal",
+      "file": "05-share.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "06-offline.spec.ts > @offline degraded mode > app shell still renders when /api is offline",
+      "file": "06-offline.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "06-offline.spec.ts > @offline degraded mode > prayer submission fails gracefully when /api is offline",
+      "file": "06-offline.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "07-guest-mode.spec.ts > @guest-mode anonymous invariants > no sign-in / sign-up / OAuth UI exists anywhere in the app",
+      "file": "07-guest-mode.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "07-guest-mode.spec.ts > @guest-mode anonymous invariants > no auth-related network requests are issued",
+      "file": "07-guest-mode.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "08-persistence.spec.ts > @persistence local storage > daily devotional cache persists across reload (no duplicate fetch)",
+      "file": "08-persistence.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "08-persistence.spec.ts > @persistence local storage > saved prayers appear on Reflections tab after creation",
+      "file": "08-persistence.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "08-persistence.spec.ts > @persistence local storage > saved prayer survives a hard reload",
+      "file": "08-persistence.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "09-navigation.spec.ts > @navigation tab routing > typed-into prayer-input is preserved across tab switches",
+      "file": "09-navigation.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "09-navigation.spec.ts > @navigation tab routing > directly visiting /reflections renders shell",
+      "file": "09-navigation.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "09-navigation.spec.ts > @navigation tab routing > directly visiting /scripture loads the verse without going through Prayer first",
+      "file": "09-navigation.spec.ts",
+      "status": "passed",
+      "ok": true
+    }
+  ]
+}
