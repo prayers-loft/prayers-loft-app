@@ -309,6 +309,8 @@ export default function ScriptureScreen() {
                   hitSlop={8}
                   style={styles.devoShareBtn}
                   testID="share-devotional-button"
+                  accessibilityRole="button"
+                  accessibilityLabel="Share devotional"
                 >
                   {sharePreparing && shareSource?.kind === "devotional" ? (
                     <ActivityIndicator size="small" color={colors.accent} />
@@ -381,6 +383,8 @@ export default function ScriptureScreen() {
                         hitSlop={8}
                         style={styles.qaShareBtn}
                         testID="share-qa-button"
+                        accessibilityRole="button"
+                        accessibilityLabel="Share this insight"
                       >
                         {sharePreparing && shareSource?.kind === "qa" ? (
                           <ActivityIndicator size="small" color={colors.accent} />
