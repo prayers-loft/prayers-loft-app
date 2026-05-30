@@ -96,12 +96,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3621,
+                      "duration": 3641,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:19.422Z",
+                      "startTime": "2026-05-30T03:43:52.371Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -132,12 +132,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5291,
+                      "duration": 5240,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:23.192Z",
+                      "startTime": "2026-05-30T03:43:56.110Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -168,12 +168,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3606,
+                      "duration": 3595,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:28.493Z",
+                      "startTime": "2026-05-30T03:44:01.357Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -221,12 +221,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 8754,
+                      "duration": 8770,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:32.111Z",
+                      "startTime": "2026-05-30T03:44:04.961Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -257,12 +257,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 8938,
+                      "duration": 8277,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:40.874Z",
+                      "startTime": "2026-05-30T03:44:13.739Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -293,12 +293,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 9553,
+                      "duration": 8209,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:49.820Z",
+                      "startTime": "2026-05-30T03:44:22.062Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -346,12 +346,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4578,
+                      "duration": 4519,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:48:59.385Z",
+                      "startTime": "2026-05-30T03:44:30.283Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -382,12 +382,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3636,
+                      "duration": 3630,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:03.970Z",
+                      "startTime": "2026-05-30T03:44:34.808Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -418,12 +418,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4743,
+                      "duration": 4720,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:07.613Z",
+                      "startTime": "2026-05-30T03:44:38.452Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -454,12 +454,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 7005,
+                      "duration": 6994,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:12.363Z",
+                      "startTime": "2026-05-30T03:44:43.179Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -490,12 +490,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 10931,
+                      "duration": 10841,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:19.375Z",
+                      "startTime": "2026-05-30T03:44:50.179Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -526,12 +526,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4262,
+                      "duration": 4119,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:30.313Z",
+                      "startTime": "2026-05-30T03:45:01.027Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -579,12 +579,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3795,
+                      "duration": 3756,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:34.586Z",
+                      "startTime": "2026-05-30T03:45:05.165Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -615,12 +615,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 8412,
+                      "duration": 8522,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:38.403Z",
+                      "startTime": "2026-05-30T03:45:08.927Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -651,12 +651,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4056,
+                      "duration": 3690,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:46.823Z",
+                      "startTime": "2026-05-30T03:45:17.456Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -692,12 +692,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3625,
+                      "duration": 3891,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:50.888Z",
+                      "startTime": "2026-05-30T03:45:21.152Z",
                       "annotations": [
                         {
                           "type": "note",
@@ -750,12 +750,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4034,
+                      "duration": 3710,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:54.523Z",
+                      "startTime": "2026-05-30T03:45:25.053Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -786,12 +786,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3884,
+                      "duration": 4089,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:49:58.565Z",
+                      "startTime": "2026-05-30T03:45:28.769Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -822,12 +822,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 10325,
+                      "duration": 10901,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:02.459Z",
+                      "startTime": "2026-05-30T03:45:32.864Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -858,12 +858,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5023,
+                      "duration": 4992,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:12.790Z",
+                      "startTime": "2026-05-30T03:45:43.772Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -894,12 +894,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 9763,
+                      "duration": 9784,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:17.819Z",
+                      "startTime": "2026-05-30T03:45:48.771Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -930,12 +930,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 9594,
+                      "duration": 9425,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:27.589Z",
+                      "startTime": "2026-05-30T03:45:58.562Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -966,12 +966,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4378,
+                      "duration": 4246,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:37.190Z",
+                      "startTime": "2026-05-30T03:46:07.993Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1019,12 +1019,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5828,
+                      "duration": 5877,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:41.578Z",
+                      "startTime": "2026-05-30T03:46:12.248Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1055,12 +1055,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 8589,
+                      "duration": 8561,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:47.412Z",
+                      "startTime": "2026-05-30T03:46:18.131Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1108,12 +1108,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6710,
+                      "duration": 6493,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:50:56.010Z",
+                      "startTime": "2026-05-30T03:46:26.700Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1144,12 +1144,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5558,
+                      "duration": 5269,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:02.726Z",
+                      "startTime": "2026-05-30T03:46:33.202Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1197,12 +1197,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 9880,
+                      "duration": 9819,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:08.293Z",
+                      "startTime": "2026-05-30T03:46:38.479Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1233,12 +1233,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 10039,
+                      "duration": 9064,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:18.189Z",
+                      "startTime": "2026-05-30T03:46:48.304Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1269,12 +1269,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 7436,
+                      "duration": 7338,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:28.261Z",
+                      "startTime": "2026-05-30T03:46:57.374Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1322,12 +1322,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5267,
+                      "duration": 5446,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:35.706Z",
+                      "startTime": "2026-05-30T03:47:04.720Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1358,12 +1358,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4015,
+                      "duration": 3636,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:40.995Z",
+                      "startTime": "2026-05-30T03:47:10.171Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1394,12 +1394,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3605,
+                      "duration": 3854,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-30T02:51:45.023Z",
+                      "startTime": "2026-05-30T03:47:13.813Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1415,13 +1415,335 @@
           ]
         }
       ]
+    },
+    {
+      "title": "10-settings.spec.ts",
+      "file": "10-settings.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "@settings guest-mode settings",
+          "file": "10-settings.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "settings gear opens the Settings screen",
+              "ok": true,
+              "tags": [
+                "settings"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3664,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:17.674Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6c676f5d953771640bef-ed4c6e2457e21d63a5eb",
+              "file": "10-settings.spec.ts",
+              "line": 6,
+              "column": 7
+            },
+            {
+              "title": "guest joined-on date is rendered (stable guest_id minted)",
+              "ok": true,
+              "tags": [
+                "settings"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3879,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:21.345Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6c676f5d953771640bef-484a7cee30c0b67d985b",
+              "file": "10-settings.spec.ts",
+              "line": 17,
+              "column": 7
+            },
+            {
+              "title": "preferences persist across reload (smoke check)",
+              "ok": true,
+              "tags": [
+                "settings"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10939,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:25.229Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6c676f5d953771640bef-14be9f9ab689f43f3171",
+              "file": "10-settings.spec.ts",
+              "line": 23,
+              "column": 7
+            },
+            {
+              "title": "back button returns to prior tab",
+              "ok": true,
+              "tags": [
+                "settings"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3953,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:36.173Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6c676f5d953771640bef-5ddd8a6733ce027ab27e",
+              "file": "10-settings.spec.ts",
+              "line": 41,
+              "column": 7
+            },
+            {
+              "title": "create-account button shows a coming-soon prompt (no real auth yet)",
+              "ok": true,
+              "tags": [
+                "settings"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3805,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:40.132Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6c676f5d953771640bef-1e29d13d392e7dd540f6",
+              "file": "10-settings.spec.ts",
+              "line": 49,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "11-upgrade-prompts.spec.ts",
+      "file": "11-upgrade-prompts.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "@upgrade-prompts phase 1.5",
+          "file": "11-upgrade-prompts.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Settings 'Backup My Journey' opens the upgrade sheet with backup variant",
+              "ok": true,
+              "tags": [
+                "upgrade-prompts"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4122,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:43.960Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "4c66f7f17963aac2eb22-d493d902ed72de1a3f06",
+              "file": "11-upgrade-prompts.spec.ts",
+              "line": 6,
+              "column": 7
+            },
+            {
+              "title": "Not Now dismisses the sheet cleanly",
+              "ok": true,
+              "tags": [
+                "upgrade-prompts"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4406,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:48.087Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "4c66f7f17963aac2eb22-831cc36021b8165e941b",
+              "file": "11-upgrade-prompts.spec.ts",
+              "line": 16,
+              "column": 7
+            },
+            {
+              "title": "CTA tap routes to coming-soon dialog without crashing",
+              "ok": true,
+              "tags": [
+                "upgrade-prompts"
+              ],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "mobile-chrome",
+                  "projectName": "mobile-chrome",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4362,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-30T03:47:52.500Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "4c66f7f17963aac2eb22-eac3742f01f3ba86db35",
+              "file": "11-upgrade-prompts.spec.ts",
+              "line": 26,
+              "column": 7
+            }
+          ]
+        }
+      ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-05-30T02:48:19.029Z",
-    "duration": 209664.377,
-    "expected": 33,
+    "startTime": "2026-05-30T03:43:51.984Z",
+    "duration": 244935.761,
+    "expected": 41,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

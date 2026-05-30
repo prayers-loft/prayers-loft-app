@@ -25,6 +25,7 @@ const JOURNEYS = [
   { key: "offline",      label: "Offline / degraded mode" },
   { key: "guest-mode",   label: "Guest mode (no auth)" },
   { key: "settings",     label: "Guest settings & preferences" },
+  { key: "upgrade-prompts", label: "Upgrade prompts (Phase 1.5)" },
 ];
 
 function walkTests(suite, out, parent) {

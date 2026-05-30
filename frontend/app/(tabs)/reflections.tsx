@@ -494,8 +494,3 @@ const styles = StyleSheet.create({
   prayerEntryShareBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
 });
-},
-  entryActionDanger: { color: "#F8B8B8" },
-  prayerEntryShareBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
-  showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
-});

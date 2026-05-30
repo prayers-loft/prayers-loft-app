@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-05-30T02:51:48.768Z",
+  "generated_at": "2026-05-30T03:47:56.987Z",
   "overall": {
-    "total": 33,
-    "passed": 33,
+    "total": 41,
+    "passed": 41,
     "failed": 0
   },
   "byJourney": [
@@ -67,6 +67,20 @@
       "label": "Guest mode (no auth)",
       "total": 2,
       "passed": 2,
+      "failed": 0
+    },
+    {
+      "journey": "settings",
+      "label": "Guest settings & preferences",
+      "total": 5,
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "journey": "upgrade-prompts",
+      "label": "Upgrade prompts (Phase 1.5)",
+      "total": 3,
+      "passed": 3,
       "failed": 0
     }
   ],
@@ -266,6 +280,54 @@
     {
       "title": "09-navigation.spec.ts > @navigation tab routing > directly visiting /scripture loads the verse without going through Prayer first",
       "file": "09-navigation.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "10-settings.spec.ts > @settings guest-mode settings > settings gear opens the Settings screen",
+      "file": "10-settings.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "10-settings.spec.ts > @settings guest-mode settings > guest joined-on date is rendered (stable guest_id minted)",
+      "file": "10-settings.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "10-settings.spec.ts > @settings guest-mode settings > preferences persist across reload (smoke check)",
+      "file": "10-settings.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "10-settings.spec.ts > @settings guest-mode settings > back button returns to prior tab",
+      "file": "10-settings.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "10-settings.spec.ts > @settings guest-mode settings > create-account button shows a coming-soon prompt (no real auth yet)",
+      "file": "10-settings.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "11-upgrade-prompts.spec.ts > @upgrade-prompts phase 1.5 > Settings 'Backup My Journey' opens the upgrade sheet with backup variant",
+      "file": "11-upgrade-prompts.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "11-upgrade-prompts.spec.ts > @upgrade-prompts phase 1.5 > Not Now dismisses the sheet cleanly",
+      "file": "11-upgrade-prompts.spec.ts",
+      "status": "passed",
+      "ok": true
+    },
+    {
+      "title": "11-upgrade-prompts.spec.ts > @upgrade-prompts phase 1.5 > CTA tap routes to coming-soon dialog without crashing",
+      "file": "11-upgrade-prompts.spec.ts",
       "status": "passed",
       "ok": true
     }
