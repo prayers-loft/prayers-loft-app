@@ -21,6 +21,7 @@ import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer } from "@/src/lib/local-store";
+import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
@@ -139,6 +140,10 @@ export default function PrayerScreen() {
       created_at: new Date().toISOString(),
     });
     setSaved(true);
+    track(ConversionTrigger.PrayerSaved, {
+      has_verse: !!reflection.verseReference,
+      prayer_chars: prayer.length,
+    });
   };
 
   const handleShare = async () => {

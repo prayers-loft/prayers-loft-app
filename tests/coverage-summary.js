@@ -24,6 +24,7 @@ const JOURNEYS = [
   { key: "navigation",   label: "Tab navigation" },
   { key: "offline",      label: "Offline / degraded mode" },
   { key: "guest-mode",   label: "Guest mode (no auth)" },
+  { key: "settings",     label: "Guest settings & preferences" },
 ];
 
 function walkTests(suite, out, parent) {

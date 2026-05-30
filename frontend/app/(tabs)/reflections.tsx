@@ -23,6 +23,7 @@ import { getSavedPrayers, removeSavedPrayer, SavedPrayer } from "@/src/lib/local
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
+import { ConversionTrigger, track } from "@/src/lib/analytics";
 
 const DAILY_PROMPTS = [
   "What's one thing you noticed today that felt like grace?",
@@ -111,12 +112,16 @@ export default function ReflectionsScreen() {
     if (!text.trim() || saving) return;
     setSaving(true);
     try {
+      const chars = text.trim().length;
       if (editingId) await api.updateReflection(editingId, text.trim(), emotion ?? undefined);
       else await api.createReflection(text.trim(), emotion ?? undefined, todayPrompt);
       setText("");
       setEmotion(null);
       setEditingId(null);
       await load();
+      if (!editingId) {
+        track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!emotion });
+      }
     } catch (e) {
       console.warn("save reflection failed", e);
     } finally {

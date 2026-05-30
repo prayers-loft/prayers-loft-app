@@ -392,7 +392,7 @@ async def share_excerpt(payload: ShareExcerptRequest):
             upsert=True,
         )
         return {"excerpt": excerpt, "cached": False}
-    except Exception as e:
+    except Exception:
         logger.exception("share-excerpt failed")
         # Soft fallback so client UX never breaks. Do not leak internal error.
         excerpt = (text[:277] + "...") if len(text) > 280 else text

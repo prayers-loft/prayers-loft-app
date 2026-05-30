@@ -10,6 +10,7 @@ import { useFonts as useInter, Inter_400Regular, Inter_500Medium, Inter_600SemiB
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { SplashOverlay } from "@/src/components/SplashOverlay";
+import { getGuestIdentity } from "@/src/lib/guest-identity";
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -34,6 +35,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready) {
       SplashScreen.hideAsync();
+      // Eagerly mint the stable anonymous guest_id on first launch.
+      // Runs once per cold launch, fire-and-forget.
+      getGuestIdentity().catch(() => {});
     }
   }, [ready]);
 
