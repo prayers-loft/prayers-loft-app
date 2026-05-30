@@ -22,6 +22,8 @@ import { DEFAULT_PREFS, getPrefs, updatePrefs, Preferences } from "@/src/lib/loc
 import { exportGuestData, wipeAllGuestData } from "@/src/lib/data-export";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { useAuthState } from "@/src/hooks/use-auth-state";
+import { logout } from "@/src/lib/auth-api";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -39,6 +41,8 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [exportBusy, setExportBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const auth = useAuthState();
+  const isAuthed = !!auth.user;
 
   useEffect(() => {
     (async () => {
@@ -125,28 +129,63 @@ export default function SettingsScreen() {
       >
         {/* ---- ACCOUNT ---- */}
         <Section label="Account">
-          <View style={styles.heroCard} testID="guest-card">
-            <View style={styles.heroIconRing}>
-              <Ionicons name="leaf-outline" size={20} color={colors.accent} />
+          {isAuthed ? (
+            <View style={styles.heroCard} testID="signed-in-card">
+              <View style={styles.heroIconRing}>
+                <Ionicons name="checkmark-circle-outline" size={22} color={colors.accent} />
+              </View>
+              <Text style={styles.heroTitle} testID="signed-in-email">
+                {auth.user?.email || auth.user?.name || "Signed in"}
+              </Text>
+              <Text style={styles.heroSub}>
+                {auth.provider === "google"
+                  ? "Signed in with Google"
+                  : auth.provider === "apple"
+                  ? "Signed in with Apple"
+                  : "Signed in with Email"}
+              </Text>
+              <View style={styles.benefitList}>
+                <Benefit text="Your prayers, reflections, and streaks are safely backed up" />
+                <Benefit text="Continue anywhere — switch devices anytime" />
+              </View>
+              <Pressable
+                onPress={async () => {
+                  await logout();
+                  pop("Signed out. You're still here as a guest.");
+                }}
+                style={[styles.primaryBtn, styles.secondaryBtn]}
+                testID="sign-out-button"
+              >
+                <Text style={styles.secondaryBtnText}>Sign out</Text>
+              </Pressable>
+              <Text style={styles.tinyNote}>
+                Signing out preserves your local data on this device.
+              </Text>
             </View>
-            <Text style={styles.heroTitle}>Using Prayers Loft as Guest</Text>
-            <Text style={styles.heroSub}>
-              Joined {guest ? shortJoinedDate(guest.createdAt) : "recently"}
-            </Text>
-            <View style={styles.benefitList}>
-              <Benefit text="Sync your prayers across devices" />
-              <Benefit text="Protect your reflections and streaks" />
-              <Benefit text="Save your spiritual journey" />
+          ) : (
+            <View style={styles.heroCard} testID="guest-card">
+              <View style={styles.heroIconRing}>
+                <Ionicons name="leaf-outline" size={20} color={colors.accent} />
+              </View>
+              <Text style={styles.heroTitle}>Using Prayers Loft as Guest</Text>
+              <Text style={styles.heroSub}>
+                Joined {guest ? shortJoinedDate(guest.createdAt) : "recently"}
+              </Text>
+              <View style={styles.benefitList}>
+                <Benefit text="Sync your prayers across devices" />
+                <Benefit text="Protect your reflections and streaks" />
+                <Benefit text="Save your spiritual journey" />
+              </View>
+              <Pressable
+                onPress={handleCreateAccount}
+                style={styles.primaryBtn}
+                testID="create-account-button"
+              >
+                <Text style={styles.primaryBtnText}>Backup My Journey</Text>
+              </Pressable>
+              <Text style={styles.tinyNote}>You can always continue as a guest.</Text>
             </View>
-            <Pressable
-              onPress={handleCreateAccount}
-              style={styles.primaryBtn}
-              testID="create-account-button"
-            >
-              <Text style={styles.primaryBtnText}>Backup My Journey</Text>
-            </Pressable>
-            <Text style={styles.tinyNote}>You can always continue as a guest.</Text>
-          </View>
+          )}
         </Section>
 
         {/* ---- NOTIFICATIONS ---- */}
@@ -379,6 +418,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   primaryBtnText: { fontFamily: fonts.sansSemibold, color: colors.textOnAccent, fontSize: 14.5 },
+  secondaryBtn: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  secondaryBtnText: { fontFamily: fonts.sansSemibold, color: colors.text, fontSize: 14.5 },
   tinyNote: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 11.5, marginTop: 4 },
 
   locked: { fontFamily: fonts.sansMedium, color: colors.textTertiary, fontSize: 12 },

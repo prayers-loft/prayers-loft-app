@@ -13,6 +13,10 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { SplashOverlay } from "@/src/components/SplashOverlay";
 import { getGuestIdentity } from "@/src/lib/guest-identity";
 import { UpgradePromptHost } from "@/src/components/UpgradePromptHost";
+import { AuthHost } from "@/src/components/AuthHost";
+import { initAuth } from "@/src/lib/auth-store";
+import { probeMe } from "@/src/lib/auth-api";
+import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -40,6 +44,13 @@ export default function RootLayout() {
       // Eagerly mint the stable anonymous guest_id on first launch.
       // Runs once per cold launch, fire-and-forget.
       getGuestIdentity().catch(() => {});
+      // Restore persisted auth state (no-op if signed-out), then opportunistically
+      // process a Google OAuth return URL (web only), then validate token via /me.
+      (async () => {
+        await initAuth();
+        await handleGoogleReturnFromUrl().catch(() => {});
+        await probeMe().catch(() => {});
+      })();
     }
   }, [ready]);
 
@@ -60,6 +71,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0a0e1a" } }} />
           {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
           <UpgradePromptHost />
+          <AuthHost />
         </View>
       </KeyboardProvider>
     </SafeAreaProvider>

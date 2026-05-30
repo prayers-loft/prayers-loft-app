@@ -3,7 +3,6 @@
 // Phase 1.5 ships polished UI + analytics with a placeholder CTA. When
 // Phase 2 lands, the only change required is in `openAuthSheet` below —
 // every trigger source, copy variant, and analytics event stays the same.
-import { Alert } from "react-native";
 import { storage } from "@/src/utils/storage";
 import { track } from "@/src/lib/analytics";
 
@@ -126,15 +125,11 @@ export async function recordCtaTapped(trigger: UpgradeTrigger): Promise<void> {
 }
 
 // --- Phase-2 hand-off -------------------------------------------------------
-// When the real auth sheet ships, replace the body of `openAuthSheet` with
-// the call that opens the Apple/Google/Email auth bottom-sheet. Trigger
-// callers and analytics names DO NOT need to change.
+// Phase 2 now ships a real bottom-sheet (Google / Email / Apple-flagged) via
+// AuthHost. Every trigger source, copy variant, and analytics name above
+// is unchanged from Phase 1.5.
+import { requestAuthSheet } from "@/src/components/AuthHost";
+
 export function openAuthSheet(trigger: UpgradeTrigger): void {
-  // Placeholder until Phase 2.
-  void trigger;
-  Alert.alert(
-    "Account creation coming soon",
-    "Sign-in with Apple, Google, and Email will land in the next update. Until then your spiritual journey is safely stored on this device. You can also export a backup from Settings.",
-    [{ text: "OK" }]
-  );
+  requestAuthSheet(trigger);
 }

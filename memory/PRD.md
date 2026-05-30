@@ -62,7 +62,11 @@ Quiet, non-blocking nudges that invite Guests to back up their journey. **No rea
 - **Files**: `src/lib/upgrade-prompts.ts`, `src/components/UpgradePromptSheet.tsx`, `src/components/UpgradePromptHost.tsx`, `src/components/GuestSoftBanner.tsx`.
 - **E2E coverage**: tests `11-upgrade-prompts.spec.ts` (3) + `13-guest-soft-banner.spec.ts` (2). Total suite: 47 passing.
 
-## Phase 2 — Authentication (NEXT, pending user kickoff)
-Provider Mix B: Apple + Google + Email. Google via Emergent-managed Google Auth.
-Guest→Account migration must preserve AsyncStorage data, streaks, saved prayers.
+## Phase 2 — Authentication & Guest→Account Migration (DONE & verified)
+Provider Mix B: Email/password + Emergent-managed Google + Apple (feature-flagged off).
+- **Backend** (`/app/backend/auth.py`): JWT (HS256) access + opaque rotating refresh tokens stored in `refresh_tokens`. `users` collection with embedded `auth_email`, `auth_google`, `auth_apple` identities. Account linking by email at sign-in. Brute-force lockout (5 email / 20 IP failures per 15 min). Indexes auto-ensured on startup.
+- **Endpoints**: POST /api/auth/{register,login,refresh,logout,google,apple}, GET /api/auth/me, POST /api/account/migrate-guest, GET /api/account/saved-prayers.
+- **Frontend**: `AuthSheet` (Google/Apple-hidden/Email), `AuthHost` (global mount), `auth-store` (expo-secure-store on native, localStorage on web), `auth-client` (single-flight refresh on 401), `account-migration` (idempotent via `guest_id`, fires once on first sign-in, sets `prayersloft_migration_completed_v1`).
+- **Guest→Account migration**: idempotent via `(guest_id, user_id)` unique index. Cross-user `guest_id` collision returns 409. Preserves earliest `created_at` on duplicates. Recomputes streak server-side. Returns localized message *"Your spiritual journey has been safely saved."*
+- **E2E coverage**: 51 Playwright tests passing (47 prior + 2 phase-2 auth + 1 phase-2 migration + 1 phase-2 guard-update). Backend pytest: 19/19 covering all auth + migration + account-linking + anonymous regressions.
 

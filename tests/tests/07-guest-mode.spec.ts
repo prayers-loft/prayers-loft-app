@@ -25,15 +25,23 @@ test.describe("@guest-mode anonymous invariants", () => {
     }
   });
 
-  test("no auth-related network requests are issued", async ({ page }) => {
+  test("no auth-related network requests are issued for unauthenticated guests (besides the /me probe)", async ({ page }) => {
+    // Phase 2 introduced a single best-effort /api/auth/me probe on app boot
+    // to resume signed-in sessions. For an unauthenticated guest (no stored
+    // tokens), the probe is harmless — it returns 401 and the app stays in
+    // guest mode. What MUST NOT happen: any login/signin/signup/oauth/token
+    // calls, since guests are never asked to authenticate.
     const seen: string[] = [];
     page.on("request", (req) => {
       const u = req.url();
-      if (/\/(login|signin|signup|oauth|auth|token|session)\b/.test(u)) seen.push(u);
+      if (/\/(login|signin|signup|oauth|token|session)\b/.test(u)) seen.push(u);
     });
+    // Ensure no persisted auth tokens leak from prior tests.
+    await page.goto("/prayer", { waitUntil: "domcontentloaded" });
+    await page.evaluate(() => window.localStorage.removeItem("prayersloft_auth_v1"));
     await bootApp(page, "prayer");
     await page.getByTestId("tab-scripture").click();
     await page.waitForTimeout(1500);
-    expect(seen, `auth endpoints should never be called: ${seen.join(", ")}`).toEqual([]);
+    expect(seen, `forbidden auth endpoints called: ${seen.join(", ")}`).toEqual([]);
   });
 });

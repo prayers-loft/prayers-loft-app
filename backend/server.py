@@ -18,6 +18,9 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Import auth AFTER load_dotenv so JWT_SECRET etc. are present in os.environ.
+from auth import build_auth_router, ensure_indexes as ensure_auth_indexes  # noqa: E402
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -449,6 +452,16 @@ async def delete_reflection(reflection_id: str):
 
 
 app.include_router(api_router)
+
+# ---------- Phase 2: Auth + Account router ----------
+auth_router = build_auth_router(get_db_fn=lambda: db)
+app.include_router(auth_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _on_startup():
+    await ensure_auth_indexes(db)
+
 
 app.add_middleware(
     CORSMiddleware,

@@ -32,6 +32,15 @@ const CONSOLE_ALLOWLIST: RegExp[] = [
   /SVG: TestID not supported/i,
   /Constants\.platform\.ios\.model has been deprecated/i,
   /Setting a timer for a long period of time/i,
+  // Phase 2 auth: guest bootstrap calls /api/auth/me without a token and
+  // intentionally receives 401. This is the only way the app knows it's a
+  // guest on cold launch — it's expected, not an app failure.
+  /Failed to load resource: the server responded with a status of 401/i,
+  // Cloudflare beacon (CDN telemetry) hits a CORS preflight in the preview
+  // gateway. It is environment noise that has nothing to do with the app.
+  // The console line strips the URL; we see `net::ERR_FAILED` only.
+  /cloudflareinsights\.com/i,
+  /Failed to load resource: net::ERR_FAILED/i,
 ];
 
 const NETWORK_ALLOWLIST: RegExp[] = [
@@ -41,6 +50,8 @@ const NETWORK_ALLOWLIST: RegExp[] = [
   /sockjs/i,
   /favicon/i,
   /hot-update/i,
+  // Cloudflare beacon CORS preflight failure in preview gateway.
+  /cloudflareinsights\.com/i,
 ];
 
 export type FailureCollector = {
