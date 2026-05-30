@@ -33,8 +33,7 @@ function FloatingTabBar(props: any) {
   const insets = useSafeAreaInsets();
   return (
     <View
-      pointerEvents="box-none"
-      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 12) }]}
+      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 12), pointerEvents: "box-none" }]}
       testID="bottom-tab-bar"
     >
       <BlurView intensity={70} tint="dark" style={styles.bar}>

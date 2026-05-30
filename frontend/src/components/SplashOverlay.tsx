@@ -135,8 +135,7 @@ export function SplashOverlay({ onDone }: { onDone?: () => void }) {
 
   return (
     <Animated.View
-      pointerEvents="none"
-      style={[StyleSheet.absoluteFillObject, styles.root, containerStyle]}
+      style={[StyleSheet.absoluteFillObject, styles.root, containerStyle, { pointerEvents: "none" }]}
     >
       {/* Background gradient — matches the in-app palette so the handoff is seamless. */}
       <LinearGradient
@@ -151,7 +150,7 @@ export function SplashOverlay({ onDone }: { onDone?: () => void }) {
       </Animated.View>
 
       {/* Center stack */}
-      <View style={styles.center} pointerEvents="none">
+      <View style={[styles.center, { pointerEvents: "none" }]}>
         <Animated.View style={[styles.markRing, markStyle]}>
           <Ionicons name="leaf-outline" size={44} color={colors.accent} />
         </Animated.View>

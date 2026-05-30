@@ -61,7 +61,7 @@ export function UpgradePromptSheet({
       onRequestClose={dismiss}
     >
       <Pressable style={styles.backdrop} onPress={dismiss} testID="upgrade-prompt-backdrop" />
-      <View style={styles.sheetWrap} pointerEvents="box-none">
+      <View style={[styles.sheetWrap, { pointerEvents: "box-none" }]}>
         <Animated.View
           style={[
             styles.sheet,

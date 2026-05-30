@@ -235,7 +235,7 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {toast && (
-        <View pointerEvents="none" style={styles.toast}>
+        <View style={[styles.toast, { pointerEvents: "none" }]}>
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}

@@ -13,7 +13,7 @@ export function ScreenBackground({ children }: { children: React.ReactNode }) {
         style={StyleSheet.absoluteFillObject}
       />
       {/* A single very large, very soft warm glow up top. Quiet atmosphere. */}
-      <View style={styles.glow} pointerEvents="none" />
+      <View style={[styles.glow, { pointerEvents: "none" }]} />
       {children}
     </View>
   );

@@ -26,6 +26,7 @@ const JOURNEYS = [
   { key: "guest-mode",   label: "Guest mode (no auth)" },
   { key: "settings",     label: "Guest settings & preferences" },
   { key: "upgrade-prompts", label: "Upgrade prompts (Phase 1.5)" },
+  { key: "a11y",            label: "Accessibility (axe-core)" },
 ];
 
 function walkTests(suite, out, parent) {
