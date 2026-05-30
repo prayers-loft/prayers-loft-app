@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -8,6 +9,7 @@ import { useFonts as useCrimson, CrimsonText_400Regular, CrimsonText_400Regular_
 import { useFonts as useInter, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { SplashOverlay } from "@/src/components/SplashOverlay";
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -25,6 +27,7 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const [splashDone, setSplashDone] = useState(false);
 
   const ready = (iconsLoaded || iconsError) && crimsonLoaded && interLoaded;
 
@@ -40,7 +43,10 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <KeyboardProvider>
         <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0a0e1a" } }} />
+        <View style={{ flex: 1, backgroundColor: "#0a0e1a" }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0a0e1a" } }} />
+          {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
+        </View>
       </KeyboardProvider>
     </SafeAreaProvider>
   );
