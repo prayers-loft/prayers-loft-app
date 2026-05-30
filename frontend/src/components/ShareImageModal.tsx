@@ -393,19 +393,11 @@ export function ShareImageModal({
             ))}
           </ScrollView>
 
-          {/* Actions */}
-          <View style={styles.actions}>
-            <ActionButton
-              icon="copy-outline"
-              label="Copy"
-              onPress={handleCopyText}
-              loading={busy === "copy"}
-              disabled={!!busy}
-              variant="ghost"
-            />
+          {/* Actions — primary row (Save + Share), secondary (Copy) */}
+          <View style={styles.actionsPrimary}>
             <ActionButton
               icon="download-outline"
-              label={Platform.OS === "web" ? "Save" : "Save to Photos"}
+              label="Save Image"
               onPress={handleSaveToPhotos}
               loading={busy === "save"}
               disabled={!!busy}
@@ -413,13 +405,28 @@ export function ShareImageModal({
             />
             <ActionButton
               icon="share-outline"
-              label="Share"
+              label="Share Image"
               onPress={handleShareImage}
               loading={busy === "share"}
               disabled={!!busy}
               variant="primary"
             />
           </View>
+          <Pressable
+            onPress={handleCopyText}
+            disabled={!!busy}
+            hitSlop={8}
+            style={styles.copyRow}
+          >
+            {busy === "copy" ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <>
+                <Ionicons name="copy-outline" size={15} color={colors.accent} />
+                <Text style={styles.copyText}>Copy text</Text>
+              </>
+            )}
+          </Pressable>
 
           <Pressable onPress={onClose} hitSlop={12} style={styles.cancelRow}>
             <Text style={styles.cancelText}>Cancel</Text>
@@ -597,20 +604,19 @@ const styles = StyleSheet.create({
   },
   tplText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
   tplTextActive: { color: colors.accent, fontFamily: fonts.sansSemibold },
-  actions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  actionsPrimary: { flexDirection: "row", gap: 10, marginTop: 10 },
   actionBtn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 15,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 6,
-    minHeight: 50,
+    gap: 7,
+    minHeight: 52,
   },
   actionBtnPrimary: {
     backgroundColor: colors.accent,
-    flex: 1.3,
   },
   actionBtnSecondary: {
     backgroundColor: colors.surface2,
@@ -620,7 +626,23 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 13,
+    fontSize: 14,
+    letterSpacing: 0.2,
+  },
+  copyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    minHeight: 36,
+    marginTop: 2,
+  },
+  copyText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13.5,
+    color: colors.accent,
+    letterSpacing: 0.2,
   },
   cancelRow: { alignSelf: "center", paddingVertical: 8 },
   cancelText: { fontFamily: fonts.sansMedium, color: colors.textTertiary, fontSize: 14 },
