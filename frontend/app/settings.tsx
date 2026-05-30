@@ -115,7 +115,7 @@ export default function SettingsScreen() {
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn} testID="settings-back-button">
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>Profile</Text>
         <View style={{ width: 32 }} />
       </View>
 

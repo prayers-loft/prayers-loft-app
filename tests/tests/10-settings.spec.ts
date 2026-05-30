@@ -7,7 +7,7 @@ test.describe("@settings guest-mode settings", () => {
     const failures = watchFailures(page);
     await bootApp(page, "prayer");
     await page.getByTestId("settings-icon-button").click();
-    await expect(page.getByText("Settings", { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Profile", { exact: true })).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("guest-card")).toBeVisible();
     await expect(page.getByText(/Using Prayers Loft as Guest/i)).toBeVisible();
     await expect(page.getByTestId("create-account-button")).toBeVisible();
@@ -41,7 +41,7 @@ test.describe("@settings guest-mode settings", () => {
   test("back button returns to prior tab", async ({ page }) => {
     await bootApp(page, "scripture");
     await page.getByTestId("settings-icon-button").click();
-    await expect(page.getByText("Settings", { exact: true })).toBeVisible();
+    await expect(page.getByText("Profile", { exact: true })).toBeVisible();
     await page.getByTestId("settings-back-button").click();
     await expect(page).toHaveURL(/scripture/);
   });
@@ -53,6 +53,6 @@ test.describe("@settings guest-mode settings", () => {
     await page.getByTestId("create-account-button").click();
     // No assertion on alert text (window.alert content not directly readable in all RN-web builds);
     // we just confirm the click didn't crash the screen.
-    await expect(page.getByText("Settings", { exact: true })).toBeVisible();
+    await expect(page.getByText("Profile", { exact: true })).toBeVisible();
   });
 });

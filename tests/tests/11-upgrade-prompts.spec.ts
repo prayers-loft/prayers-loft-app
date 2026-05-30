@@ -30,6 +30,6 @@ test.describe("@upgrade-prompts phase 1.5", () => {
     await expect(page.getByTestId("upgrade-prompt-sheet")).toBeVisible();
     page.on("dialog", (d) => d.dismiss().catch(() => {}));
     await page.getByTestId("upgrade-prompt-cta").click();
-    await expect(page.getByText(/Settings/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Profile/)).toBeVisible({ timeout: 5000 });
   });
 });
