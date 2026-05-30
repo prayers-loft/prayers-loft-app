@@ -11,6 +11,7 @@ import { useFonts as useInter, Inter_400Regular, Inter_500Medium, Inter_600SemiB
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { SplashOverlay } from "@/src/components/SplashOverlay";
 import { getGuestIdentity } from "@/src/lib/guest-identity";
+import { UpgradePromptHost } from "@/src/components/UpgradePromptHost";
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -50,6 +51,7 @@ export default function RootLayout() {
         <View style={{ flex: 1, backgroundColor: "#0a0e1a" }}>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0a0e1a" } }} />
           {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
+          <UpgradePromptHost />
         </View>
       </KeyboardProvider>
     </SafeAreaProvider>

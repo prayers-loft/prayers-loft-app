@@ -21,6 +21,7 @@ import { getGuestIdentity } from "@/src/lib/guest-identity";
 import { DEFAULT_PREFS, getPrefs, updatePrefs, Preferences } from "@/src/lib/local-prefs";
 import { exportGuestData, wipeAllGuestData } from "@/src/lib/data-export";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
+import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -61,11 +62,7 @@ export default function SettingsScreen() {
 
   const handleCreateAccount = () => {
     track(ConversionTrigger.ManualUpgradeTap, { source: "settings" });
-    Alert.alert(
-      "Coming soon",
-      "Account creation arrives in a future update. Until then, your data is safely stored on this device. You can also export a backup anytime.",
-      [{ text: "OK" }]
-    );
+    forceUpgradePrompt("settings_backup_button");
   };
 
   const handleExport = async () => {
@@ -146,7 +143,7 @@ export default function SettingsScreen() {
               style={styles.primaryBtn}
               testID="create-account-button"
             >
-              <Text style={styles.primaryBtnText}>Create Free Account</Text>
+              <Text style={styles.primaryBtnText}>Backup My Journey</Text>
             </Pressable>
             <Text style={styles.tinyNote}>You can always continue as a guest.</Text>
           </View>

@@ -18,10 +18,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
+import { GuestSoftBanner } from "@/src/components/GuestSoftBanner";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
-import { addSavedPrayer } from "@/src/lib/local-store";
+import { addSavedPrayer, getSavedPrayers } from "@/src/lib/local-store";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
+import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
@@ -144,6 +146,11 @@ export default function PrayerScreen() {
       has_verse: !!reflection.verseReference,
       prayer_chars: prayer.length,
     });
+    // Trigger #3: after 5+ saved prayers, surface the upgrade prompt once.
+    try {
+      const all = await getSavedPrayers();
+      if (all.length >= 5) requestUpgradePrompt("five_prayers");
+    } catch {}
   };
 
   const handleShare = async () => {
@@ -182,6 +189,7 @@ export default function PrayerScreen() {
   return (
     <ScreenBackground>
       <ScreenHeader />
+      <GuestSoftBanner />
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"

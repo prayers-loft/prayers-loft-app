@@ -24,6 +24,7 @@ import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
+import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 
 const DAILY_PROMPTS = [
   "What's one thing you noticed today that felt like grace?",
@@ -193,6 +194,14 @@ export default function ReflectionsScreen() {
   }, [combined]);
 
   const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
+
+  // Trigger #2: 7-day streak milestone. Fires once (throttled by upgrade-prompt state).
+  useEffect(() => {
+    if (streak >= 7) {
+      track(ConversionTrigger.StreakMilestone, { streak });
+      requestUpgradePrompt("seven_day_streak");
+    }
+  }, [streak]);
   const last14 = useMemo(() => lastNDays(14), []);
 
   return (
@@ -481,6 +490,11 @@ const styles = StyleSheet.create({
   entryActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 18, marginTop: 4 },
   entryAction: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent },
   entryActionAccent: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent },
+  entryActionDanger: { color: "#F8B8B8" },
+  prayerEntryShareBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
+});
+},
   entryActionDanger: { color: "#F8B8B8" },
   prayerEntryShareBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   showMore: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.accent, marginTop: 2 },
