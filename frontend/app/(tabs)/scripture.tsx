@@ -347,7 +347,9 @@ export default function ScriptureScreen() {
                       style={[styles.stylePill, style === s && styles.stylePillActive]}
                       testID={`style-pill-${s}`}
                     >
-                      <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>{s}</Text>
+                      <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>
+                        {s === "Theologian" ? "Bible Questions" : s}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>

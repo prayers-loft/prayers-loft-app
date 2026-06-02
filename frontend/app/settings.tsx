@@ -23,7 +23,7 @@ import { exportGuestData, wipeAllGuestData } from "@/src/lib/data-export";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { useAuthState } from "@/src/hooks/use-auth-state";
-import { logout } from "@/src/lib/auth-api";
+import { logout, deleteAccount } from "@/src/lib/auth-api";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -181,7 +181,7 @@ export default function SettingsScreen() {
                 style={styles.primaryBtn}
                 testID="create-account-button"
               >
-                <Text style={styles.primaryBtnText}>Backup My Journey</Text>
+                <Text style={styles.primaryBtnText}>Keep My Journey Safe</Text>
               </Pressable>
               <Text style={styles.tinyNote}>You can always continue as a guest.</Text>
             </View>
@@ -270,12 +270,57 @@ export default function SettingsScreen() {
             right={<Chev tone="danger" />}
             testID="wipe-data-button"
           />
+          {isAuthed && (
+            <Row
+              title="Delete Account"
+              subtitle="Permanently remove your cloud data and sign out."
+              onPress={async () => {
+                Alert.alert(
+                  "Delete your account?",
+                  "This permanently removes your saved prayers, reflections, and preferences from the cloud, revokes all sessions, and signs you out. Local data on this device is preserved. This cannot be undone.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete",
+                      style: "destructive",
+                      onPress: async () => {
+                        try {
+                          await deleteAccount();
+                          pop("Your account has been removed.");
+                        } catch (e: any) {
+                          Alert.alert("Couldn't delete account", e?.message || "Please try again.");
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              danger
+              right={<Chev tone="danger" />}
+              testID="delete-account-button"
+            />
+          )}
         </Section>
 
         {/* ---- ABOUT ---- */}
         <Section label="About">
-          <Row title="Prayers Loft" subtitle={`Guest · ${Platform.OS}`} />
+          <Row title="Prayers Loft" subtitle={`${isAuthed ? "Signed in" : "Guest"} · ${Platform.OS}`} />
           <Row title="Made with care" subtitle="A quiet place to pray, reflect, and remember." />
+          <Row title="About AI in Prayers Loft" subtitle="Prayers Loft uses AI to help you find words. You are always in control of what you pray and believe." />
+          <Row
+            title="Privacy Policy"
+            subtitle="How we treat your prayers, reflections, and data."
+            onPress={() => router.push("/privacy" as any)}
+            right={<Chev />}
+            testID="open-privacy"
+          />
+          <Row
+            title="Terms of Service"
+            subtitle="Your agreement with Prayers Loft."
+            onPress={() => router.push("/terms" as any)}
+            right={<Chev />}
+            testID="open-terms"
+          />
         </Section>
       </ScrollView>
 

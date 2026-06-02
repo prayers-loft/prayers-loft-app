@@ -955,4 +955,47 @@ def build_auth_router(get_db_fn) -> APIRouter:
             out.append(p)
         return {"prayers": out}
 
+    # ------------------------- /account/me (DELETE) -------------------------
+    @router.delete("/account/me")
+    async def delete_account(user=Depends(current_user)):
+        """
+        Delete the authenticated account and all cloud data.
+          - Revokes all sessions and refresh tokens
+          - Soft-deletes the user (marks deleted_at) so the id stays valid for FK
+            on historical records but the user can no longer sign in
+          - Hard-deletes cloud-only artifacts: saved_prayers, saved_scriptures,
+            user_preferences, user_devotional_history, guest_migrations,
+            password_reset_tokens, and reflections WHERE user_id == this user
+        """
+        db = get_db_fn()
+        user_id = user["id"]
+        # Revoke sessions + refresh tokens
+        await db.refresh_tokens.update_many({"user_id": user_id}, {"$set": {"revoked": True}})
+        await db.user_sessions.update_many({"user_id": user_id}, {"$set": {"revoked": True}})
+        # Purge cloud data
+        await db.saved_prayers.delete_many({"user_id": user_id})
+        await db.saved_scriptures.delete_many({"user_id": user_id})
+        await db.user_preferences.delete_many({"user_id": user_id})
+        await db.user_devotional_history.delete_many({"user_id": user_id})
+        await db.guest_migrations.delete_many({"user_id": user_id})
+        await db.password_reset_tokens.delete_many({"user_id": user_id})
+        await db.reflections.delete_many({"user_id": user_id})
+        # Soft-delete user — keep the row but clear PII and credentials
+        await db.users.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "email": None,
+                    "name": None,
+                    "picture": None,
+                    "auth_email": None,
+                    "auth_google": None,
+                    "auth_apple": None,
+                    "deleted_at": utcnow(),
+                    "updated_at": utcnow(),
+                }
+            },
+        )
+        return {"ok": True, "message": "Your account and cloud data have been removed."}
+
     return router

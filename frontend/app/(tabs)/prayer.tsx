@@ -27,6 +27,9 @@ import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
+import { PrayerPromptChips } from "@/src/components/PrayerPromptChips";
+import { AIDisclosureModal } from "@/src/components/AIDisclosureModal";
+import { hasSeenAIDisclosure, markAIDisclosureSeen } from "@/src/lib/onboarding";
 
 type Stage = "idle" | "reflection" | "prayer";
 
@@ -38,6 +41,28 @@ export default function PrayerScreen() {
   const [reflection, setReflection] = useState<PrayerReflection | null>(null);
   const [prayer, setPrayer] = useState<string>("");
   const [saved, setSaved] = useState(false);
+  // First-prayer AI disclosure gate.
+  const [aiDisclosureOpen, setAiDisclosureOpen] = useState(false);
+  const pendingPrayer = useRef<null | "begin">(null);
+
+  async function onBeginPrayer() {
+    const seen = await hasSeenAIDisclosure();
+    if (!seen) {
+      pendingPrayer.current = "begin";
+      setAiDisclosureOpen(true);
+      return;
+    }
+    submitReflection();
+  }
+
+  async function onAcceptAIDisclosure() {
+    setAiDisclosureOpen(false);
+    await markAIDisclosureSeen();
+    if (pendingPrayer.current === "begin") {
+      pendingPrayer.current = null;
+      submitReflection();
+    }
+  }
   const [showAmen, setShowAmen] = useState(false);
 
   const amenOpacity = useRef(new Animated.Value(0)).current;
@@ -218,9 +243,19 @@ export default function PrayerScreen() {
             />
           </View>
 
+          {stage === "idle" && !message.trim() && (
+            <PrayerPromptChips onPick={(t) => setMessage(t)} />
+          )}
+
+          {stage === "idle" && (
+            <Text style={styles.privacyNote} testID="prayer-privacy-note">
+              Your prayers are private.
+            </Text>
+          )}
+
           {stage !== "reflection" && (
             <PrimaryButton
-              onPress={submitReflection}
+              onPress={onBeginPrayer}
               disabled={!message.trim() || loading}
               loading={loading}
               label={loading ? "Listening" : stage === "prayer" ? "Begin a new prayer" : "Begin"}
@@ -296,6 +331,7 @@ export default function PrayerScreen() {
         onClose={closeShare}
         payload={sharePayload}
       />
+      <AIDisclosureModal visible={aiDisclosureOpen} onContinue={onAcceptAIDisclosure} />
     </ScreenBackground>
   );
 }
@@ -348,6 +384,15 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     minHeight: 110,
     textAlignVertical: "top",
+  },
+  privacyNote: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    color: colors.textTertiary,
+    textAlign: "center",
+    marginTop: 14,
+    marginBottom: 6,
+    letterSpacing: 0.2,
   },
   primaryBtn: {
     backgroundColor: colors.accent,

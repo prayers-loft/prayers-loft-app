@@ -9,7 +9,7 @@ test.describe("@upgrade-prompts phase 1.5", () => {
     await page.getByTestId("create-account-button").click();
     await expect(page.getByTestId("upgrade-prompt-sheet")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("upgrade-prompt-title")).toHaveText(/Save your spiritual journey/i);
-    await expect(page.getByTestId("upgrade-prompt-cta")).toHaveText(/Backup My Journey/);
+    await expect(page.getByTestId("upgrade-prompt-cta")).toHaveText(/Keep My Journey Safe/);
     await expect(page.getByTestId("upgrade-prompt-dismiss")).toHaveText(/Not Now/);
   });
 

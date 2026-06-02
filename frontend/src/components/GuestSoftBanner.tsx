@@ -52,7 +52,7 @@ export function GuestSoftBanner() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Save your spiritual journey</Text>
-          <Text style={styles.sub}>Backup My Journey</Text>
+          <Text style={styles.sub}>Keep My Journey Safe</Text>
         </View>
       </Pressable>
       <Pressable onPress={dismiss} hitSlop={10} style={styles.closeBtn} testID="guest-soft-banner-dismiss">

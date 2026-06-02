@@ -13,6 +13,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { colors, fonts } from "@/src/theme/theme";
 import { UpgradeTrigger } from "@/src/lib/upgrade-prompts";
 import { registerEmail, loginEmail, requestPasswordReset } from "@/src/lib/auth-api";
@@ -32,6 +33,7 @@ export function AuthSheet({
   trigger: UpgradeTrigger | null;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -301,6 +303,31 @@ export function AuthSheet({
           >
             <Text style={styles.dismissText}>Not now</Text>
           </Pressable>
+          <Text style={styles.legalLine}>
+            By continuing you agree to our{" "}
+            <Text
+              style={styles.legalLink}
+              onPress={() => {
+                handleClose();
+                setTimeout(() => router.push("/terms" as any), 120);
+              }}
+              testID="auth-terms-link"
+            >
+              Terms
+            </Text>
+            {" and "}
+            <Text
+              style={styles.legalLink}
+              onPress={() => {
+                handleClose();
+                setTimeout(() => router.push("/privacy" as any), 120);
+              }}
+              testID="auth-privacy-link"
+            >
+              Privacy Policy
+            </Text>
+            .
+          </Text>
         </View>
       </View>
       {/* trigger is currently used only for analytics gating upstream */}
@@ -398,4 +425,14 @@ const styles = StyleSheet.create({
   },
   dismissBtn: { alignItems: "center", paddingVertical: 10, marginTop: 4 },
   dismissText: { color: colors.textSecondary, fontFamily: fonts.sansMedium, fontSize: 13 },
+  legalLine: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.textTertiary,
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 12,
+  },
+  legalLink: { color: colors.accent, textDecorationLine: "underline" },
 });

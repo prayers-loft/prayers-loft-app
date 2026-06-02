@@ -15,6 +15,7 @@ import { getGuestIdentity } from "@/src/lib/guest-identity";
 import { UpgradePromptHost } from "@/src/components/UpgradePromptHost";
 import { AuthHost } from "@/src/components/AuthHost";
 import { ToastHost } from "@/src/components/Toast";
+import { OnboardingHost } from "@/src/components/OnboardingCarousel";
 import { initAuth } from "@/src/lib/auth-store";
 import { probeMe } from "@/src/lib/auth-api";
 import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
@@ -74,6 +75,7 @@ export default function RootLayout() {
           <UpgradePromptHost />
           <AuthHost />
           <ToastHost />
+          <OnboardingHost />
         </View>
       </KeyboardProvider>
     </SafeAreaProvider>

@@ -85,6 +85,22 @@ export async function logout(): Promise<void> {
   await clearAuth();
 }
 
+export async function deleteAccount(): Promise<void> {
+  // Server purges cloud-side data + revokes sessions. We then clear local
+  // auth state. Local AsyncStorage app data (saved prayers, prefs) is preserved
+  // so the same device can continue as a guest.
+  const resp = await authFetch("/api/account/me", { method: "DELETE" });
+  if (!resp.ok) {
+    let msg = "Account deletion failed.";
+    try {
+      const data = await resp.json();
+      if (data?.detail) msg = data.detail;
+    } catch {}
+    throw new Error(msg);
+  }
+  await clearAuth();
+}
+
 export async function probeMe(): Promise<AuthUser | null> {
   try {
     const resp = await authFetch("/api/auth/me", { method: "GET" });
