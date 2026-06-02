@@ -1,28 +1,43 @@
-// Phase-2 bottom-sheet that presents Google, (Apple — feature-flagged), and
-// Email/password options. Replaces the placeholder Alert in upgrade-prompts.
-import React, { useState } from "react";
+// Phase-2 full-screen authentication sheet.
+// Designed to feel like Calm / Headspace / Notion / Apple Health — a focused
+// experience, not a popup. True full-screen modal with a nearly-opaque scrim
+// so the underlying app surface never visually competes.
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, fonts } from "@/src/theme/theme";
 import { UpgradeTrigger } from "@/src/lib/upgrade-prompts";
-import { registerEmail, loginEmail, requestPasswordReset } from "@/src/lib/auth-api";
+import {
+  registerEmail,
+  loginEmail,
+  requestPasswordReset,
+} from "@/src/lib/auth-api";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
 import { showToast } from "@/src/components/Toast";
 
 const APPLE_ENABLED = false; // Apple Sign-In feature flag (see backend APPLE_SIGN_IN_ENABLED).
 
 type Mode = "choose" | "email-login" | "email-register" | "email-forgot";
+
+const BENEFITS = [
+  "Sync across devices",
+  "Protect your reflections",
+  "Preserve your streaks",
+  "Never lose your spiritual journey",
+];
 
 export function AuthSheet({
   visible,
@@ -34,6 +49,7 @@ export function AuthSheet({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,17 +57,19 @@ export function AuthSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function reset() {
-    setMode("choose");
-    setEmail("");
-    setPassword("");
-    setName("");
-    setBusy(false);
-    setError(null);
-  }
+  // Reset internal state every time the sheet is freshly opened.
+  useEffect(() => {
+    if (visible) {
+      setMode("choose");
+      setEmail("");
+      setPassword("");
+      setName("");
+      setBusy(false);
+      setError(null);
+    }
+  }, [visible]);
 
   function handleClose() {
-    reset();
     onClose();
   }
 
@@ -133,202 +151,297 @@ export function AuthSheet({
   return (
     <Modal
       visible={visible}
-      transparent
-      animationType="fade"
+      animationType="slide"
+      transparent={false}
       onRequestClose={handleClose}
       statusBarTranslucent
+      presentationStyle="overFullScreen"
     >
-      <Pressable
-        style={styles.backdrop}
-        onPress={handleClose}
-        testID="auth-sheet-backdrop"
-      />
-      <View style={styles.sheet} testID="auth-sheet" pointerEvents="box-none">
-        <View style={styles.sheetInner}>
-          <View style={styles.grabber} />
-          <Text style={styles.title} testID="auth-sheet-title">
-            {mode === "choose"
-              ? "Save your spiritual journey"
-              : mode === "email-register"
-              ? "Create your account"
-              : mode === "email-forgot"
-              ? "Reset your password"
-              : "Welcome back"}
-          </Text>
-          <Text style={styles.subtitle}>
-            {mode === "choose"
-              ? "Sign in to back up your prayers, reflections, and streaks."
-              : mode === "email-register"
-              ? "We'll keep your journey safe across devices."
-              : mode === "email-forgot"
-              ? "Enter your email and we'll send a reset link."
-              : "Sign in to restore your saved journey."}
-          </Text>
-
-          {mode === "choose" && (
-            <View style={styles.list}>
-              <Pressable
-                style={[styles.providerBtn, styles.googleBtn]}
-                onPress={onGoogle}
-                disabled={busy}
-                testID="auth-google-btn"
-              >
-                <Ionicons name="logo-google" size={18} color="#1a1a1a" />
-                <Text style={styles.googleText}>Continue with Google</Text>
-              </Pressable>
-
-              {APPLE_ENABLED && Platform.OS === "ios" && (
-                <Pressable
-                  style={[styles.providerBtn, styles.appleBtn]}
-                  onPress={() => Alert.alert("Apple Sign-In", "Coming soon on iOS builds.")}
-                  disabled={busy}
-                  testID="auth-apple-btn"
-                >
-                  <Ionicons name="logo-apple" size={18} color="#fff" />
-                  <Text style={styles.appleText}>Continue with Apple</Text>
-                </Pressable>
-              )}
-
-              <Pressable
-                style={[styles.providerBtn, styles.emailBtn]}
-                onPress={() => setMode("email-login")}
-                disabled={busy}
-                testID="auth-email-btn"
-              >
-                <Ionicons name="mail-outline" size={18} color={colors.text} />
-                <Text style={styles.emailText}>Continue with Email</Text>
-              </Pressable>
-
-              <Text style={styles.fineprint}>
-                You can keep using Prayers Loft as a Guest anytime.
-              </Text>
-            </View>
-          )}
-
-          {mode !== "choose" && (
-            <View style={styles.form}>
-              {mode === "email-register" && (
-                <TextInput
-                  style={styles.input}
-                  placeholder="Your name (optional)"
-                  placeholderTextColor={colors.textTertiary}
-                  autoCapitalize="words"
-                  value={name}
-                  onChangeText={setName}
-                  testID="auth-input-name"
-                />
-              )}
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor={colors.textTertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
-                testID="auth-input-email"
-              />
-              {mode !== "email-forgot" && (
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor={colors.textTertiary}
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                  testID="auth-input-password"
-                />
-              )}
-              {error ? (
-                <Text style={styles.errorText} testID="auth-error">
-                  {error}
-                </Text>
-              ) : null}
-              <Pressable
-                style={[styles.providerBtn, styles.primaryBtn]}
-                onPress={onEmailSubmit}
-                disabled={busy}
-                testID="auth-submit"
-              >
-                {busy ? (
-                  <ActivityIndicator color="#0c1024" />
-                ) : (
-                  <Text style={styles.primaryText}>
-                    {mode === "email-register"
-                      ? "Create account"
-                      : mode === "email-forgot"
-                      ? "Send reset link"
-                      : "Sign in"}
-                  </Text>
-                )}
-              </Pressable>
-              {mode === "email-login" && (
-                <Pressable
-                  onPress={() => setMode("email-forgot")}
-                  style={styles.switchBtn}
-                  testID="auth-forgot-link"
-                >
-                  <Text style={styles.switchText}>Forgot password?</Text>
-                </Pressable>
-              )}
-              {mode !== "email-forgot" && (
-                <Pressable
-                  onPress={() =>
-                    setMode(mode === "email-register" ? "email-login" : "email-register")
-                  }
-                  style={styles.switchBtn}
-                  testID="auth-switch-mode"
-                >
-                  <Text style={styles.switchText}>
-                    {mode === "email-register"
-                      ? "Already have an account? Sign in"
-                      : "New here? Create an account"}
-                  </Text>
-                </Pressable>
-              )}
-              <Pressable
-                onPress={() => setMode(mode === "email-forgot" ? "email-login" : "choose")}
-                style={styles.backBtn}
-              >
-                <Text style={styles.backText}>← Back</Text>
-              </Pressable>
-            </View>
-          )}
-
+      <View style={styles.root} testID="auth-sheet">
+        {/* Top safe area + close affordance */}
+        <View
+          style={[
+            styles.topBar,
+            { paddingTop: (insets.top || 12) + 8 },
+          ]}
+        >
           <Pressable
             onPress={handleClose}
-            style={styles.dismissBtn}
-            testID="auth-sheet-dismiss"
+            style={styles.closeBtn}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            testID="auth-sheet-close"
           >
-            <Text style={styles.dismissText}>Not now</Text>
+            <Ionicons name="close" size={22} color={colors.text} />
           </Pressable>
-          <Text style={styles.legalLine}>
-            By continuing you agree to our{" "}
-            <Text
-              style={styles.legalLink}
-              onPress={() => {
-                handleClose();
-                setTimeout(() => router.push("/terms" as any), 120);
-              }}
-              testID="auth-terms-link"
-            >
-              Terms
-            </Text>
-            {" and "}
-            <Text
-              style={styles.legalLink}
-              onPress={() => {
-                handleClose();
-                setTimeout(() => router.push("/privacy" as any), 120);
-              }}
-              testID="auth-privacy-link"
-            >
-              Privacy Policy
-            </Text>
-            .
-          </Text>
         </View>
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: (insets.bottom || 24) + 32 },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.heroBlock}>
+              <View style={styles.brandRing}>
+                <Ionicons name="leaf-outline" size={22} color={colors.accent} />
+              </View>
+              <Text style={styles.title} testID="auth-sheet-title">
+                {mode === "choose"
+                  ? "Keep your journey safe"
+                  : mode === "email-register"
+                  ? "Create your account"
+                  : mode === "email-forgot"
+                  ? "Reset your password"
+                  : "Welcome back"}
+              </Text>
+              <Text style={styles.subtitle}>
+                {mode === "choose"
+                  ? "Save your prayers, reflections, and streaks across devices."
+                  : mode === "email-register"
+                  ? "We'll keep your journey safe across devices."
+                  : mode === "email-forgot"
+                  ? "Enter your email and we'll send a reset link."
+                  : "Sign in to restore your journey."}
+              </Text>
+            </View>
+
+            {mode === "choose" && (
+              <View style={styles.chooseBlock}>
+                <View style={styles.benefitList}>
+                  {BENEFITS.map((b) => (
+                    <View key={b} style={styles.benefitRow}>
+                      <View style={styles.benefitDot}>
+                        <Ionicons name="checkmark" size={13} color={colors.accent} />
+                      </View>
+                      <Text style={styles.benefitText}>{b}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.actions}>
+                  <Pressable
+                    onPress={onGoogle}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.btn,
+                      styles.googleBtn,
+                      pressed && styles.btnPressed,
+                    ]}
+                    testID="auth-google-btn"
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Google"
+                  >
+                    {busy ? (
+                      <ActivityIndicator color="#1a1a1a" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-google" size={18} color="#1a1a1a" />
+                        <Text style={styles.googleText}>Continue with Google</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {APPLE_ENABLED && Platform.OS === "ios" && (
+                    <Pressable
+                      onPress={() =>
+                        showToast({ variant: "info", title: "Apple Sign-In", message: "Coming soon." })
+                      }
+                      disabled={busy}
+                      style={({ pressed }) => [styles.btn, styles.appleBtn, pressed && styles.btnPressed]}
+                      testID="auth-apple-btn"
+                    >
+                      <Ionicons name="logo-apple" size={18} color="#fff" />
+                      <Text style={styles.appleText}>Continue with Apple</Text>
+                    </Pressable>
+                  )}
+
+                  <Pressable
+                    onPress={() => setMode("email-login")}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.btn,
+                      styles.emailBtn,
+                      pressed && styles.btnPressed,
+                    ]}
+                    testID="auth-email-btn"
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Email"
+                  >
+                    <Ionicons name="mail-outline" size={18} color={colors.text} />
+                    <Text style={styles.emailText}>Continue with Email</Text>
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  onPress={handleClose}
+                  style={styles.notNowBtn}
+                  testID="auth-sheet-dismiss"
+                >
+                  <Text style={styles.notNowText}>Not now</Text>
+                </Pressable>
+
+                <Text style={styles.legalLine}>
+                  By continuing you agree to our{" "}
+                  <Text
+                    style={styles.legalLink}
+                    onPress={() => {
+                      handleClose();
+                      setTimeout(() => router.push("/terms" as any), 120);
+                    }}
+                    testID="auth-terms-link"
+                  >
+                    Terms
+                  </Text>
+                  {" and "}
+                  <Text
+                    style={styles.legalLink}
+                    onPress={() => {
+                      handleClose();
+                      setTimeout(() => router.push("/privacy" as any), 120);
+                    }}
+                    testID="auth-privacy-link"
+                  >
+                    Privacy Policy
+                  </Text>
+                  .
+                </Text>
+              </View>
+            )}
+
+            {mode !== "choose" && (
+              <View style={styles.formBlock}>
+                {mode === "email-register" && (
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Name (optional)</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Your name"
+                      placeholderTextColor={colors.textTertiary}
+                      autoCapitalize="words"
+                      value={name}
+                      onChangeText={setName}
+                      testID="auth-input-name"
+                    />
+                  </View>
+                )}
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Email</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="you@example.com"
+                    placeholderTextColor={colors.textTertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    value={email}
+                    onChangeText={setEmail}
+                    testID="auth-input-email"
+                  />
+                </View>
+
+                {mode !== "email-forgot" && (
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder={mode === "email-register" ? "At least 8 characters" : "Password"}
+                      placeholderTextColor={colors.textTertiary}
+                      secureTextEntry
+                      value={password}
+                      onChangeText={setPassword}
+                      testID="auth-input-password"
+                    />
+                  </View>
+                )}
+
+                {mode === "email-login" && (
+                  <Pressable
+                    onPress={() => {
+                      setError(null);
+                      setMode("email-forgot");
+                    }}
+                    style={styles.forgotBtn}
+                    testID="auth-forgot-link"
+                  >
+                    <Text style={styles.forgotText}>Forgot password?</Text>
+                  </Pressable>
+                )}
+
+                {error ? (
+                  <Text style={styles.errorText} testID="auth-error">
+                    {error}
+                  </Text>
+                ) : null}
+
+                <Pressable
+                  onPress={onEmailSubmit}
+                  disabled={busy}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.primaryBtn,
+                    pressed && styles.btnPressed,
+                    busy && styles.btnDisabled,
+                  ]}
+                  testID="auth-submit"
+                  accessibilityRole="button"
+                >
+                  {busy ? (
+                    <ActivityIndicator color="#0c1024" />
+                  ) : (
+                    <Text style={styles.primaryText}>
+                      {mode === "email-register"
+                        ? "Create Account"
+                        : mode === "email-forgot"
+                        ? "Send reset link"
+                        : "Sign In"}
+                    </Text>
+                  )}
+                </Pressable>
+
+                {mode !== "email-forgot" && (
+                  <View style={styles.switchRow}>
+                    <Text style={styles.switchPrompt}>
+                      {mode === "email-register"
+                        ? "Already have an account?"
+                        : "Don't have an account?"}
+                    </Text>
+                    <Pressable
+                      onPress={() =>
+                        setMode(mode === "email-register" ? "email-login" : "email-register")
+                      }
+                      hitSlop={8}
+                      testID="auth-switch-mode"
+                    >
+                      <Text style={styles.switchAction}>
+                        {mode === "email-register" ? "Sign in" : "Create one"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={() => setMode(mode === "email-forgot" ? "email-login" : "choose")}
+                  style={styles.backBtn}
+                  hitSlop={8}
+                  testID="auth-back"
+                >
+                  <Ionicons name="chevron-back" size={16} color={colors.textSecondary} />
+                  <Text style={styles.backText}>Back</Text>
+                </Pressable>
+              </View>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
       {/* trigger is currently used only for analytics gating upstream */}
       {void trigger}
@@ -336,103 +449,224 @@ export function AuthSheet({
   );
 }
 
+// Spacing tokens (8pt grid)
+const S = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 40 };
+
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,10,22,0.72)" },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
+  root: {
+    flex: 1,
+    backgroundColor: "#0a0e1a", // Solid Midnight Indigo — fully covers underlying app.
   },
-  sheetInner: {
-    backgroundColor: colors.surface1,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 28,
-    borderTopWidth: 1,
-    borderColor: "rgba(200,169,107,0.18)",
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: S.md,
+    paddingBottom: S.sm,
   },
-  grabber: {
-    alignSelf: "center",
-    width: 44,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    marginBottom: 14,
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  scroll: {
+    paddingHorizontal: S.lg + 4,
+    paddingTop: S.md,
+  },
+
+  // ---- HERO ----
+  heroBlock: {
+    alignItems: "center",
+    marginTop: S.sm,
+    marginBottom: S.xl,
+  },
+  brandRing: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.34)",
+    backgroundColor: "rgba(200,169,107,0.08)",
+    marginBottom: S.md,
   },
   title: {
     fontFamily: fonts.serif,
     color: colors.text,
-    fontSize: 22,
-    lineHeight: 28,
-    marginBottom: 6,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: "600",
+    textAlign: "center",
+    letterSpacing: -0.2,
+    marginBottom: S.sm + 2,
+    paddingHorizontal: 8,
   },
   subtitle: {
     fontFamily: fonts.sans,
     color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
+    fontSize: 17,
+    lineHeight: 25,
+    textAlign: "center",
+    maxWidth: 340,
   },
-  list: { gap: 10 },
-  form: { gap: 10 },
-  providerBtn: {
+
+  // ---- CHOOSE ----
+  chooseBlock: { gap: S.lg },
+  benefitList: { gap: 12, marginBottom: S.sm },
+  benefitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  benefitDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(200,169,107,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.28)",
+  },
+  benefitText: {
+    fontFamily: fonts.sans,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  actions: { gap: 12 },
+
+  // ---- BUTTONS ----
+  btn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    minHeight: 48,
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 16,
   },
-  googleBtn: { backgroundColor: "#FFFFFF" },
-  googleText: { color: "#1a1a1a", fontFamily: fonts.sansSemibold, fontSize: 15 },
+  btnPressed: { opacity: 0.88 },
+  btnDisabled: { opacity: 0.55 },
+  googleBtn: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  googleText: { color: "#1a1a1a", fontFamily: fonts.sansSemibold, fontSize: 16 },
   appleBtn: { backgroundColor: "#000" },
-  appleText: { color: "#fff", fontFamily: fonts.sansSemibold, fontSize: 15 },
-  emailBtn: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
-  emailText: { color: colors.text, fontFamily: fonts.sansSemibold, fontSize: 15 },
-  primaryBtn: { backgroundColor: colors.accent },
-  primaryText: { color: "#0c1024", fontFamily: fonts.sansSemibold, fontSize: 15 },
+  appleText: { color: "#fff", fontFamily: fonts.sansSemibold, fontSize: 16 },
+  emailBtn: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  emailText: { color: colors.text, fontFamily: fonts.sansSemibold, fontSize: 16 },
+  primaryBtn: {
+    backgroundColor: colors.accent,
+    marginTop: S.sm,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  primaryText: { color: "#0c1024", fontFamily: fonts.sansSemibold, fontSize: 16, letterSpacing: 0.2 },
+
+  notNowBtn: { alignItems: "center", paddingVertical: S.sm + 2, marginTop: S.xs },
+  notNowText: {
+    color: colors.textSecondary,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+  },
+
+  legalLine: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textTertiary,
+    textAlign: "center",
+    paddingHorizontal: 16,
+    marginTop: S.xs,
+  },
+  legalLink: { color: colors.accent },
+
+  // ---- FORM ----
+  formBlock: { gap: S.md + 4 },
+  field: { gap: 8 },
+  fieldLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: colors.textTertiary,
+    paddingHorizontal: 2,
+  },
   input: {
     backgroundColor: "rgba(255,255,255,0.05)",
     borderColor: "rgba(255,255,255,0.12)",
     borderWidth: 1,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     color: colors.text,
     fontFamily: fonts.sans,
-    fontSize: 15,
+    fontSize: 16,
+    minHeight: 52,
   },
+
+  forgotBtn: { alignSelf: "flex-end", paddingVertical: 4, paddingHorizontal: 4 },
+  forgotText: {
+    color: colors.accent,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+  },
+
   errorText: {
     color: "#FCA5A5",
     fontFamily: fonts.sans,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 20,
     paddingHorizontal: 4,
+    marginTop: -4,
   },
-  switchBtn: { alignItems: "center", paddingVertical: 8 },
-  switchText: { color: colors.accent, fontFamily: fonts.sansMedium, fontSize: 13 },
-  backBtn: { alignItems: "center" },
-  backText: { color: colors.textSecondary, fontFamily: fonts.sans, fontSize: 13 },
-  fineprint: {
-    color: colors.textTertiary,
+
+  switchRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    marginTop: S.xs,
+  },
+  switchPrompt: {
+    color: colors.textSecondary,
     fontFamily: fonts.sans,
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: 6,
+    fontSize: 15,
   },
-  dismissBtn: { alignItems: "center", paddingVertical: 10, marginTop: 4 },
-  dismissText: { color: colors.textSecondary, fontFamily: fonts.sansMedium, fontSize: 13 },
-  legalLine: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.textTertiary,
-    textAlign: "center",
-    marginTop: 4,
-    paddingHorizontal: 12,
+  switchAction: {
+    color: colors.accent,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
   },
-  legalLink: { color: colors.accent, textDecorationLine: "underline" },
+
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 2,
+    paddingVertical: S.sm,
+    marginTop: S.xs,
+  },
+  backText: {
+    color: colors.textSecondary,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+  },
 });
