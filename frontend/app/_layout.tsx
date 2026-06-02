@@ -14,6 +14,7 @@ import { SplashOverlay } from "@/src/components/SplashOverlay";
 import { getGuestIdentity } from "@/src/lib/guest-identity";
 import { UpgradePromptHost } from "@/src/components/UpgradePromptHost";
 import { AuthHost } from "@/src/components/AuthHost";
+import { ToastHost } from "@/src/components/Toast";
 import { initAuth } from "@/src/lib/auth-store";
 import { probeMe } from "@/src/lib/auth-api";
 import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
@@ -72,6 +73,7 @@ export default function RootLayout() {
           {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
           <UpgradePromptHost />
           <AuthHost />
+          <ToastHost />
         </View>
       </KeyboardProvider>
     </SafeAreaProvider>

@@ -34,6 +34,8 @@ from jose import jwt as jose_jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, EmailStr, Field, constr
 
+from email_service import send_password_reset_email
+
 logger = logging.getLogger("prayers_loft.auth")
 
 # ---------------------------------------------------------------------------
@@ -162,6 +164,15 @@ class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: constr(min_length=16, max_length=128)
+    new_password: constr(min_length=8, max_length=128)
+
+
 class GoogleSessionExchangeRequest(BaseModel):
     session_id: str  # one-time session id from Emergent-managed Google return URL
 
@@ -239,6 +250,8 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         await db.refresh_tokens.create_index("token_hash", unique=True)
         await db.refresh_tokens.create_index("session_id")
         await db.refresh_tokens.create_index("expires_at", expireAfterSeconds=0)
+        await db.password_reset_tokens.create_index("token_hash", unique=True)
+        await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
         await db.login_attempts.create_index("created_at", expireAfterSeconds=60 * 60)
         await db.guest_migrations.create_index(
             [("guest_id", 1), ("user_id", 1)], unique=True
@@ -575,6 +588,63 @@ def build_auth_router(get_db_fn) -> APIRouter:
             {"id": doc["session_id"]}, {"$set": {"revoked": True}}
         )
         return {"ok": True}
+
+    # ------------------------- /auth/password-reset/request -------------------------
+    @router.post("/auth/password-reset/request")
+    async def password_reset_request(payload: PasswordResetRequest):
+        """
+        Always returns 200 (avoids email enumeration). If the email belongs to
+        an email-auth user AND Resend is configured, sends a reset email.
+        """
+        db = get_db_fn()
+        email = payload.email.lower().strip()
+        user = await db.users.find_one({"email": email}, {"_id": 0})
+        if user and user.get("auth_email"):
+            raw = secrets.token_urlsafe(32)
+            await db.password_reset_tokens.insert_one(
+                {
+                    "id": str(uuid.uuid4()),
+                    "user_id": user["id"],
+                    "token_hash": _hash_refresh(raw),
+                    "created_at": utcnow(),
+                    "expires_at": utcnow() + timedelta(minutes=30),
+                    "consumed": False,
+                }
+            )
+            try:
+                await send_password_reset_email(email, raw)
+            except Exception as e:
+                logger.warning(f"password-reset email send failed: {e!r}")
+        return {"ok": True, "message": "If that email is registered, a reset link is on its way."}
+
+    # ------------------------- /auth/password-reset/confirm -------------------------
+    @router.post("/auth/password-reset/confirm")
+    async def password_reset_confirm(payload: PasswordResetConfirm):
+        db = get_db_fn()
+        token_doc = await db.password_reset_tokens.find_one(
+            {"token_hash": _hash_refresh(payload.token)}, {"_id": 0}
+        )
+        if not token_doc or token_doc.get("consumed"):
+            raise HTTPException(status_code=400, detail="Invalid or used reset link")
+        exp = _normalize_dt(token_doc.get("expires_at"))
+        if exp and exp < utcnow():
+            raise HTTPException(status_code=400, detail="Reset link expired")
+        new_hash = hash_password(payload.new_password)
+        await db.users.update_one(
+            {"id": token_doc["user_id"]},
+            {"$set": {"auth_email.password_hash": new_hash, "updated_at": utcnow()}},
+        )
+        await db.password_reset_tokens.update_one(
+            {"id": token_doc["id"]}, {"$set": {"consumed": True, "consumed_at": utcnow()}}
+        )
+        # Revoke all existing sessions for safety.
+        await db.refresh_tokens.update_many(
+            {"user_id": token_doc["user_id"]}, {"$set": {"revoked": True}}
+        )
+        await db.user_sessions.update_many(
+            {"user_id": token_doc["user_id"]}, {"$set": {"revoked": True}}
+        )
+        return {"ok": True, "message": "Password updated. You can now sign in."}
 
     # ------------------------- /auth/google -------------------------
     @router.post("/auth/google", response_model=AuthResponse)

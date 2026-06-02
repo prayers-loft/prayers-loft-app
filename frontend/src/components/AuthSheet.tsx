@@ -15,12 +15,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "@/src/theme/theme";
 import { UpgradeTrigger } from "@/src/lib/upgrade-prompts";
-import { registerEmail, loginEmail } from "@/src/lib/auth-api";
+import { registerEmail, loginEmail, requestPasswordReset } from "@/src/lib/auth-api";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
+import { showToast } from "@/src/components/Toast";
 
 const APPLE_ENABLED = false; // Apple Sign-In feature flag (see backend APPLE_SIGN_IN_ENABLED).
 
-type Mode = "choose" | "email-login" | "email-register";
+type Mode = "choose" | "email-login" | "email-register" | "email-forgot";
 
 export function AuthSheet({
   visible,
@@ -58,7 +59,11 @@ export function AuthSheet({
     try {
       const user = await startGoogleSignIn();
       if (user) {
-        Alert.alert("Welcome", `Signed in as ${user.email || user.name || "your account"}.`);
+        showToast({
+          variant: "success",
+          title: "Welcome",
+          message: `Signed in as ${user.email || user.name || "your account"}.`,
+        });
         handleClose();
       } else {
         setError("Google sign-in was cancelled.");
@@ -70,8 +75,32 @@ export function AuthSheet({
     }
   }
 
+  async function onForgotSubmit() {
+    setError(null);
+    if (!email) {
+      setError("Please enter your email.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await requestPasswordReset(email);
+      showToast({
+        variant: "info",
+        title: "Check your email",
+        message: "If that address is registered, a reset link is on its way.",
+        duration: 4500,
+      });
+      handleClose();
+    } catch (e: any) {
+      setError(e?.message || "Could not send reset email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onEmailSubmit() {
     setError(null);
+    if (mode === "email-forgot") return onForgotSubmit();
     if (!email || !password) {
       setError("Please enter email and password.");
       return;
@@ -86,10 +115,11 @@ export function AuthSheet({
         mode === "email-register"
           ? await registerEmail(email, password, name || undefined)
           : await loginEmail(email, password);
-      Alert.alert(
-        mode === "email-register" ? "Welcome to Prayers Loft" : "Welcome back",
-        user.email ? `Signed in as ${user.email}.` : "You're signed in."
-      );
+      showToast({
+        variant: "success",
+        title: mode === "email-register" ? "Welcome to Prayers Loft" : "Welcome back",
+        message: user.email ? `Signed in as ${user.email}.` : "You're signed in.",
+      });
       handleClose();
     } catch (e: any) {
       setError(e?.message || "Sign-in failed.");
@@ -119,6 +149,8 @@ export function AuthSheet({
               ? "Save your spiritual journey"
               : mode === "email-register"
               ? "Create your account"
+              : mode === "email-forgot"
+              ? "Reset your password"
               : "Welcome back"}
           </Text>
           <Text style={styles.subtitle}>
@@ -126,6 +158,8 @@ export function AuthSheet({
               ? "Sign in to back up your prayers, reflections, and streaks."
               : mode === "email-register"
               ? "We'll keep your journey safe across devices."
+              : mode === "email-forgot"
+              ? "Enter your email and we'll send a reset link."
               : "Sign in to restore your saved journey."}
           </Text>
 
@@ -193,15 +227,17 @@ export function AuthSheet({
                 onChangeText={setEmail}
                 testID="auth-input-email"
               />
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor={colors.textTertiary}
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-                testID="auth-input-password"
-              />
+              {mode !== "email-forgot" && (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor={colors.textTertiary}
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                  testID="auth-input-password"
+                />
+              )}
               {error ? (
                 <Text style={styles.errorText} testID="auth-error">
                   {error}
@@ -217,24 +253,42 @@ export function AuthSheet({
                   <ActivityIndicator color="#0c1024" />
                 ) : (
                   <Text style={styles.primaryText}>
-                    {mode === "email-register" ? "Create account" : "Sign in"}
+                    {mode === "email-register"
+                      ? "Create account"
+                      : mode === "email-forgot"
+                      ? "Send reset link"
+                      : "Sign in"}
                   </Text>
                 )}
               </Pressable>
+              {mode === "email-login" && (
+                <Pressable
+                  onPress={() => setMode("email-forgot")}
+                  style={styles.switchBtn}
+                  testID="auth-forgot-link"
+                >
+                  <Text style={styles.switchText}>Forgot password?</Text>
+                </Pressable>
+              )}
+              {mode !== "email-forgot" && (
+                <Pressable
+                  onPress={() =>
+                    setMode(mode === "email-register" ? "email-login" : "email-register")
+                  }
+                  style={styles.switchBtn}
+                  testID="auth-switch-mode"
+                >
+                  <Text style={styles.switchText}>
+                    {mode === "email-register"
+                      ? "Already have an account? Sign in"
+                      : "New here? Create an account"}
+                  </Text>
+                </Pressable>
+              )}
               <Pressable
-                onPress={() =>
-                  setMode(mode === "email-register" ? "email-login" : "email-register")
-                }
-                style={styles.switchBtn}
-                testID="auth-switch-mode"
+                onPress={() => setMode(mode === "email-forgot" ? "email-login" : "choose")}
+                style={styles.backBtn}
               >
-                <Text style={styles.switchText}>
-                  {mode === "email-register"
-                    ? "Already have an account? Sign in"
-                    : "New here? Create an account"}
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => setMode("choose")} style={styles.backBtn}>
                 <Text style={styles.backText}>← Back</Text>
               </Pressable>
             </View>
