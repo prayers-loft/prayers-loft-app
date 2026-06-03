@@ -24,6 +24,7 @@ import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { useAuthState } from "@/src/hooks/use-auth-state";
 import { logout, deleteAccount } from "@/src/lib/auth-api";
+import { replayOnboarding } from "@/src/lib/onboarding";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -320,6 +321,20 @@ export default function SettingsScreen() {
             onPress={() => router.push("/terms" as any)}
             right={<Chev />}
             testID="open-terms"
+          />
+        </Section>
+
+        {/* ---- DEVELOPER TOOLS ---- */}
+        <Section label="Developer Tools">
+          <Row
+            title="Replay Onboarding"
+            subtitle="Show the welcome carousel and AI disclosure again."
+            onPress={async () => {
+              await replayOnboarding();
+              pop("Onboarding will replay now.");
+            }}
+            right={<Chev />}
+            testID="replay-onboarding-button"
           />
         </Section>
       </ScrollView>

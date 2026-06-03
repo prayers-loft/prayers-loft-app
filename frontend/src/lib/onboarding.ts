@@ -1,10 +1,13 @@
 // Tiny helpers backing first-time UX gates:
 //   - onboarding seen (once-only first-launch carousel)
 //   - AI disclosure shown (once-only on first prayer)
+import { DeviceEventEmitter } from "react-native";
 import { storage } from "@/src/utils/storage";
 
 const KEY_ONBOARDING = "prayersloft_onboarding_seen_v1";
 const KEY_AI_DISCLOSURE = "prayersloft_ai_disclosure_seen_v1";
+
+export const ONBOARDING_REPLAY_EVENT = "prayersloft:replay-onboarding";
 
 function _isUnderTest(): boolean {
   try {
@@ -49,4 +52,16 @@ export async function markAIDisclosureSeen(): Promise<void> {
 export async function resetFirstLaunchGates(): Promise<void> {
   await storage.setItem(KEY_ONBOARDING, "");
   await storage.setItem(KEY_AI_DISCLOSURE, "");
+}
+
+/**
+ * Developer Tools — clear the once-only gates AND immediately re-trigger the
+ * onboarding carousel without requiring a cold relaunch. Used by Settings →
+ * Developer Tools → Replay Onboarding.
+ */
+export async function replayOnboarding(): Promise<void> {
+  await resetFirstLaunchGates();
+  try {
+    DeviceEventEmitter.emit(ONBOARDING_REPLAY_EVENT);
+  } catch {}
 }

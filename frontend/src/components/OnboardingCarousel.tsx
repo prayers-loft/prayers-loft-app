@@ -14,10 +14,15 @@ import {
   ScrollView,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  DeviceEventEmitter,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "@/src/theme/theme";
-import { hasSeenOnboarding, markOnboardingSeen } from "@/src/lib/onboarding";
+import {
+  hasSeenOnboarding,
+  markOnboardingSeen,
+  ONBOARDING_REPLAY_EVENT,
+} from "@/src/lib/onboarding";
 
 const SLIDES = [
   {
@@ -48,6 +53,7 @@ export function OnboardingHost() {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Initial check on mount — fires for genuine first-time users only.
     (async () => {
       // Skip onboarding under automated test runners (Playwright sets navigator.webdriver).
       try {
@@ -62,16 +68,35 @@ export function OnboardingHost() {
       } catch {}
       const seen = await hasSeenOnboarding();
       if (!seen) {
-        setVisible(true);
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 320,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: Platform.OS !== "web",
-        }).start();
+        showCarousel();
       }
     })();
-  }, [opacity]);
+
+    // Listener — Settings → Developer Tools → Replay Onboarding emits this.
+    const sub = DeviceEventEmitter.addListener(ONBOARDING_REPLAY_EVENT, () => {
+      setIndex(0);
+      // Snap scroll back to first slide on next paint.
+      requestAnimationFrame(() => {
+        try {
+          scrollRef.current?.scrollTo({ x: 0, animated: false });
+        } catch {}
+      });
+      showCarousel();
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function showCarousel() {
+    setVisible(true);
+    opacity.setValue(0);
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: Platform.OS !== "web",
+    }).start();
+  }
 
   async function finish() {
     await markOnboardingSeen();
