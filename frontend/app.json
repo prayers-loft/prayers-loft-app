@@ -1,23 +1,29 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Prayers Loft",
+    "slug": "prayers-loft",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "prayersloft",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.prayersloft.app",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSPhotoLibraryAddUsageDescription": "Save your prayer cards to share later"
-      }
+        "NSPhotoLibraryAddUsageDescription": "Save your prayer cards to share later",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": []
     },
     "android": {
+      "package": "com.prayersloft.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#0a0e1a"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -38,11 +44,13 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#0a0e1a"
         }
       ],
       "expo-audio",
       "expo-font",
+      "expo-secure-store",
+      "expo-web-browser",
       [
         "expo-media-library",
         {
@@ -54,6 +62,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID_AFTER_eas_init"
+      }
+    },
+    "owner": "REPLACE_WITH_YOUR_EXPO_USERNAME"
   }
 }
