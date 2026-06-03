@@ -29,7 +29,7 @@
       "extends": "base",
       "distribution": "store",
       "channel": "testflight",
-      "autoIncrement": "buildNumber",
+      "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-BACKEND.example.com"
@@ -39,7 +39,7 @@
       "extends": "base",
       "distribution": "store",
       "channel": "production",
-      "autoIncrement": "buildNumber",
+      "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-BACKEND.example.com"
