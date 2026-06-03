@@ -20,6 +20,7 @@ expo-env.d.ts
 
 # Metro
 .metro-health-check*
+.metro-cache/
 
 # debug
 npm-debug.*
@@ -30,10 +31,25 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# Environment files (all variants)
+.env
+.env.*
+!.env.example
+!.env.template
+*.env
+*.env.local
 .env*.local
 
 # typescript
 *.tsbuildinfo
 
 app-example
+
+# Apple / iOS signing artifacts
+AuthKey_*.p8
+*.cer
+*.certSigningRequest
+
+# Google / Firebase (push notifications later)
+google-services.json
+GoogleService-Info.plist

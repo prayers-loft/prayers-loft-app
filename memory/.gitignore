@@ -1,0 +1,2 @@
+# Memory dir holds private state — exclude test credentials
+test_credentials.md

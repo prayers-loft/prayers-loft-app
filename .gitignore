@@ -31,9 +31,35 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.*
+!.env.example
+!.env.template
+**/.env
+**/.env.local
+**/.env.*.local
 
 *token.json*
 *credentials.json*
+
+# Apple / iOS signing
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+*.cer
+*.certSigningRequest
+AuthKey_*.p8
+
+# Generic secret-looking files
+**/secrets/
+**/private_key*
+**/service-account*.json
+**/google-services.json
+**/GoogleService-Info.plist
+.metro-cache/
+
 
 # Logs and debug files
 npm-debug.log*
