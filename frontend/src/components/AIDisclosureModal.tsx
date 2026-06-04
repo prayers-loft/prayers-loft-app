@@ -83,7 +83,7 @@ export function AIDisclosureModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(8,10,22,0.78)",
+    backgroundColor: "rgba(5,7,18,0.92)",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
@@ -91,13 +91,18 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 380,
-    backgroundColor: colors.surface1,
+    backgroundColor: "#161E36",
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(200,169,107,0.22)",
+    borderColor: "rgba(200,169,107,0.28)",
     paddingHorizontal: 22,
     paddingTop: 24,
     paddingBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 20,
   },
   iconRing: {
     width: 40,
