@@ -32,7 +32,7 @@
       "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-BACKEND.example.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
     },
     "production": {
@@ -42,7 +42,7 @@
       "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-BACKEND.example.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
     }
   },
