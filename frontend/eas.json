@@ -21,8 +21,18 @@
       "distribution": "internal",
       "channel": "preview",
       "ios": { "resourceClass": "m-medium" },
+      "android": { "buildType": "apk" },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-BACKEND.example.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
+      }
+    },
+    "android-preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "channel": "preview",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
     },
     "testflight": {
