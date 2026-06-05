@@ -38,7 +38,6 @@
     "testflight": {
       "extends": "base",
       "distribution": "store",
-      "channel": "testflight",
       "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
@@ -48,7 +47,6 @@
     "production": {
       "extends": "base",
       "distribution": "store",
-      "channel": "production",
       "autoIncrement": true,
       "ios": { "resourceClass": "m-medium" },
       "env": {
