@@ -64,6 +64,7 @@
       "typedRoutes": true
     },
     "extra": {
+      "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com",
       "eas": {
         "projectId": "REPLACE_WITH_EAS_PROJECT_ID_AFTER_eas_init"
       }

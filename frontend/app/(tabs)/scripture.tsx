@@ -27,6 +27,7 @@ import {
 } from "@/src/lib/daily-devotional";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
+import { showToast } from "@/src/components/Toast";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -113,6 +114,12 @@ export default function ScriptureScreen() {
         }
       } catch (e) {
         console.warn("daily verse load failed", e);
+        showToast({
+          variant: "error",
+          title: "Couldn't load today's scripture",
+          message: e instanceof Error ? e.message : "Check your connection and try again.",
+          duration: 5000,
+        });
       } finally {
         setLoading(false);
       }

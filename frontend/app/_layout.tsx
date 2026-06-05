@@ -20,6 +20,8 @@ import { initAuth } from "@/src/lib/auth-store";
 import { probeMe } from "@/src/lib/auth-api";
 import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
 import { RootErrorBoundary } from "@/src/components/RootErrorBoundary";
+import { getApiBase } from "@/src/lib/api";
+import { showToast } from "@/src/components/Toast";
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -43,6 +45,18 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (ready) {
+      // Startup config sanity check — loudly surface a misconfigured backend URL
+      // so we never silently fail again (root cause of v1.0.0 build 5 outage).
+      const apiBase = getApiBase();
+      if (!apiBase) {
+        showToast({
+          variant: "error",
+          title: "App configuration error",
+          message: "Backend URL is not set. Please reinstall the latest build.",
+          duration: 10000,
+        });
+        console.error("[RootLayout] EXPO_PUBLIC_BACKEND_URL is empty at runtime");
+      }
       // Hide native splash. Defensive try/catch — if Expo's splash module fails,
       // do NOT let the error abort the process (root cause of v1.0.0 (2) crash).
       try {

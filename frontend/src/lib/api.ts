@@ -1,8 +1,38 @@
 // Backend API client for Prayers Loft.
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+//
+// IMPORTANT: BASE URL resolution must work in 3 environments:
+//   1. Web/dev: `process.env.EXPO_PUBLIC_BACKEND_URL` is inlined by Metro.
+//   2. iOS/Android release builds: `process.env` is sometimes stripped/empty
+//      → fall back to `Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_URL`,
+//      which is baked from app.json `extra` at build time.
+//   3. Older Expo SDK manifests: `Constants.manifest.extra` as a final fallback.
+//
+// Without this fallback chain, iOS TestFlight builds end up with BASE="undefined"
+// and every fetch silently 404s — the exact bug in v1.0.0 build 5.
+import Constants from "expo-constants";
+
+function resolveBase(): string {
+  const fromProcess = typeof process !== "undefined" ? process.env?.EXPO_PUBLIC_BACKEND_URL : undefined;
+  const fromExpo =
+    (Constants?.expoConfig?.extra as any)?.EXPO_PUBLIC_BACKEND_URL ||
+    (Constants?.manifest as any)?.extra?.EXPO_PUBLIC_BACKEND_URL;
+  return (fromProcess || fromExpo || "").replace(/\/$/, "");
+}
+
+const BASE = resolveBase();
+
+/** Diagnostic helper — used by _layout.tsx to surface a startup toast if empty. */
+export function getApiBase(): string {
+  return BASE;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
+  if (!BASE) {
+    // Make this loud and visible — silent fetch failures are how we got here.
+    throw new Error("API base URL is not configured (EXPO_PUBLIC_BACKEND_URL missing).");
+  }
+  const url = `${BASE}/api${path}`;
+  const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",

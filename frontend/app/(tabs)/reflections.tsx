@@ -19,6 +19,7 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
+import { showToast } from "@/src/components/Toast";
 import { getSavedPrayers, removeSavedPrayer, SavedPrayer } from "@/src/lib/local-store";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
@@ -102,6 +103,12 @@ export default function ReflectionsScreen() {
       Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
     } catch (e) {
       console.warn("load reflections failed", e);
+      showToast({
+        variant: "error",
+        title: "Couldn't load reflections",
+        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }
@@ -129,6 +136,12 @@ export default function ReflectionsScreen() {
       }
     } catch (e) {
       console.warn("save reflection failed", e);
+      showToast({
+        variant: "error",
+        title: editingId ? "Couldn't update reflection" : "Couldn't save reflection",
+        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        duration: 5000,
+      });
     } finally {
       setSaving(false);
     }

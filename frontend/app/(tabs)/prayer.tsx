@@ -22,6 +22,7 @@ import { GuestSoftBanner } from "@/src/components/GuestSoftBanner";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer, getSavedPrayers } from "@/src/lib/local-store";
+import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
@@ -110,6 +111,12 @@ export default function PrayerScreen() {
       startPrefetch(msg);
     } catch (e) {
       console.warn("prayer request failed", e);
+      showToast({
+        variant: "error",
+        title: "Prayer didn't go through",
+        message: e instanceof Error ? e.message : "Please check your connection and try again.",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }
@@ -140,6 +147,12 @@ export default function PrayerScreen() {
       });
     } catch (e) {
       console.warn("prayer follow-up failed", e);
+      showToast({
+        variant: "error",
+        title: "Couldn't complete prayer",
+        message: e instanceof Error ? e.message : "Please check your connection and try again.",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }
