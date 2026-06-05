@@ -1,0 +1,53 @@
+From a6e2c180b45157ec9409ff993e9916602a41caad Mon Sep 17 00:00:00 2001
+From: Emergent Agent <agent@emergent.sh>
+Date: Fri, 5 Jun 2026 21:42:30 +0000
+Subject: [PATCH] Disable expo-updates channel for v1.0 TestFlight (fixes
+ StartupProcedure crash)
+
+Symbolicated crash on build 3 showed:
+  StartupProcedure.throwException(_:)
+  ErrorRecovery.tryRelaunchFromCache()
+
+Root cause: eas.json had 'channel' set on testflight + production profiles,
+which causes EAS to auto-inject the EXUpdates native module into the iOS
+binary. But app.json never configured expo.updates.url / runtimeVersion /
+the expo-updates plugin, and expo-updates is not in node_modules.
+
+At startup, EXUpdates queries u.expo.dev for a matching update, fails to
+find one, falls into ErrorRecovery.tryRelaunchFromCache, cache is empty,
+embedded fallback metadata absent => throws unhandled NSException => SIGABRT.
+
+Removing 'channel' from testflight + production tells EAS to skip
+expo-updates entirely. App runs purely from the embedded JS bundle, no
+startup network query, no error recovery path triggered.
+
+OTA updates can be added properly later by installing expo-updates,
+configuring app.json with updates.url + runtimeVersion + plugin, then
+re-adding channels here.
+---
+ frontend/eas.json | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/frontend/eas.json b/frontend/eas.json
+index 6ca9f9d..4a55267 100644
+--- a/frontend/eas.json
++++ b/frontend/eas.json
+@@ -38,7 +38,6 @@
+     "testflight": {
+       "extends": "base",
+       "distribution": "store",
+-      "channel": "testflight",
+       "autoIncrement": true,
+       "ios": { "resourceClass": "m-medium" },
+       "env": {
+@@ -48,7 +47,6 @@
+     "production": {
+       "extends": "base",
+       "distribution": "store",
+-      "channel": "production",
+       "autoIncrement": true,
+       "ios": { "resourceClass": "m-medium" },
+       "env": {
+-- 
+2.39.5
+
