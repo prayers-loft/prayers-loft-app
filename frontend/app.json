@@ -66,9 +66,9 @@
     "extra": {
       "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com",
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID_AFTER_eas_init"
+        "projectId": "58fe09b0-bdf8-49f9-9c98-3b09df9e377d"
       }
     },
-    "owner": "REPLACE_WITH_YOUR_EXPO_USERNAME"
+    "owner": "prayersloft"
   }
 }
