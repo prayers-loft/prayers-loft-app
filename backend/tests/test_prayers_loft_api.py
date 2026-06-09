@@ -21,6 +21,12 @@ TIMEOUT = 90  # AI calls can be slow
 def session():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    # Stable per-session guest_id so reflection endpoints (now ownership-scoped
+    # post-v1.0 P0 patch) accept these CRUD test calls. See server.py
+    # current_owner() dep and tests/test_critical_user_flows.py for the
+    # ownership contract.
+    import uuid as _uuid
+    s.headers.update({"X-Guest-Id": f"test-loft-api-{_uuid.uuid4().hex[:12]}"})
     yield s
     s.close()
 

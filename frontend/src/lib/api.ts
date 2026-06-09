@@ -26,16 +26,48 @@ export function getApiBase(): string {
   return BASE;
 }
 
+// Lazy reads of the auth state and the stable guest_id. We avoid top-level
+// imports to keep this module side-effect-free and to dodge import cycles
+// (auth-store and guest-identity both reach into storage on first call).
+async function resolveOwnerHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  // Authenticated user token, if any.
+  try {
+    const { getAuthState } = await import("@/src/lib/auth-store");
+    const access = getAuthState()?.tokens?.access_token;
+    if (access) headers["Authorization"] = `Bearer ${access}`;
+  } catch {
+    // auth-store unavailable; fall through and try guest_id
+  }
+  // Anonymous guest id (always present after first launch).
+  try {
+    const { getGuestId } = await import("@/src/lib/guest-identity");
+    const gid = await getGuestId();
+    if (gid) headers["X-Guest-Id"] = gid;
+  } catch {
+    // guest-identity unavailable on this platform; not fatal — caller may still
+    // succeed if it's a public endpoint (e.g. /api/daily-verse).
+  }
+  return headers;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!BASE) {
     // Make this loud and visible — silent fetch failures are how we got here.
     throw new Error("API base URL is not configured (EXPO_PUBLIC_BACKEND_URL missing).");
   }
   const url = `${BASE}/api${path}`;
+  // Auto-attach ownership headers (Bearer token if signed in, X-Guest-Id
+  // otherwise) so backend endpoints that scope by owner (/api/reflections
+  // and friends) never see a "no owner" request. The patch in
+  // backend/server.py for the v1.0 P0 cross-user leak requires this.
+  // Caller-supplied headers win on conflict.
+  const ownerHeaders = await resolveOwnerHeaders();
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...ownerHeaders,
       ...(init?.headers || {}),
     },
   });

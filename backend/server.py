@@ -1,5 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -60,6 +61,90 @@ async def ai_chat(system_message: str, user_text: str, session_id: Optional[str]
     msg = UserMessage(text=user_text)
     response = await chat.send_message(msg)
     return response if isinstance(response, str) else str(response)
+
+
+# ---------------------------------------------------------------------------
+# Ownership dependency for per-user / per-guest scoped resources.
+#
+# The reflection endpoints (and any future user-private resource) MUST be
+# scoped to a single owner so that data from one TestFlight tester never
+# leaks to another. We accept ownership in two forms:
+#
+#   1. Authenticated user — a valid Bearer JWT token in Authorization header
+#   2. Anonymous guest    — an X-Guest-Id header carrying the stable guest_id
+#                           minted on first launch by the mobile client
+#
+# Exactly one MUST resolve. If neither resolves, return 401. We deliberately
+# do NOT fall back silently to "global pool" because that was the v1.0 P0
+# (cross-user reflection leak) — the bug we are patching here.
+# ---------------------------------------------------------------------------
+from jose import jwt as _jose_jwt  # local alias to avoid clashing with anything else
+
+_owner_bearer = HTTPBearer(auto_error=False)
+
+
+async def current_owner(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_owner_bearer),
+    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-Id"),
+) -> dict:
+    """Resolve the caller to either an authenticated user OR an anonymous guest.
+
+    Returns a dict like {"user_id": "..."} or {"guest_id": "..."}.
+    Use `owner_filter(owner)` to build a MongoDB filter that scopes a query
+    to this owner exactly.
+    """
+    # Path 1: authenticated user (Bearer JWT)
+    if credentials is not None and credentials.credentials:
+        token = credentials.credentials
+        try:
+            payload = _jose_jwt.decode(
+                token,
+                os.environ["JWT_SECRET"],
+                algorithms=["HS256"],
+                audience=os.environ.get("JWT_AUDIENCE"),
+                issuer=os.environ.get("JWT_ISSUER"),
+            )
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = payload.get("sub")
+        session_id = payload.get("sid")
+        if not user_id or not session_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        # Validate the session has not been revoked (matches auth.py semantics).
+        session = await db.user_sessions.find_one({"id": session_id}, {"_id": 0})
+        if not session or session.get("revoked"):
+            raise HTTPException(status_code=401, detail="Session revoked")
+        return {"user_id": user_id}
+
+    # Path 2: anonymous guest via X-Guest-Id header
+    if x_guest_id:
+        gid = x_guest_id.strip()
+        # Defensive: reject ridiculously long or empty strings.
+        if 1 <= len(gid) <= 128:
+            return {"guest_id": gid}
+        raise HTTPException(status_code=400, detail="Invalid X-Guest-Id header")
+
+    # Neither path resolved: reject.
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required: provide either Authorization Bearer token or X-Guest-Id header",
+    )
+
+
+def owner_filter(owner: dict) -> dict:
+    """Translate a resolved owner dict into a MongoDB filter for find/update/delete."""
+    if "user_id" in owner:
+        return {"user_id": owner["user_id"]}
+    return {"guest_id": owner["guest_id"]}
+
+
+def owner_fields(owner: dict) -> dict:
+    """Translate a resolved owner dict into fields to embed in a new document."""
+    if "user_id" in owner:
+        return {"user_id": owner["user_id"]}
+    return {"guest_id": owner["guest_id"]}
+
+
 
 
 # ---------- Models ----------
@@ -403,7 +488,7 @@ async def share_excerpt(payload: ShareExcerptRequest):
 
 
 @api_router.post("/reflections")
-async def create_reflection(payload: ReflectionCreate):
+async def create_reflection(payload: ReflectionCreate, owner: dict = Depends(current_owner)):
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     entry = {
@@ -413,6 +498,9 @@ async def create_reflection(payload: ReflectionCreate):
         "prompt": payload.prompt,
         "created_at": now_iso(),
         "updated_at": now_iso(),
+        # Ownership: exactly one of user_id / guest_id is set, never both.
+        # See current_owner() in this file for the dependency that resolves these.
+        **owner_fields(owner),
     }
     await db.reflections.insert_one({**entry})
     # Remove any mutated _id before returning
@@ -421,31 +509,55 @@ async def create_reflection(payload: ReflectionCreate):
 
 
 @api_router.get("/reflections")
-async def list_reflections():
+async def list_reflections(owner: dict = Depends(current_owner)):
+    """List reflections scoped to the current owner (user OR guest).
+
+    Critically: never return reflections owned by anyone else. Pre-patch
+    this endpoint did `find({})` and leaked all users' data — see git
+    history for v1.0 build 6 audit.
+    """
     items = []
-    cursor = db.reflections.find({}, {"_id": 0}).sort("created_at", -1)
+    cursor = db.reflections.find(owner_filter(owner), {"_id": 0}).sort("created_at", -1)
     async for doc in cursor:
         items.append(doc)
     return {"reflections": items}
 
 
 @api_router.put("/reflections/{reflection_id}")
-async def update_reflection(reflection_id: str, payload: ReflectionUpdate):
+async def update_reflection(
+    reflection_id: str,
+    payload: ReflectionUpdate,
+    owner: dict = Depends(current_owner),
+):
     update_doc = {"updated_at": now_iso()}
     if payload.text is not None:
         update_doc["text"] = payload.text.strip()
     if payload.emotion is not None:
         update_doc["emotion"] = payload.emotion
-    result = await db.reflections.update_one({"id": reflection_id}, {"$set": update_doc})
+    # Scope by id AND owner. Returns 404 if id doesn't exist OR doesn't belong
+    # to the caller. We deliberately return 404 (not 403) to avoid leaking
+    # whether a given id exists in someone else's namespace.
+    result = await db.reflections.update_one(
+        {"id": reflection_id, **owner_filter(owner)},
+        {"$set": update_doc},
+    )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Reflection not found")
-    doc = await db.reflections.find_one({"id": reflection_id}, {"_id": 0})
+    doc = await db.reflections.find_one(
+        {"id": reflection_id, **owner_filter(owner)}, {"_id": 0}
+    )
     return doc
 
 
 @api_router.delete("/reflections/{reflection_id}")
-async def delete_reflection(reflection_id: str):
-    result = await db.reflections.delete_one({"id": reflection_id})
+async def delete_reflection(
+    reflection_id: str,
+    owner: dict = Depends(current_owner),
+):
+    # Same ownership rule as PUT.
+    result = await db.reflections.delete_one(
+        {"id": reflection_id, **owner_filter(owner)}
+    )
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Reflection not found")
     return {"deleted": True, "id": reflection_id}
