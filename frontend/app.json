@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.prayersloft.app",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Save your prayer cards to share later",
         "ITSAppUsesNonExemptEncryption": false
@@ -37,7 +37,12 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "origin": "https://prayers-loft.preview.emergentagent.com"
+        }
+      ],
       [
         "expo-splash-screen",
         {
