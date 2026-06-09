@@ -132,9 +132,14 @@ export function OnboardingHost() {
       onRequestClose={finish}
     >
       <Animated.View style={[styles.root, { opacity }]} testID="onboarding">
-        {/* Skip */}
+        {/* Top bar: centered brand wordmark + Skip pinned to the right.
+            The brand sits below the safe area (paddingTop already accounts for
+            the status bar) and is the first visible element on every slide. */}
         <View style={styles.topBar}>
-          <Pressable onPress={finish} hitSlop={12} testID="onboarding-skip">
+          <Text style={styles.brandWordmark} testID="onboarding-brand" accessibilityRole="header">
+            Prayers Loft
+          </Text>
+          <Pressable onPress={finish} hitSlop={12} style={styles.skipPressable} testID="onboarding-skip">
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>
         </View>
@@ -189,11 +194,32 @@ export function OnboardingHost() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   topBar: {
+    // Center the brand wordmark. Skip is absolutely positioned to the right
+    // so the brand stays visually centered regardless of "Skip" text width.
     flexDirection: "row",
-    justifyContent: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 20,
     paddingTop: 56,
-    paddingBottom: 8,
+    paddingBottom: 24,
+    position: "relative",
+  },
+  brandWordmark: {
+    // Match the in-app ScreenHeader brand (sansMedium, textSecondary,
+    // letterSpacing 0.4) but slightly larger and more spaced so it reads as
+    // intentional onboarding branding. NO gold per spec.
+    fontFamily: fonts.sansMedium,
+    fontSize: 18,
+    color: colors.textPrimary,
+    letterSpacing: 0.6,
+    textAlign: "center",
+  },
+  skipPressable: {
+    position: "absolute",
+    right: 20,
+    top: 56,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   skipText: {
     fontFamily: fonts.sansMedium,

@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   },
   brandText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 14,
+    fontSize: 16,
     color: colors.textSecondary,
     letterSpacing: 0.4,
   },
