@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.prayersloft.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Save your prayer cards to share later",
         "ITSAppUsesNonExemptEncryption": false

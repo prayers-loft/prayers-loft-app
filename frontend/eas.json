@@ -5,13 +5,15 @@
   },
   "build": {
     "base": {
-      "node": "20.18.0"
+      "node": "20.19.4"
     },
     "development": {
       "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
-      "ios": { "simulator": true },
+      "ios": {
+        "simulator": true
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "http://localhost:8001"
       }
@@ -20,8 +22,12 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "preview",
-      "ios": { "resourceClass": "m-medium" },
-      "android": { "buildType": "apk" },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
@@ -30,7 +36,9 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "preview",
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
@@ -39,7 +47,9 @@
       "extends": "base",
       "distribution": "store",
       "autoIncrement": true,
-      "ios": { "resourceClass": "m-medium" },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
@@ -48,7 +58,9 @@
       "extends": "base",
       "distribution": "store",
       "autoIncrement": true,
-      "ios": { "resourceClass": "m-medium" },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
       }
