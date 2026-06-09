@@ -205,14 +205,19 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   brandWordmark: {
-    // Match the in-app ScreenHeader brand (sansMedium, textSecondary,
-    // letterSpacing 0.4) but slightly larger and more spaced so it reads as
-    // intentional onboarding branding. NO gold per spec.
+    // Match the in-app ScreenHeader brand (sansMedium, textPrimary,
+    // letterSpacing 0.6) but slightly larger so it reads as intentional
+    // onboarding branding. NO gold per spec.
+    // marginTop pushes the brand ~48px below the safe-area top so it sits
+    // visually inside the onboarding content area rather than feeling
+    // attached to the status bar. Skip stays pinned to the safe-area edge
+    // via its own absolute positioning, so this only affects the brand.
     fontFamily: fonts.sansMedium,
     fontSize: 18,
     color: colors.textPrimary,
     letterSpacing: 0.6,
     textAlign: "center",
+    marginTop: 48,
   },
   skipPressable: {
     position: "absolute",
