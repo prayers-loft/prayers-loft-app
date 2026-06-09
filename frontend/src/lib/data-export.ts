@@ -7,6 +7,7 @@
 import { Platform, Share } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { storage } from "@/src/utils/storage";
+import { resetPrefsCache } from "@/src/lib/local-prefs";
 import { getSavedPrayers } from "@/src/lib/local-store";
 import { getGuestIdentity } from "@/src/lib/guest-identity";
 import { getPrefs } from "@/src/lib/local-prefs";
@@ -89,4 +90,9 @@ export async function wipeAllGuestData(): Promise<void> {
   await storage.setItem("prayersloft_preferences_v1", "");
   // Cached devotional uses its own key inside daily-devotional.ts; clear that too.
   await storage.setItem("prayersloft_daily_devotional_cache_v1", "");
+  // Invalidate the prefs in-memory cache so the next getPrefs() re-reads
+  // from storage (which now returns "" → DEFAULT_PREFS). Without this, the
+  // UI shows stale settings for ~1 render after Erase Local Data (P2 bug
+  // caught in pre-release QA).
+  resetPrefsCache();
 }

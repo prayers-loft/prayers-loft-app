@@ -194,21 +194,16 @@ export default function SettingsScreen() {
           <Row
             title="Daily reminder"
             subtitle="A gentle nudge to pause and pray"
-            right={
-              <Switch
-                value={prefs.notificationsEnabled}
-                onValueChange={(v) => onTogglePref("notificationsEnabled", v)}
-                trackColor={{ true: colors.accent, false: "#33405A" }}
-                thumbColor="#F8FAFC"
-                accessibilityLabel="Daily reminder"
-                accessibilityHint="A gentle nudge to pause and pray"
-              />
-            }
+            disabled
+            right={<Text style={styles.locked}>Soon</Text>}
+            testID="daily-reminder-row"
           />
           <Row
             title="Reminder time"
-            subtitle={prefs.notificationsDailyTime + " · device local time"}
-            disabled={!prefs.notificationsEnabled}
+            subtitle="Choose when your daily nudge arrives"
+            disabled
+            right={<Text style={styles.locked}>Soon</Text>}
+            testID="reminder-time-row"
           />
         </Section>
 
@@ -217,6 +212,7 @@ export default function SettingsScreen() {
           <Row
             title="Ambient sound on by default"
             subtitle="Soft background tones during prayer"
+            testID="ambient-sound-row"
             right={
               <Switch
                 value={prefs.ambientDefaultOn}
@@ -241,6 +237,7 @@ export default function SettingsScreen() {
           />
           <Row
             title="Cloud sync"
+            testID="cloud-sync-row"
             subtitle="Available when you create an account"
             disabled
             right={<Text style={styles.locked}>Soon</Text>}
@@ -251,6 +248,7 @@ export default function SettingsScreen() {
         <Section label="Privacy">
           <Row
             title="Improve Prayers Loft"
+            testID="improve-prayers-loft-row"
             subtitle="Share anonymous usage signals"
             right={
               <Switch
@@ -265,11 +263,11 @@ export default function SettingsScreen() {
           />
           <Row
             title="Erase local data"
+            testID="erase-local-data-row"
             subtitle="Reset this device. Cannot be undone."
             onPress={handleWipe}
             danger
             right={<Chev tone="danger" />}
-            testID="wipe-data-button"
           />
           {isAuthed && (
             <Row
@@ -375,7 +373,7 @@ function Row({
   testID?: string;
 }) {
   const content = (
-    <View style={[styles.row, disabled && { opacity: 0.5 }]}>
+    <View style={[styles.row, disabled && { opacity: 0.5 }]} testID={testID}>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowTitle, danger && { color: "#F2A8A8" }]}>{title}</Text>
         {subtitle ? <Text style={styles.rowSub}>{subtitle}</Text> : null}

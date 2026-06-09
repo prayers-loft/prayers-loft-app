@@ -68,3 +68,17 @@ export async function resetPrefs(): Promise<Preferences> {
   await storage.setItem(KEY, JSON.stringify(cache));
   return cache;
 }
+
+/**
+ * Invalidate the in-memory cache without touching storage.
+ *
+ * Used by destructive flows (e.g. wipeAllGuestData) that clear the
+ * storage layer directly. Without this, the next read returns stale
+ * values from the cache for ~1 render, surfacing as a P2 UI bug where
+ * "Erase Local Data" appears to not have worked. Calling this right
+ * after the storage clear forces the next getPrefs() to re-read from
+ * storage (which now returns "" and falls back to DEFAULT_PREFS).
+ */
+export function resetPrefsCache(): void {
+  cache = null;
+}
