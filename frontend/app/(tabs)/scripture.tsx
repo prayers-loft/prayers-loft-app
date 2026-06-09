@@ -149,18 +149,30 @@ export default function ScriptureScreen() {
 
   const runQA = useCallback(
     async (q: string, s: Style) => {
-      if (!verse || !q.trim()) return;
+      if (!q.trim()) return;
       setQaLoading(true);
       try {
-        const r = await api.theologicalQuestion(q.trim(), `"${verse.verse}" (${verse.reference})`, s);
+        // Bible Assistant: free-form Q&A + on-demand devotional generation.
+        // The "Bible Questions" pill maps to mode=question (any Bible / theology /
+        // Christian-living question, NOT bound to the daily verse).
+        // The "Write Devotional" pill maps to mode=devotional (user supplies a
+        // topic → structured 5-section devotional response).
+        const mode: "question" | "devotional" = s === "Theologian" ? "question" : "devotional";
+        const r = await api.bibleAssistant(mode, q.trim());
         setQaResponses((prev) => ({ ...prev, [s]: r.response }));
       } catch (e) {
-        console.warn("theological question failed", e);
+        console.warn("bible assistant failed", e);
+        showToast({
+          variant: "error",
+          title: s === "Theologian" ? "Couldn't answer your question" : "Couldn't generate devotional",
+          message: e instanceof Error ? e.message : "Please check your connection and try again.",
+          duration: 5000,
+        });
       } finally {
         setQaLoading(false);
       }
     },
-    [verse]
+    []
   );
 
   const submitQuestion = async () => {
@@ -333,13 +345,13 @@ export default function ScriptureScreen() {
 
             {/* Discussion */}
             <View>
-              <Text style={styles.sectionLabel}>Discuss</Text>
+              <Text style={styles.sectionLabel}>Bible Assistant</Text>
               <View style={styles.qaWrap}>
                 <View style={styles.qaInputWrap}>
                   <TextInput
                     value={question}
                     onChangeText={setQuestion}
-                    placeholder="Ask a theological question…"
+                    placeholder="Ask any Bible question or enter a devotional topic…"
                     placeholderTextColor={colors.textTertiary}
                     multiline
                     style={styles.qaInput}
@@ -355,8 +367,26 @@ export default function ScriptureScreen() {
                       testID={`style-pill-${s}`}
                     >
                       <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>
-                        {s === "Theologian" ? "Bible Questions" : s}
+                        {s === "Theologian" ? "Bible Questions" : "Write Devotional"}
                       </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {/* Example chips — populate input on tap. Mode-aware. */}
+                <View style={styles.chipsRow} testID="bible-assistant-chips">
+                  {(style === "Theologian"
+                    ? ["Salvation", "Forgiveness", "Prayer", "Faith"]
+                    : ["Anxiety", "Purpose", "Discipline", "Trust"]
+                  ).map((chip) => (
+                    <Pressable
+                      key={chip}
+                      onPress={() => setQuestion(chip)}
+                      style={styles.chip}
+                      testID={`chip-${chip.toLowerCase()}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Use example: ${chip}`}
+                    >
+                      <Text style={styles.chipText}>{chip}</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -369,7 +399,9 @@ export default function ScriptureScreen() {
                   {qaLoading && !currentResponse ? (
                     <ActivityIndicator color={colors.textOnAccent} />
                   ) : (
-                    <Text style={styles.askBtnText}>Ask</Text>
+                    <Text style={styles.askBtnText}>
+                      {style === "Theologian" ? "Ask" : "Generate"}
+                    </Text>
                   )}
                 </Pressable>
                 {qaLoading && !currentResponse ? (
@@ -545,6 +577,26 @@ const styles = StyleSheet.create({
   stylePillActive: { backgroundColor: colors.accent },
   stylePillText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
   stylePillTextActive: { color: colors.textOnAccent, fontFamily: fonts.sansSemibold },
+  chipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 4,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.1,
+  },
   askBtn: {
     backgroundColor: colors.accent,
     borderRadius: 14,

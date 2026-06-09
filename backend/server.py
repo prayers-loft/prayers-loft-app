@@ -400,6 +400,69 @@ async def theological_question(payload: TheologicalQuestion):
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
 
 
+# ---------------------------------------------------------------------------
+# Bible Assistant — broader Q&A + on-demand devotional generation.
+#
+# Two modes:
+#   - "question":   any Bible / theology / Christian-living question, NOT
+#                   bound to the current daily verse.
+#   - "devotional": user supplies a topic / theme / struggle; we generate a
+#                   structured short devotional (Title, Key Scripture, Short
+#                   Reflection, Practical Application, Short Prayer).
+#
+# Lives alongside (does not replace) /api/theological-question, which is
+# kept for backward compatibility with any older client builds.
+# ---------------------------------------------------------------------------
+class BibleAssistantRequest(BaseModel):
+    mode: Literal["question", "devotional"]
+    input: str = Field(..., min_length=1, max_length=500)
+
+
+BIBLE_ASSISTANT_SYSTEMS = {
+    "question": (
+        "You are a knowledgeable, pastoral Bible assistant. Answer questions about the Bible, "
+        "theology, Christian living, discipleship, and scripture interpretation from a biblical "
+        "Christian perspective. Be concise (target 120–180 words). Always cite at least one "
+        "relevant scripture reference in standard form like 'John 3:16'. When a question touches "
+        "an issue with legitimate disagreement among orthodox Christians (e.g., eternal security, "
+        "baptism mode, end-times views), present the major positions briefly and acknowledge the "
+        "disagreement rather than asserting one side with certainty. Avoid jargon. Be warm but not "
+        "saccharine. Do not include preambles like 'Great question'. Use plain flowing prose. "
+        "CRITICAL: do not use em dashes or en dashes — use commas, periods, or natural pauses."
+    ),
+    "devotional": (
+        "You write short, biblically grounded devotionals on a topic the user supplies. "
+        "Output EXACTLY this 5-section format, each section on its own line, each label followed "
+        "by a colon and one space:\n"
+        "Title: <a short, evocative title — 2 to 7 words>\n"
+        "Key Scripture: <one verse text + standard reference, e.g. \"Cast all your anxiety on him because he cares for you.\" (1 Peter 5:7)>\n"
+        "Reflection: <60 to 100 word reflection grounding the topic in scripture>\n"
+        "Practical Application: <one or two sentences with a concrete, actionable step for today>\n"
+        "Prayer: <a 30 to 60 word first-person prayer, ending with Amen.>\n"
+        "Be warm, gospel-centered, and emotionally honest. Avoid moralism. Do not include any "
+        "extra preamble, headings, or text outside those five labeled lines. "
+        "CRITICAL: do not use em dashes or en dashes — use commas, periods, or natural pauses."
+    ),
+}
+
+
+@api_router.post("/bible-assistant")
+async def bible_assistant(payload: BibleAssistantRequest):
+    text = payload.input.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Input cannot be empty")
+    system = BIBLE_ASSISTANT_SYSTEMS[payload.mode]
+    try:
+        response = await ai_chat(system, text, max_tokens=600)
+        return {"response": soften_text(response), "mode": payload.mode}
+    except Exception as e:
+        logger.exception("bible-assistant failed")
+        raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
+
+
+
+
+
 # ---------- Share excerpt (for long Q&A responses) ----------
 SHARE_EXCERPT_SYSTEMS = {
     "Devotional": (

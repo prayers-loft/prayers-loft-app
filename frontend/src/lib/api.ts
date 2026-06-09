@@ -197,6 +197,11 @@ export const api = {
   getReactionCounts: (verse_id: string) =>
     request<{ verse_id: string; counts: Record<string, number> }>(`/get-reaction-counts?verse_id=${encodeURIComponent(verse_id)}`),
 
+  bibleAssistant: (mode: "question" | "devotional", input: string) =>
+    request<{ response: string; mode: string }>("/bible-assistant", {
+      method: "POST",
+      body: JSON.stringify({ mode, input }),
+    }),
   theologicalQuestion: (question: string, verse: string, style: "Devotional" | "Theologian") =>
     request<{ response: string; style: string }>("/theological-question", {
       method: "POST",
