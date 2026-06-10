@@ -37,7 +37,12 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "origin": "https://prayers-loft.emergent.host"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -64,7 +69,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com",
+      "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.emergent.host",
       "eas": {
         "projectId": "58fe09b0-bdf8-49f9-9c98-3b09df9e377d"
       }
