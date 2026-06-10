@@ -174,6 +174,22 @@ class ReactionRequest(BaseModel):
     reaction: str
 
 
+
+@api_router.get("/health")
+async def health():
+    """Lightweight liveness probe for the mobile client and uptime monitors.
+
+    Returns immediately without DB or LLM round-trips so it can be polled
+    cheaply during backend warm-up to discover when routes are fully wired.
+    The mobile retry-with-backoff layer uses this to distinguish a real 404
+    on a specific route (give up) vs. a wake-up window where the router is
+    still hydrating (retry).
+    """
+    return {"ok": True}
+
+
+
+
 class ReflectionCreate(BaseModel):
     text: str
     emotion: Optional[str] = None

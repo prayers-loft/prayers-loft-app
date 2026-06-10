@@ -63,19 +63,60 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // backend/server.py for the v1.0 P0 cross-user leak requires this.
   // Caller-supplied headers win on conflict.
   const ownerHeaders = await resolveOwnerHeaders();
-  const res = await fetch(url, {
+  const mergedInit: RequestInit = {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...ownerHeaders,
       ...(init?.headers || {}),
     },
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${txt || res.statusText}`);
+  };
+
+  // Retry-with-exponential-backoff. Preview/dev environments occasionally
+  // 404 routes during a wake-up window between when the server starts
+  // accepting connections and when FastAPI has registered every router.
+  // Real TestFlight users hit this as flaky 404s on /api/prayer-request
+  // even though the endpoint exists. We retry on transient failures only.
+  // Final 404/500/network error still surfaces to the caller as before.
+  const MAX_ATTEMPTS = 3;
+  const RETRYABLE_STATUSES = new Set([404, 408, 425, 429, 500, 502, 503, 504]);
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, mergedInit);
+      if (res.ok) return (await res.json()) as T;
+      const bodyText = await res.text().catch(() => "");
+      const shouldRetry = RETRYABLE_STATUSES.has(res.status) && attempt < MAX_ATTEMPTS;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[api] ${mergedInit.method || "GET"} ${url} → ${res.status} ` +
+          `(attempt ${attempt}/${MAX_ATTEMPTS}, base=${BASE}). ` +
+          `Body: ${bodyText.slice(0, 200)}${bodyText.length > 200 ? "…" : ""}`
+      );
+      if (!shouldRetry) {
+        throw new Error(`API ${res.status}: ${bodyText || res.statusText}`);
+      }
+    } catch (err: any) {
+      lastErr = err;
+      const isFinal = attempt >= MAX_ATTEMPTS;
+      // Distinguish "thrown by us above" (Error with API status prefix)
+      // from network-layer errors (TypeError: Network request failed).
+      const isOurThrow = err instanceof Error && /^API \d+:/.test(err.message);
+      if (isOurThrow && isFinal) throw err;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[api] ${mergedInit.method || "GET"} ${url} threw on attempt ` +
+          `${attempt}/${MAX_ATTEMPTS} (base=${BASE}): ${err?.message || err}`
+      );
+      if (isFinal) throw err;
+    }
+    // Exponential backoff with jitter: 400ms, 1200ms (then return on attempt 3).
+    const baseDelay = 400 * Math.pow(3, attempt - 1);
+    const jitter = Math.floor(Math.random() * 200);
+    await new Promise((r) => setTimeout(r, baseDelay + jitter));
   }
-  return (await res.json()) as T;
+  // Defensive — unreachable, retry loop always returns or throws above.
+  throw (lastErr instanceof Error ? lastErr : new Error("API request failed"));
 }
 
 export type PrayerReflection = {

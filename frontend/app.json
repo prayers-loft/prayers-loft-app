@@ -40,7 +40,7 @@
       [
         "expo-router",
         {
-          "origin": "https://prayers-loft.preview.emergentagent.com"
+          "origin": "https://prayers-loft.emergent.host"
         }
       ],
       [
@@ -69,7 +69,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com",
+      "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.emergent.host",
       "eas": {
         "projectId": "58fe09b0-bdf8-49f9-9c98-3b09df9e377d"
       }
