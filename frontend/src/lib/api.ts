@@ -11,19 +11,37 @@
 // and every fetch silently 404s — the exact bug in v1.0.0 build 5.
 import Constants from "expo-constants";
 
-function resolveBase(): string {
+function resolveBase(): { base: string; source: "process.env" | "Constants.expoConfig.extra" | "Constants.manifest.extra" | "(none)" } {
   const fromProcess = typeof process !== "undefined" ? process.env?.EXPO_PUBLIC_BACKEND_URL : undefined;
-  const fromExpo =
-    (Constants?.expoConfig?.extra as any)?.EXPO_PUBLIC_BACKEND_URL ||
-    (Constants?.manifest as any)?.extra?.EXPO_PUBLIC_BACKEND_URL;
-  return (fromProcess || fromExpo || "").replace(/\/$/, "");
+  if (fromProcess) return { base: fromProcess.replace(/\/$/, ""), source: "process.env" };
+  const fromExpoConfig = (Constants?.expoConfig?.extra as any)?.EXPO_PUBLIC_BACKEND_URL;
+  if (fromExpoConfig) return { base: String(fromExpoConfig).replace(/\/$/, ""), source: "Constants.expoConfig.extra" };
+  const fromManifest = (Constants?.manifest as any)?.extra?.EXPO_PUBLIC_BACKEND_URL;
+  if (fromManifest) return { base: String(fromManifest).replace(/\/$/, ""), source: "Constants.manifest.extra" };
+  return { base: "", source: "(none)" };
 }
 
-const BASE = resolveBase();
+const { base: BASE, source: BASE_SOURCE } = resolveBase();
 
-/** Diagnostic helper — used by _layout.tsx to surface a startup toast if empty. */
+// ── BUILD_VERIFICATION_TEMP — added for Build 11 verification ────────────────
+// Prints the resolved BASE URL and where it came from to the JS console at
+// module load. This appears in:
+//   • Metro logs (web/dev)
+//   • Xcode Console.app device log (iOS TestFlight) — search for "[api]"
+//   • Android adb logcat (Android internal builds)
+// Remove after Build 11 verification is complete (grep BUILD_VERIFICATION_TEMP).
+// eslint-disable-next-line no-console
+console.log(`[api] BUILD_VERIFICATION_TEMP — BASE="${BASE}" (source=${BASE_SOURCE})`);
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Diagnostic helper — used by _layout.tsx to surface a startup toast. */
 export function getApiBase(): string {
   return BASE;
+}
+
+/** BUILD_VERIFICATION_TEMP — exposes where the BASE was resolved from. Remove after Build 11. */
+export function getApiBaseSource(): string {
+  return BASE_SOURCE;
 }
 
 // Lazy reads of the auth state and the stable guest_id. We avoid top-level
