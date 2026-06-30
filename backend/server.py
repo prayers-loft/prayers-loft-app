@@ -335,12 +335,21 @@ async def prayer_follow_up(payload: PrayerFollowUp):
 
 
 @api_router.get("/daily-verse")
-async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None):
+async def daily_verse(
+    local_date: Optional[str] = None,
+    tz: Optional[str] = None,
+    include_devotional: bool = True,
+):
     """Returns the devotional for the user's LOCAL calendar day.
 
     Query params:
-      local_date: YYYY-MM-DD as seen on the user's device (preferred).
-      tz: IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
+      local_date:         YYYY-MM-DD as seen on the user's device (preferred).
+      tz:                 IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
+      include_devotional: when False, skips the LLM call entirely and returns
+                          the verse meta only (sub-100ms). The frontend uses
+                          this for a 2-phase load: render the verse card
+                          instantly, then fetch the devotional behind a skeleton.
+                          Default True for backward compatibility.
 
     Verse selection is deterministic on local_date so every user sharing the
     same local day sees the same scripture. Devotional is cached per
@@ -348,6 +357,18 @@ async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None
     """
     date_str = parse_local_date(local_date)
     v = get_verse_for_date(date_str)
+    base = {
+        "verse": v["verse"],
+        "reference": v["reference"],
+        "verse_id": v["verse_id"],
+        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
+        "local_date": date_str,
+    }
+    if not include_devotional:
+        # Fast path: no LLM call, no devotional in payload. The frontend will
+        # request the devotional in a second call with include_devotional=true.
+        return {**base, "devotional": ""}
+
     cache_key = f"devo:{date_str}:{v['verse_id']}"
     cached = await db.devotional_cache.find_one({"_id": cache_key})
     if cached:
@@ -371,14 +392,7 @@ async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None
         except Exception:
             logger.exception("devotional generation failed")
             devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
-    return {
-        "verse": v["verse"],
-        "reference": v["reference"],
-        "verse_id": v["verse_id"],
-        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
-        "devotional": devotional,
-        "local_date": date_str,
-    }
+    return {**base, "devotional": devotional}
 
 
 VALID_REACTIONS = {"pray", "love", "fire", "insight"}

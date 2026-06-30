@@ -3,9 +3,15 @@
 // Reading flow (top → bottom):
 //   1. Today's Verse  (hero, date)
 //   2. Verse card    (NLT text + open-in-Bible.com + share)
-//   3. Insights      (reactions row)
-//   4. Devotional    (devotional card + share)
-//   5. Reflection    (inline write input + emotion chips + save + "View all")
+//   3. Devotional    (devotional card + share)
+//   4. Reflection    (inline write input + emotion chips + save + "View all")
+//
+// Loading strategy — two-phase:
+//   Phase 1: GET /api/daily-verse?include_devotional=false (no LLM, < 200ms)
+//     → render the verse card immediately, render devotional skeleton.
+//   Phase 2: GET /api/daily-verse (full, with LLM-backed devotional; cached
+//     server-side per-day so all but the first user of a new day hit cache)
+//     → swap skeleton for devotional text.
 //
 // The Bible Assistant (Q&A + on-demand devotional) now lives in its own tab.
 // The reflections list/history lives at /reflections-history (also reachable
@@ -50,15 +56,6 @@ const BANNER_QUOTES = [
   "You are loved more than you can carry.",
 ];
 
-type ReactionKey = "pray" | "love" | "fire" | "insight";
-type ReactionMeta = { key: ReactionKey; icon: keyof typeof Ionicons.glyphMap; label: string };
-const REACTIONS: ReactionMeta[] = [
-  { key: "pray", icon: "leaf-outline", label: "Pray" },
-  { key: "love", icon: "heart-outline", label: "Love" },
-  { key: "fire", icon: "flame-outline", label: "Power" },
-  { key: "insight", icon: "bulb-outline", label: "Insight" },
-];
-
 const EMOTIONS = ["Grateful", "Hopeful", "Anxious", "Peaceful", "Confused", "Joyful", "Tired", "Seeking"] as const;
 type Emotion = (typeof EMOTIONS)[number];
 
@@ -73,25 +70,28 @@ const REFLECTION_PROMPTS = [
 const todayLabel = () =>
   new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
+type VerseMeta = { verse: string; reference: string; verse_id: string; bible_link: string };
 type ShareSource = { kind: "verse" } | { kind: "devotional" };
 
 export default function ScriptureScreen() {
   const router = useRouter();
-  const [verse, setVerse] = useState<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState<Record<string, number>>({ pray: 0, love: 0, fire: 0, insight: 0 });
+  const [verse, setVerse] = useState<VerseMeta | null>(null);
+  const [devotional, setDevotional] = useState<string>(""); // "" while loading
+  const [verseLoading, setVerseLoading] = useState(true);
+  const [devoLoading, setDevoLoading] = useState(true);
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const [, setNewDayPill] = useState(false);
   const newDayOpacity = useRef(new Animated.Value(0)).current;
+  // Subtle skeleton shimmer.
+  const shimmer = useRef(new Animated.Value(0)).current;
 
-  // Reflection state (inline, below devotional) ------------------------
+  // Reflection state -----------------------------------------------------
   const [reflectionText, setReflectionText] = useState("");
   const [reflectionEmotion, setReflectionEmotion] = useState<Emotion | null>(null);
   const [reflectionSaving, setReflectionSaving] = useState(false);
   const [reflectionSavedCount, setReflectionSavedCount] = useState(0);
-  // Stable prompt for this scripture session (verse_id-derived → same prompt for the day).
   const todayReflectionPrompt = (() => {
     if (!verse) return REFLECTION_PROMPTS[0];
     let h = 0;
@@ -105,26 +105,48 @@ export default function ScriptureScreen() {
   const [sharePreparing, setSharePreparing] = useState(false);
   const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
 
+  // Two-phase load orchestrator.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const tz = detectTimezone();
       const today = localDateInTz(tz);
+
+      // Phase 0: client cache hit → render everything instantly.
       try {
         const cached = await loadCachedDevotional();
         if (cacheMatchesToday(cached, tz, today)) {
-          setVerse(cached!.payload);
-          const c = await api.getReactionCounts(cached!.payload.verse_id);
-          setCounts(c.counts);
-          Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+          if (cancelled) return;
+          const p = cached!.payload;
+          setVerse({ verse: p.verse, reference: p.reference, verse_id: p.verse_id, bible_link: p.bible_link });
+          setDevotional(p.devotional);
+          setVerseLoading(false);
+          setDevoLoading(false);
+          Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
           return;
         }
-        const payload = await api.dailyVerse(today, tz);
-        setVerse(payload);
-        await saveCachedDevotional({ date: today, tz, payload });
-        const c = await api.getReactionCounts(payload.verse_id);
-        setCounts(c.counts);
-        Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+
+        // Phase 1: fast verse fetch (no LLM). Renders verse card immediately.
+        const verseOnly = await api.dailyVerse(today, tz, false);
+        if (cancelled) return;
+        setVerse({
+          verse: verseOnly.verse,
+          reference: verseOnly.reference,
+          verse_id: verseOnly.verse_id,
+          bible_link: verseOnly.bible_link,
+        });
+        setVerseLoading(false);
+        Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+
+        // Phase 2: devotional fetch. Skeleton stays visible until this returns.
+        const full = await api.dailyVerse(today, tz, true);
+        if (cancelled) return;
+        setDevotional(full.devotional);
+        setDevoLoading(false);
+        await saveCachedDevotional({ date: today, tz, payload: full });
+
         if (cached) {
+          // User crossed midnight — show the transitional "new day" pill.
           setNewDayPill(true);
           Animated.sequence([
             Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -133,6 +155,7 @@ export default function ScriptureScreen() {
           ]).start(() => setNewDayPill(false));
         }
       } catch (e) {
+        if (cancelled) return;
         console.warn("daily verse load failed", e);
         showToast({
           variant: "error",
@@ -140,12 +163,29 @@ export default function ScriptureScreen() {
           message: e instanceof Error ? e.message : "Check your connection and try again.",
           duration: 5000,
         });
-      } finally {
-        setLoading(false);
+        setVerseLoading(false);
+        setDevoLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [fade, newDayOpacity]);
 
+  // Skeleton shimmer animation — only runs while something is loading.
+  useEffect(() => {
+    if (!verseLoading && !devoLoading) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+        Animated.timing(shimmer, { toValue: 0, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shimmer, verseLoading, devoLoading]);
+
+  // Rotating banner copy.
   useEffect(() => {
     const interval = setInterval(() => {
       Animated.timing(bannerOpacity, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.in(Easing.quad) }).start(() => {
@@ -155,17 +195,6 @@ export default function ScriptureScreen() {
     }, 5000);
     return () => clearInterval(interval);
   }, [bannerOpacity]);
-
-  const handleReact = async (key: ReactionKey) => {
-    if (!verse) return;
-    setCounts((c) => ({ ...c, [key]: (c[key] ?? 0) + 1 }));
-    try {
-      const res = await api.reactToVerse(verse.verse_id, key);
-      setCounts((c) => ({ ...c, [key]: res.count }));
-    } catch (e) {
-      console.warn("react failed", e);
-    }
-  };
 
   const openVerse = () => verse && Linking.openURL(verse.bible_link);
 
@@ -191,7 +220,6 @@ export default function ScriptureScreen() {
         duration: 3000,
       });
       track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });
-      // Surface the upgrade prompt after 5 reflections (best-effort).
       try {
         if (nextCount >= 5) requestUpgradePrompt("five_reflections");
       } catch {}
@@ -211,6 +239,7 @@ export default function ScriptureScreen() {
   // --- Share orchestration ---------------------------------------------
   const openShare = async (src: ShareSource) => {
     if (!verse || sharePreparing) return;
+    if (src.kind === "devotional" && !devotional) return; // not ready yet
     setShareSource(src);
     setSharePreparing(true);
     try {
@@ -224,11 +253,11 @@ export default function ScriptureScreen() {
           defaultTemplate: "centered",
         });
       } else {
-        const excerpt = await getShareExcerpt(verse.devotional, "Devotional");
+        const excerpt = await getShareExcerpt(devotional, "Devotional");
         setSharePayload({
           kind: "qa",
           excerpt,
-          fullText: verse.devotional,
+          fullText: devotional,
           reference: verse.reference,
           style: "Devotional",
           defaultTemplate: ["centered", "reflection", "insight"][Math.floor(Math.random() * 3)] as
@@ -250,6 +279,9 @@ export default function ScriptureScreen() {
     setShareSource(null);
   };
 
+  // Skeleton opacity: shimmer pulses between 0.55 and 1.0.
+  const skeletonOpacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] });
+
   return (
     <ScreenBackground>
       <ScreenHeader />
@@ -270,140 +302,142 @@ export default function ScriptureScreen() {
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
 
-        {loading || !verse ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator color={colors.accent} />
-          </View>
+        {/* Verse card — skeleton while loading, real card once Phase 1 returns. */}
+        {verseLoading || !verse ? (
+          <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
+            <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
+            <View style={{ gap: 10 }}>
+              <View style={[styles.skeletonBar, { width: "100%", height: 18 }]} />
+              <View style={[styles.skeletonBar, { width: "90%", height: 18 }]} />
+              <View style={[styles.skeletonBar, { width: "65%", height: 18 }]} />
+            </View>
+          </Animated.View>
         ) : (
-          <Animated.View style={{ opacity: fade, gap: 16 }}>
-            {/* Verse card */}
-            <View style={styles.verseCard} testID="verse-card">
-              <View style={styles.metaRow}>
-                <Text style={styles.metaText}>NLT · {verse.reference}</Text>
-                <View style={styles.metaActions}>
-                  <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
-                    <Ionicons name="open-outline" size={16} color={colors.accent} />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => openShare({ kind: "verse" })}
-                    testID="share-scripture-button"
-                    hitSlop={8}
-                    style={styles.metaIconBtn}
-                  >
-                    {sharePreparing && shareSource?.kind === "verse" ? (
-                      <ActivityIndicator size="small" color={colors.accent} />
-                    ) : (
-                      <Ionicons name="share-outline" size={16} color={colors.accent} />
-                    )}
-                  </Pressable>
-                </View>
-              </View>
-              <Text style={styles.verseText}>"{verse.verse}"</Text>
-            </View>
-
-            {/* Insights — reactions row */}
-            <View>
-              <Text style={styles.sectionLabel}>Insights</Text>
-              <View style={styles.reactionsRow} testID="reactions-row">
-                {REACTIONS.map((r) => (
-                  <ReactionButton
-                    key={r.key}
-                    icon={r.icon}
-                    label={r.label}
-                    count={counts[r.key] ?? 0}
-                    onPress={() => handleReact(r.key)}
-                    testID={`react-${r.key}`}
-                  />
-                ))}
-              </View>
-            </View>
-
-            {/* Devotional */}
-            <View>
-              <View style={styles.devoHeader}>
-                <Text style={styles.sectionLabel}>Devotional</Text>
+          <Animated.View style={[styles.verseCard, { opacity: fade }]} testID="verse-card">
+            <View style={styles.metaRow}>
+              <Text style={styles.metaText}>NLT · {verse.reference}</Text>
+              <View style={styles.metaActions}>
+                <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
+                  <Ionicons name="open-outline" size={16} color={colors.accent} />
+                </Pressable>
                 <Pressable
-                  onPress={() => openShare({ kind: "devotional" })}
+                  onPress={() => openShare({ kind: "verse" })}
+                  testID="share-scripture-button"
                   hitSlop={8}
-                  style={styles.devoShareBtn}
-                  testID="share-devotional-button"
-                  accessibilityRole="button"
-                  accessibilityLabel="Share devotional"
+                  style={styles.metaIconBtn}
                 >
-                  {sharePreparing && shareSource?.kind === "devotional" ? (
+                  {sharePreparing && shareSource?.kind === "verse" ? (
                     <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <Ionicons name="share-outline" size={14} color={colors.accent} />
+                    <Ionicons name="share-outline" size={16} color={colors.accent} />
                   )}
                 </Pressable>
               </View>
-              <View style={styles.devotionalCard} testID="devotional-card">
-                <Text style={styles.devotionalText}>{verse.devotional}</Text>
-              </View>
             </View>
+            <Text style={styles.verseText}>"{verse.verse}"</Text>
+          </Animated.View>
+        )}
 
-            {/* Reflection — inline, scoped to today's verse */}
-            <View testID="reflection-section">
-              <Text style={styles.sectionLabel}>Reflection</Text>
-              <Text style={styles.reflectionPrompt}>{todayReflectionPrompt}</Text>
-
-              <View style={styles.reflectionInputWrap}>
-                <TextInput
-                  value={reflectionText}
-                  onChangeText={setReflectionText}
-                  placeholder="Write what's stirring…"
-                  placeholderTextColor={colors.textTertiary}
-                  multiline
-                  style={styles.reflectionInput}
-                  testID="scripture-reflection-input"
-                />
-              </View>
-
-              <View style={styles.emotionChipsWrap} testID="scripture-emotion-chips">
-                {EMOTIONS.map((em) => {
-                  const c = emotionColors[em];
-                  const active = reflectionEmotion === em;
-                  return (
-                    <Pressable
-                      key={em}
-                      onPress={() => setReflectionEmotion(active ? null : em)}
-                      style={[
-                        styles.emotionChip,
-                        { backgroundColor: active ? c.bg : colors.surface1 },
-                        active && { borderColor: c.border, borderWidth: 1 },
-                      ]}
-                      testID={`scripture-emotion-chip-${em}`}
-                    >
-                      <Text style={[styles.emotionChipText, active && { color: c.text }]}>{em}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
+        {/* Devotional — skeleton until Phase 2 resolves. */}
+        <View>
+          <View style={styles.devoHeader}>
+            <Text style={styles.sectionLabel}>Devotional</Text>
+            {!devoLoading && !!devotional && verse && (
               <Pressable
-                onPress={saveReflection}
-                disabled={!reflectionText.trim() || reflectionSaving}
-                style={[styles.saveBtn, (!reflectionText.trim() || reflectionSaving) && styles.saveBtnDisabled]}
-                testID="scripture-save-reflection-button"
+                onPress={() => openShare({ kind: "devotional" })}
+                hitSlop={8}
+                style={styles.devoShareBtn}
+                testID="share-devotional-button"
+                accessibilityRole="button"
+                accessibilityLabel="Share devotional"
               >
-                {reflectionSaving ? (
-                  <ActivityIndicator color={colors.textOnAccent} />
+                {sharePreparing && shareSource?.kind === "devotional" ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
-                  <Text style={styles.saveBtnText}>Save reflection</Text>
+                  <Ionicons name="share-outline" size={14} color={colors.accent} />
                 )}
               </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/reflections-history" as any)}
-                style={styles.viewAllLink}
-                testID="view-all-reflections-link"
-                accessibilityRole="button"
-                accessibilityLabel="View all your reflections"
-              >
-                <Text style={styles.viewAllText}>View all reflections</Text>
-                <Ionicons name="arrow-forward" size={13} color={colors.accent} />
-              </Pressable>
+            )}
+          </View>
+          {devoLoading || !devotional ? (
+            <Animated.View style={[styles.devotionalCard, { opacity: skeletonOpacity, gap: 10 }]} testID="devotional-skeleton">
+              <View style={[styles.skeletonBar, { width: "98%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "94%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "88%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "70%", height: 13 }]} />
+              <View style={{ height: 6 }} />
+              <View style={[styles.skeletonBar, { width: "92%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "60%", height: 13 }]} />
+            </Animated.View>
+          ) : (
+            <View style={styles.devotionalCard} testID="devotional-card">
+              <Text style={styles.devotionalText}>{devotional}</Text>
             </View>
+          )}
+        </View>
+
+        {/* Reflection — inline, scoped to today's verse. Only shown once we have a verse. */}
+        {verse && (
+          <Animated.View style={{ opacity: fade }} testID="reflection-section">
+            <Text style={styles.sectionLabel}>Reflection</Text>
+            <Text style={styles.reflectionPrompt}>{todayReflectionPrompt}</Text>
+
+            <View style={styles.reflectionInputWrap}>
+              <TextInput
+                value={reflectionText}
+                onChangeText={setReflectionText}
+                placeholder="Write what's stirring…"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                style={styles.reflectionInput}
+                testID="scripture-reflection-input"
+              />
+            </View>
+
+            <View style={styles.emotionChipsWrap} testID="scripture-emotion-chips">
+              {EMOTIONS.map((em) => {
+                const c = emotionColors[em];
+                const active = reflectionEmotion === em;
+                return (
+                  <Pressable
+                    key={em}
+                    onPress={() => setReflectionEmotion(active ? null : em)}
+                    style={[
+                      styles.emotionChip,
+                      { backgroundColor: active ? c.bg : colors.surface1 },
+                      active && { borderColor: c.border, borderWidth: 1 },
+                    ]}
+                    testID={`scripture-emotion-chip-${em}`}
+                  >
+                    <Text style={[styles.emotionChipText, active && { color: c.text }]}>{em}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              onPress={saveReflection}
+              disabled={!reflectionText.trim() || reflectionSaving}
+              style={[styles.saveBtn, (!reflectionText.trim() || reflectionSaving) && styles.saveBtnDisabled]}
+              testID="scripture-save-reflection-button"
+            >
+              {reflectionSaving ? (
+                <ActivityIndicator color={colors.textOnAccent} />
+              ) : (
+                <Text style={styles.saveBtnText}>Save reflection</Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/reflections-history" as any)}
+              style={styles.viewAllLink}
+              testID="view-all-reflections-link"
+              accessibilityRole="button"
+              accessibilityLabel="View all your reflections"
+            >
+              <Text style={styles.viewAllText}>View all reflections</Text>
+              <Ionicons name="arrow-forward" size={13} color={colors.accent} />
+            </Pressable>
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
@@ -419,29 +453,6 @@ export default function ScriptureScreen() {
   );
 }
 
-function ReactionButton({ icon, label, count, onPress, testID }: { icon: keyof typeof Ionicons.glyphMap; label: string; count: number; onPress: () => void; testID: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  return (
-    <Pressable
-      onPress={() => {
-        Animated.sequence([
-          Animated.timing(scale, { toValue: 1.15, duration: 100, useNativeDriver: true }),
-          Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 5 }),
-        ]).start();
-        onPress();
-      }}
-      style={styles.reactionBtn}
-      testID={testID}
-    >
-      <Animated.View style={[styles.reactionInner, { transform: [{ scale }] }]}>
-        <Ionicons name={icon} size={18} color={colors.accent} />
-        {count > 0 && <Text style={styles.reactionCount}>{count}</Text>}
-      </Animated.View>
-      <Text style={styles.reactionLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
   hero: { marginTop: 18, marginBottom: 6 },
@@ -450,12 +461,16 @@ const styles = StyleSheet.create({
   dateLine: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 10 },
   banner: { paddingVertical: 10, alignItems: "center" },
   bannerText: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 13, textAlign: "center", letterSpacing: 0.2 },
-  loadingBox: { padding: 60, alignItems: "center" },
   verseCard: {
     backgroundColor: colors.surface1,
     borderRadius: 26,
     padding: 28,
     gap: 18,
+  },
+  verseSkeleton: { minHeight: 140, justifyContent: "center" },
+  skeletonBar: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 6,
   },
   metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   metaText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase" },
@@ -469,18 +484,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verseText: { fontFamily: fonts.serif, fontSize: 24, color: colors.text, lineHeight: 36, letterSpacing: 0.1 },
-  reactionsRow: { flexDirection: "row", gap: 8 },
-  reactionBtn: {
-    flex: 1,
-    backgroundColor: colors.surface1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    gap: 6,
-  },
-  reactionInner: { flexDirection: "row", alignItems: "center", gap: 5 },
-  reactionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textSecondary },
-  reactionCount: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.accent },
   sectionLabel: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
