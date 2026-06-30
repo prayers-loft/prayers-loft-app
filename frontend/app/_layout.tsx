@@ -58,17 +58,12 @@ export default function RootLayout() {
         });
         console.error("[RootLayout] EXPO_PUBLIC_BACKEND_URL is empty at runtime");
       } else {
-        // BUILD_VERIFICATION_TEMP — Build 11 visibility toast.
-        // Shows the resolved backend URL on cold start so QA/TestFlight
-        // testers can visually confirm Build 11 is hitting the deployed host
-        // (prayers-loft.emergent.host) and NOT the preview pod URL.
-        // Remove after Build 11 verification (grep BUILD_VERIFICATION_TEMP).
-        showToast({
-          variant: "info",
-          title: `Build verification`,
-          message: `API: ${apiBase}\nfrom: ${apiBaseSource}`,
-          duration: 6000,
-        });
+        // BUILD_VERIFICATION_TEMP — Build 11 visibility toast was REMOVED for
+        // Build 13 to stop polluting the TestFlight UX with a startup banner.
+        // The silent console.log below is intentionally kept for Xcode
+        // Console.app diagnostics. Full BUILD_VERIFICATION_TEMP cleanup
+        // (remove console.log here + the ones in src/lib/api.ts + the
+        // getApiBaseSource helper) will follow in a separate small PR.
         // eslint-disable-next-line no-console
         console.log(`[RootLayout] BUILD_VERIFICATION_TEMP — apiBase="${apiBase}" source=${apiBaseSource}`);
       }
