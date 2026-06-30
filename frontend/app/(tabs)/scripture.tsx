@@ -1,4 +1,21 @@
-// Scripture. Editorial, immersive verse card with subtle interactions.
+// Scripture. Editorial reading + reflection surface.
+//
+// Reading flow (top → bottom):
+//   1. Today's Verse  (hero, date)
+//   2. Verse card    (NLT text + open-in-Bible.com + share)
+//   3. Devotional    (devotional card + share)
+//   4. Reflection    (inline write input + emotion chips + save + "View all")
+//
+// Loading strategy — two-phase:
+//   Phase 1: GET /api/daily-verse?include_devotional=false (no LLM, < 200ms)
+//     → render the verse card immediately, render devotional skeleton.
+//   Phase 2: GET /api/daily-verse (full, with LLM-backed devotional; cached
+//     server-side per-day so all but the first user of a new day hit cache)
+//     → swap skeleton for devotional text.
+//
+// The Bible Assistant (Q&A + on-demand devotional) now lives in its own tab.
+// The reflections list/history lives at /reflections-history (also reachable
+// from Settings → My Reflections).
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +33,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
-import { colors, fonts } from "@/src/theme/theme";
+import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import {
   detectTimezone,
@@ -28,6 +45,10 @@ import {
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { showToast } from "@/src/components/Toast";
+import { ConversionTrigger, track } from "@/src/lib/analytics";
+import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -37,42 +58,49 @@ const BANNER_QUOTES = [
   "You are loved more than you can carry.",
 ];
 
-type ReactionKey = "pray" | "love" | "fire" | "insight";
-type ReactionMeta = { key: ReactionKey; icon: keyof typeof Ionicons.glyphMap; label: string };
-const REACTIONS: ReactionMeta[] = [
-  { key: "pray", icon: "leaf-outline", label: "Pray" },
-  { key: "love", icon: "heart-outline", label: "Love" },
-  { key: "fire", icon: "flame-outline", label: "Power" },
-  { key: "insight", icon: "bulb-outline", label: "Insight" },
-];
+const EMOTIONS = ["Grateful", "Hopeful", "Anxious", "Peaceful", "Confused", "Joyful", "Tired", "Seeking"] as const;
+type Emotion = (typeof EMOTIONS)[number];
 
-type Style = "Devotional" | "Theologian";
-const STYLES: Style[] = ["Devotional", "Theologian"];
+const REFLECTION_PROMPTS = [
+  "What is God saying to you through this verse?",
+  "Where in your life does this verse meet you today?",
+  "What comfort, conviction, or invitation do you hear here?",
+  "How would your day change if you took this verse to heart?",
+  "What word or phrase keeps drawing you back? Why?",
+];
 
 const todayLabel = () =>
   new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
-type ShareSource =
-  | { kind: "verse" }
-  | { kind: "devotional" }
-  | { kind: "qa"; style: Style; text: string; question: string };
+type VerseMeta = { verse: string; reference: string; verse_id: string; bible_link: string };
+type ShareSource = { kind: "verse" } | { kind: "devotional" };
 
 export default function ScriptureScreen() {
   const router = useRouter();
-  const [verse, setVerse] = useState<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState<Record<string, number>>({ pray: 0, love: 0, fire: 0, insight: 0 });
+  const [verse, setVerse] = useState<VerseMeta | null>(null);
+  const [devotional, setDevotional] = useState<string>(""); // flat text — used for share + fallback
+  const [structuredDevo, setStructuredDevo] = useState<StructuredDevotionalType | null>(null);
+  const [verseLoading, setVerseLoading] = useState(true);
+  const [devoLoading, setDevoLoading] = useState(true);
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const [, setNewDayPill] = useState(false);
   const newDayOpacity = useRef(new Animated.Value(0)).current;
+  // Subtle skeleton shimmer.
+  const shimmer = useRef(new Animated.Value(0)).current;
 
-  const [question, setQuestion] = useState("");
-  const [lastAskedQuestion, setLastAskedQuestion] = useState<string>("");
-  const [style, setStyle] = useState<Style>("Devotional");
-  const [qaLoading, setQaLoading] = useState(false);
-  const [qaResponses, setQaResponses] = useState<Record<Style, string>>({ Devotional: "", Theologian: "" });
+  // Reflection state -----------------------------------------------------
+  const [reflectionText, setReflectionText] = useState("");
+  const [reflectionEmotion, setReflectionEmotion] = useState<Emotion | null>(null);
+  const [reflectionSaving, setReflectionSaving] = useState(false);
+  const [reflectionSavedCount, setReflectionSavedCount] = useState(0);
+  const todayReflectionPrompt = (() => {
+    if (!verse) return REFLECTION_PROMPTS[0];
+    let h = 0;
+    for (const c of verse.verse_id) h = (h * 31 + c.charCodeAt(0)) | 0;
+    return REFLECTION_PROMPTS[Math.abs(h) % REFLECTION_PROMPTS.length];
+  })();
 
   // Share state ----------------------------------------------------------
   const [shareOpen, setShareOpen] = useState(false);
@@ -80,31 +108,50 @@ export default function ScriptureScreen() {
   const [sharePreparing, setSharePreparing] = useState(false);
   const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
 
+  // Two-phase load orchestrator.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const tz = detectTimezone();
       const today = localDateInTz(tz);
+
+      // Phase 0: client cache hit → render everything instantly.
       try {
         const cached = await loadCachedDevotional();
-        // 1. Same local day + same timezone → use cache instantly. No fetch.
         if (cacheMatchesToday(cached, tz, today)) {
-          setVerse(cached!.payload);
-          // still load reactions
-          const c = await api.getReactionCounts(cached!.payload.verse_id);
-          setCounts(c.counts);
-          Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+          if (cancelled) return;
+          const p = cached!.payload;
+          setVerse({ verse: p.verse, reference: p.reference, verse_id: p.verse_id, bible_link: p.bible_link });
+          setDevotional(p.devotional);
+          setStructuredDevo(p.devotional_structured ?? null);
+          setVerseLoading(false);
+          setDevoLoading(false);
+          Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
           return;
         }
-        // 2. New local day (or first run, or tz change) → fetch and save.
-        const payload = await api.dailyVerse(today, tz);
-        setVerse(payload);
-        await saveCachedDevotional({ date: today, tz, payload });
-        const c = await api.getReactionCounts(payload.verse_id);
-        setCounts(c.counts);
-        Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
-        // If we had a previous cached entry (i.e. user crossed midnight),
-        // show the "Today's scripture has arrived" transition pill.
+
+        // Phase 1: fast verse fetch (no LLM). Renders verse card immediately.
+        const verseOnly = await api.dailyVerse(today, tz, false);
+        if (cancelled) return;
+        setVerse({
+          verse: verseOnly.verse,
+          reference: verseOnly.reference,
+          verse_id: verseOnly.verse_id,
+          bible_link: verseOnly.bible_link,
+        });
+        setVerseLoading(false);
+        Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
+
+        // Phase 2: devotional fetch. Skeleton stays visible until this returns.
+        const full = await api.dailyVerse(today, tz, true);
+        if (cancelled) return;
+        setDevotional(full.devotional);
+        setStructuredDevo(full.devotional_structured ?? null);
+        setDevoLoading(false);
+        await saveCachedDevotional({ date: today, tz, payload: full });
+
         if (cached) {
+          // User crossed midnight — show the transitional "new day" pill.
           setNewDayPill(true);
           Animated.sequence([
             Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -113,6 +160,7 @@ export default function ScriptureScreen() {
           ]).start(() => setNewDayPill(false));
         }
       } catch (e) {
+        if (cancelled) return;
         console.warn("daily verse load failed", e);
         showToast({
           variant: "error",
@@ -120,12 +168,29 @@ export default function ScriptureScreen() {
           message: e instanceof Error ? e.message : "Check your connection and try again.",
           duration: 5000,
         });
-      } finally {
-        setLoading(false);
+        setVerseLoading(false);
+        setDevoLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [fade, newDayOpacity]);
 
+  // Skeleton shimmer animation — only runs while something is loading.
+  useEffect(() => {
+    if (!verseLoading && !devoLoading) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+        Animated.timing(shimmer, { toValue: 0, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shimmer, verseLoading, devoLoading]);
+
+  // Rotating banner copy.
   useEffect(() => {
     const interval = setInterval(() => {
       Animated.timing(bannerOpacity, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.in(Easing.quad) }).start(() => {
@@ -136,72 +201,50 @@ export default function ScriptureScreen() {
     return () => clearInterval(interval);
   }, [bannerOpacity]);
 
-  const handleReact = async (key: ReactionKey) => {
-    if (!verse) return;
-    setCounts((c) => ({ ...c, [key]: (c[key] ?? 0) + 1 }));
-    try {
-      const res = await api.reactToVerse(verse.verse_id, key);
-      setCounts((c) => ({ ...c, [key]: res.count }));
-    } catch (e) {
-      console.warn("react failed", e);
-    }
-  };
-
-  const runQA = useCallback(
-    async (q: string, s: Style) => {
-      if (!q.trim()) return;
-      setQaLoading(true);
-      try {
-        // Bible Assistant: free-form Q&A + on-demand devotional generation.
-        // The "Bible Questions" pill maps to mode=question (any Bible / theology /
-        // Christian-living question, NOT bound to the daily verse).
-        // The "Write Devotional" pill maps to mode=devotional (user supplies a
-        // topic → structured 5-section devotional response).
-        const mode: "question" | "devotional" = s === "Theologian" ? "question" : "devotional";
-        const r = await api.bibleAssistant(mode, q.trim());
-        setQaResponses((prev) => ({ ...prev, [s]: r.response }));
-      } catch (e) {
-        console.warn("bible assistant failed", e);
-        showToast({
-          variant: "error",
-          title: s === "Theologian" ? "Couldn't answer your question" : "Couldn't generate devotional",
-          message: e instanceof Error ? e.message : "Please check your connection and try again.",
-          duration: 5000,
-        });
-      } finally {
-        setQaLoading(false);
-      }
-    },
-    []
-  );
-
-  const submitQuestion = async () => {
-    if (!question.trim() || qaLoading) return;
-    const q = question.trim();
-    setLastAskedQuestion(q);
-    setQaResponses({ Devotional: "", Theologian: "" });
-    await runQA(q, style);
-  };
-
-  const handleStyleChange = async (s: Style) => {
-    if (s === style) return;
-    setStyle(s);
-    if (!lastAskedQuestion || qaResponses[s]) return;
-    await runQA(lastAskedQuestion, s);
-  };
-
-  const goReflect = () => {
-    if (!verse) return;
-    router.push({ pathname: "/(tabs)/reflections", params: { prompt: `Reflecting on ${verse.reference}: "${verse.verse}"` } });
-  };
-
   const openVerse = () => verse && Linking.openURL(verse.bible_link);
 
-  const currentResponse = qaResponses[style];
+  const saveReflection = useCallback(async () => {
+    if (!verse || !reflectionText.trim() || reflectionSaving) return;
+    setReflectionSaving(true);
+    try {
+      const chars = reflectionText.trim().length;
+      await api.createReflection(
+        reflectionText.trim(),
+        reflectionEmotion ?? undefined,
+        todayReflectionPrompt,
+        verse.verse_id,
+      );
+      setReflectionText("");
+      setReflectionEmotion(null);
+      const nextCount = reflectionSavedCount + 1;
+      setReflectionSavedCount(nextCount);
+      showToast({
+        variant: "success",
+        title: "Reflection saved",
+        message: "View all your reflections from My Reflections.",
+        duration: 3000,
+      });
+      track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });
+      try {
+        if (nextCount >= 5) requestUpgradePrompt("five_reflections");
+      } catch {}
+    } catch (e) {
+      console.warn("save reflection (inline) failed", e);
+      showToast({
+        variant: "error",
+        title: "Couldn't save reflection",
+        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        duration: 5000,
+      });
+    } finally {
+      setReflectionSaving(false);
+    }
+  }, [verse, reflectionText, reflectionEmotion, reflectionSaving, reflectionSavedCount, todayReflectionPrompt]);
 
   // --- Share orchestration ---------------------------------------------
   const openShare = async (src: ShareSource) => {
     if (!verse || sharePreparing) return;
+    if (src.kind === "devotional" && !devotional) return; // not ready yet
     setShareSource(src);
     setSharePreparing(true);
     try {
@@ -214,31 +257,18 @@ export default function ScriptureScreen() {
           style: "Devotional",
           defaultTemplate: "centered",
         });
-      } else if (src.kind === "devotional") {
-        // Hybrid excerpt: if devotional is short & emotionally strong, use as-is.
-        // Otherwise, Claude pulls the most beautiful 1-2 sentences.
-        const excerpt = await getShareExcerpt(verse.devotional, "Devotional");
+      } else {
+        const excerpt = await getShareExcerpt(devotional, "Devotional");
         setSharePayload({
           kind: "qa",
           excerpt,
-          fullText: verse.devotional,
+          fullText: devotional,
           reference: verse.reference,
           style: "Devotional",
-          // Rotate the default template so each share feels fresh.
           defaultTemplate: ["centered", "reflection", "insight"][Math.floor(Math.random() * 3)] as
             | "centered"
             | "reflection"
             | "insight",
-        });
-      } else {
-        const excerpt = await getShareExcerpt(src.text, src.style, { question: src.question });
-        setSharePayload({
-          kind: "qa",
-          excerpt,
-          fullText: src.text,
-          reference: verse.reference,
-          question: src.question,
-          style: src.style,
         });
       }
       setShareOpen(true);
@@ -253,6 +283,9 @@ export default function ScriptureScreen() {
     setShareOpen(false);
     setShareSource(null);
   };
+
+  // Skeleton opacity: shimmer pulses between 0.55 and 1.0.
+  const skeletonOpacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] });
 
   return (
     <ScreenBackground>
@@ -269,180 +302,154 @@ export default function ScriptureScreen() {
           <Text style={styles.dateLine}>{todayLabel()}</Text>
         </View>
 
-        {/* Rotating quote — minimal, no card */}
+        {/* Rotating quote */}
         <Animated.View style={[styles.banner, { opacity: bannerOpacity }]} testID="rotating-banner">
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
 
-        {loading || !verse ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator color={colors.accent} />
-          </View>
+        {/* Verse card — skeleton while loading, real card once Phase 1 returns. */}
+        {verseLoading || !verse ? (
+          <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
+            <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
+            <View style={{ gap: 10 }}>
+              <View style={[styles.skeletonBar, { width: "100%", height: 18 }]} />
+              <View style={[styles.skeletonBar, { width: "90%", height: 18 }]} />
+              <View style={[styles.skeletonBar, { width: "65%", height: 18 }]} />
+            </View>
+          </Animated.View>
         ) : (
-          <Animated.View style={{ opacity: fade, gap: 16 }}>
-            {/* Verse card — editorial */}
-            <View style={styles.verseCard} testID="verse-card">
-              <View style={styles.metaRow}>
-                <Text style={styles.metaText}>NLT · {verse.reference}</Text>
-                <View style={styles.metaActions}>
-                  <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
-                    <Ionicons name="open-outline" size={16} color={colors.accent} />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => openShare({ kind: "verse" })}
-                    testID="share-scripture-button"
-                    hitSlop={8}
-                    style={styles.metaIconBtn}
-                  >
-                    {sharePreparing && shareSource?.kind === "verse" ? (
-                      <ActivityIndicator size="small" color={colors.accent} />
-                    ) : (
-                      <Ionicons name="share-outline" size={16} color={colors.accent} />
-                    )}
-                  </Pressable>
-                </View>
-              </View>
-              <Text style={styles.verseText}>"{verse.verse}"</Text>
-            </View>
-
-            {/* Reactions — minimal floating row */}
-            <View style={styles.reactionsRow} testID="reactions-row">
-              {REACTIONS.map((r) => (
-                <ReactionButton
-                  key={r.key}
-                  icon={r.icon}
-                  label={r.label}
-                  count={counts[r.key] ?? 0}
-                  onPress={() => handleReact(r.key)}
-                  testID={`react-${r.key}`}
-                />
-              ))}
-            </View>
-
-            {/* Devotional — no card border, soft tint */}
-            <View>
-              <View style={styles.devoHeader}>
-                <Text style={styles.sectionLabel}>Devotional</Text>
+          <Animated.View style={[styles.verseCard, { opacity: fade }]} testID="verse-card">
+            <View style={styles.metaRow}>
+              <Text style={styles.metaText}>NLT · {verse.reference}</Text>
+              <View style={styles.metaActions}>
+                <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
+                  <Ionicons name="open-outline" size={16} color={colors.accent} />
+                </Pressable>
                 <Pressable
-                  onPress={() => openShare({ kind: "devotional" })}
+                  onPress={() => openShare({ kind: "verse" })}
+                  testID="share-scripture-button"
                   hitSlop={8}
-                  style={styles.devoShareBtn}
-                  testID="share-devotional-button"
-                  accessibilityRole="button"
-                  accessibilityLabel="Share devotional"
+                  style={styles.metaIconBtn}
                 >
-                  {sharePreparing && shareSource?.kind === "devotional" ? (
+                  {sharePreparing && shareSource?.kind === "verse" ? (
                     <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <Ionicons name="share-outline" size={14} color={colors.accent} />
+                    <Ionicons name="share-outline" size={16} color={colors.accent} />
                   )}
                 </Pressable>
               </View>
-              <View style={styles.devotionalCard} testID="devotional-card">
-                <Text style={styles.devotionalText}>{verse.devotional}</Text>
-              </View>
+            </View>
+            <Text style={styles.verseText}>"{verse.verse}"</Text>
+          </Animated.View>
+        )}
+
+        {/* Devotional — skeleton until Phase 2 resolves. */}
+        <View>
+          <View style={styles.devoHeader}>
+            <Text style={styles.sectionLabel}>Devotional</Text>
+            {!devoLoading && !!devotional && verse && (
+              <Pressable
+                onPress={() => openShare({ kind: "devotional" })}
+                hitSlop={8}
+                style={styles.devoShareBtn}
+                testID="share-devotional-button"
+                accessibilityRole="button"
+                accessibilityLabel="Share devotional"
+              >
+                {sharePreparing && shareSource?.kind === "devotional" ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Ionicons name="share-outline" size={14} color={colors.accent} />
+                )}
+              </Pressable>
+            )}
+          </View>
+          {devoLoading || !devotional ? (
+            <Animated.View style={[styles.devotionalCard, { opacity: skeletonOpacity, gap: 10 }]} testID="devotional-skeleton">
+              <View style={[styles.skeletonBar, { width: "98%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "94%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "88%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "70%", height: 13 }]} />
+              <View style={{ height: 6 }} />
+              <View style={[styles.skeletonBar, { width: "92%", height: 13 }]} />
+              <View style={[styles.skeletonBar, { width: "60%", height: 13 }]} />
+            </Animated.View>
+          ) : structuredDevo ? (
+            <StructuredDevotional
+              devo={structuredDevo}
+              reference={verse?.reference ?? ""}
+              testID="devotional-card"
+            />
+          ) : (
+            // Legacy / fallback path — older cached entries or LLM JSON
+            // parse failures render as a single flowing paragraph card.
+            <View style={styles.devotionalCard} testID="devotional-card">
+              <Text style={styles.devotionalText}>{devotional}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Reflection — inline, scoped to today's verse. Only shown once we have a verse. */}
+        {verse && (
+          <Animated.View style={{ opacity: fade }} testID="reflection-section">
+            <Text style={styles.sectionLabel}>Reflection</Text>
+            <Text style={styles.reflectionPrompt}>{todayReflectionPrompt}</Text>
+
+            <View style={styles.reflectionInputWrap}>
+              <TextInput
+                value={reflectionText}
+                onChangeText={setReflectionText}
+                placeholder="Write what's stirring…"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                style={styles.reflectionInput}
+                testID="scripture-reflection-input"
+              />
             </View>
 
-            {/* Discussion */}
-            <View>
-              <Text style={styles.sectionLabel}>Bible Assistant</Text>
-              <View style={styles.qaWrap}>
-                <View style={styles.qaInputWrap}>
-                  <TextInput
-                    value={question}
-                    onChangeText={setQuestion}
-                    placeholder="Ask any Bible question or enter a devotional topic…"
-                    placeholderTextColor={colors.textTertiary}
-                    multiline
-                    style={styles.qaInput}
-                    testID="theological-question-input"
-                  />
-                </View>
-                <View style={styles.styleSegment}>
-                  {STYLES.map((s) => (
-                    <Pressable
-                      key={s}
-                      onPress={() => handleStyleChange(s)}
-                      style={[styles.stylePill, style === s && styles.stylePillActive]}
-                      testID={`style-pill-${s}`}
-                    >
-                      <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>
-                        {s === "Theologian" ? "Bible Questions" : "Write Devotional"}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                {/* Example chips — populate input on tap. Mode-aware. */}
-                <View style={styles.chipsRow} testID="bible-assistant-chips">
-                  {(style === "Theologian"
-                    ? ["Salvation", "Forgiveness", "Prayer", "Faith"]
-                    : ["Anxiety", "Purpose", "Discipline", "Trust"]
-                  ).map((chip) => (
-                    <Pressable
-                      key={chip}
-                      onPress={() => setQuestion(chip)}
-                      style={styles.chip}
-                      testID={`chip-${chip.toLowerCase()}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Use example: ${chip}`}
-                    >
-                      <Text style={styles.chipText}>{chip}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Pressable
-                  onPress={submitQuestion}
-                  disabled={!question.trim() || qaLoading}
-                  style={[styles.askBtn, (!question.trim() || qaLoading) && styles.askBtnDisabled]}
-                  testID="ask-question-button"
-                >
-                  {qaLoading && !currentResponse ? (
-                    <ActivityIndicator color={colors.textOnAccent} />
-                  ) : (
-                    <Text style={styles.askBtnText}>
-                      {style === "Theologian" ? "Ask" : "Generate"}
-                    </Text>
-                  )}
-                </Pressable>
-                {qaLoading && !currentResponse ? (
-                  <View style={styles.qaResponseCard}>
-                    <ActivityIndicator color={colors.accent} />
-                  </View>
-                ) : !!currentResponse ? (
-                  <View style={styles.qaResponseCard} testID="qa-response">
-                    <View style={styles.qaResponseHeader}>
-                      <Text style={styles.qaResponseStyle}>{style}</Text>
-                      <Pressable
-                        onPress={() =>
-                          openShare({
-                            kind: "qa",
-                            style,
-                            text: currentResponse,
-                            question: lastAskedQuestion,
-                          })
-                        }
-                        hitSlop={8}
-                        style={styles.qaShareBtn}
-                        testID="share-qa-button"
-                        accessibilityRole="button"
-                        accessibilityLabel="Share this insight"
-                      >
-                        {sharePreparing && shareSource?.kind === "qa" ? (
-                          <ActivityIndicator size="small" color={colors.accent} />
-                        ) : (
-                          <Ionicons name="share-outline" size={16} color={colors.accent} />
-                        )}
-                      </Pressable>
-                    </View>
-                    <Text style={styles.qaResponseText}>{currentResponse}</Text>
-                  </View>
-                ) : null}
-              </View>
+            <View style={styles.emotionChipsWrap} testID="scripture-emotion-chips">
+              {EMOTIONS.map((em) => {
+                const c = emotionColors[em];
+                const active = reflectionEmotion === em;
+                return (
+                  <Pressable
+                    key={em}
+                    onPress={() => setReflectionEmotion(active ? null : em)}
+                    style={[
+                      styles.emotionChip,
+                      { backgroundColor: active ? c.bg : colors.surface1 },
+                      active && { borderColor: c.border, borderWidth: 1 },
+                    ]}
+                    testID={`scripture-emotion-chip-${em}`}
+                  >
+                    <Text style={[styles.emotionChipText, active && { color: c.text }]}>{em}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            <Pressable onPress={goReflect} style={styles.reflectCta} testID="want-to-reflect-button">
-              <Text style={styles.reflectCtaText}>Reflect on this verse</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+            <Pressable
+              onPress={saveReflection}
+              disabled={!reflectionText.trim() || reflectionSaving}
+              style={[styles.saveBtn, (!reflectionText.trim() || reflectionSaving) && styles.saveBtnDisabled]}
+              testID="scripture-save-reflection-button"
+            >
+              {reflectionSaving ? (
+                <ActivityIndicator color={colors.textOnAccent} />
+              ) : (
+                <Text style={styles.saveBtnText}>Save reflection</Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/reflections-history" as any)}
+              style={styles.viewAllLink}
+              testID="view-all-reflections-link"
+              accessibilityRole="button"
+              accessibilityLabel="View all your reflections"
+            >
+              <Text style={styles.viewAllText}>View all reflections</Text>
+              <Ionicons name="arrow-forward" size={13} color={colors.accent} />
             </Pressable>
           </Animated.View>
         )}
@@ -459,29 +466,6 @@ export default function ScriptureScreen() {
   );
 }
 
-function ReactionButton({ icon, label, count, onPress, testID }: { icon: keyof typeof Ionicons.glyphMap; label: string; count: number; onPress: () => void; testID: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  return (
-    <Pressable
-      onPress={() => {
-        Animated.sequence([
-          Animated.timing(scale, { toValue: 1.15, duration: 100, useNativeDriver: true }),
-          Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 5 }),
-        ]).start();
-        onPress();
-      }}
-      style={styles.reactionBtn}
-      testID={testID}
-    >
-      <Animated.View style={[styles.reactionInner, { transform: [{ scale }] }]}>
-        <Ionicons name={icon} size={18} color={colors.accent} />
-        {count > 0 && <Text style={styles.reactionCount}>{count}</Text>}
-      </Animated.View>
-      <Text style={styles.reactionLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
   hero: { marginTop: 18, marginBottom: 6 },
@@ -490,12 +474,16 @@ const styles = StyleSheet.create({
   dateLine: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 10 },
   banner: { paddingVertical: 10, alignItems: "center" },
   bannerText: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 13, textAlign: "center", letterSpacing: 0.2 },
-  loadingBox: { padding: 60, alignItems: "center" },
   verseCard: {
     backgroundColor: colors.surface1,
     borderRadius: 26,
     padding: 28,
     gap: 18,
+  },
+  verseSkeleton: { minHeight: 140, justifyContent: "center" },
+  skeletonBar: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 6,
   },
   metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   metaText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase" },
@@ -509,18 +497,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verseText: { fontFamily: fonts.serif, fontSize: 24, color: colors.text, lineHeight: 36, letterSpacing: 0.1 },
-  reactionsRow: { flexDirection: "row", gap: 8 },
-  reactionBtn: {
-    flex: 1,
-    backgroundColor: colors.surface1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    gap: 6,
-  },
-  reactionInner: { flexDirection: "row", alignItems: "center", gap: 5 },
-  reactionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.textSecondary },
-  reactionCount: { fontFamily: fonts.sansSemibold, fontSize: 11, color: colors.accent },
   sectionLabel: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
@@ -549,82 +525,64 @@ const styles = StyleSheet.create({
   devotionalCard: {
     backgroundColor: colors.surface1,
     borderRadius: 20,
-    padding: 22,
+    padding: 24,
   },
   devotionalText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 26 },
-  qaWrap: { gap: 12 },
-  qaInputWrap: {
+
+  // ---- Reflection (inline) ----
+  reflectionPrompt: {
+    fontFamily: fonts.serif,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  reflectionInputWrap: {
     backgroundColor: colors.surface1,
     borderRadius: 18,
     padding: 4,
+    marginBottom: 12,
   },
-  qaInput: {
+  reflectionInput: {
     color: colors.text,
     fontFamily: fonts.sans,
     fontSize: 15,
-    minHeight: 70,
+    minHeight: 110,
     textAlignVertical: "top",
     padding: 14,
     lineHeight: 22,
   },
-  styleSegment: {
-    flexDirection: "row",
-    padding: 4,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderRadius: 14,
-  },
-  stylePill: { flex: 1, paddingVertical: 11, borderRadius: 11, alignItems: "center" },
-  stylePillActive: { backgroundColor: colors.accent },
-  stylePillText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
-  stylePillTextActive: { color: colors.textOnAccent, fontFamily: fonts.sansSemibold },
-  chipsRow: {
+  emotionChipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 12,
   },
-  chip: {
+  emotionChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: colors.surface2,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  chipText: {
+  emotionChipText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: colors.textSecondary,
-    letterSpacing: 0.1,
   },
-  askBtn: {
+  saveBtn: {
     backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
   },
-  askBtnDisabled: { opacity: 0.35 },
-  askBtnText: { fontFamily: fonts.sansSemibold, color: colors.textOnAccent, fontSize: 14, letterSpacing: 0.2 },
-  qaResponseCard: {
-    backgroundColor: colors.surface1,
-    borderRadius: 18,
-    padding: 22,
-    gap: 8,
-    minHeight: 80,
-    justifyContent: "center",
+  saveBtnDisabled: { opacity: 0.35 },
+  saveBtnText: {
+    fontFamily: fonts.sansSemibold,
+    color: colors.textOnAccent,
+    fontSize: 14,
+    letterSpacing: 0.2,
   },
-  qaResponseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  qaResponseStyle: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.accent, textTransform: "uppercase" },
-  qaShareBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qaResponseText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 25 },
-  reflectCta: {
+  viewAllLink: {
     alignSelf: "center",
     paddingVertical: 16,
     flexDirection: "row",
@@ -632,5 +590,5 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
   },
-  reflectCtaText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
+  viewAllText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
 });

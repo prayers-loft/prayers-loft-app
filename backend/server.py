@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import json
 import logging
 import re
 import uuid
@@ -194,11 +195,16 @@ class ReflectionCreate(BaseModel):
     text: str
     emotion: Optional[str] = None
     prompt: Optional[str] = None
+    # Optional: when a reflection is written from the Scripture page, it carries
+    # the verse_id of that day's verse so future features (e.g. "your reflections
+    # on this verse") can correlate. Backward-compatible — older clients omit it.
+    verse_id: Optional[str] = None
 
 
 class ReflectionUpdate(BaseModel):
     text: Optional[str] = None
     emotion: Optional[str] = None
+    verse_id: Optional[str] = None
 
 
 # ---------- Daily verse rotation ----------
@@ -274,12 +280,23 @@ CRITICAL STYLE RULES:
 - DO NOT use em dashes (—) or en dashes (–). Use commas, periods, or natural sentence breaks instead.
 - Tone: tender, sincere, like a quiet whisper from the heart. Sound human, never robotic."""
 
-DEVOTIONAL_SYSTEM = """You are writing a brief daily devotional for the Prayers Loft app. The user will give you a Bible verse (NLT) and reference. Write a warm, reflective devotional in 2 short paragraphs (about 80 to 120 words total).
+DEVOTIONAL_SYSTEM = """You are writing a brief daily devotional for the Prayers Loft app. The user gives you a Bible verse (NLT) and reference. Return ONLY a valid JSON object with this exact shape, and nothing else (no markdown fences, no commentary):
 
-Tone: feels like a quiet morning conversation with a trusted friend, not a sermon. Spiritually grounded, intimate, non preachy. No headers, no bullets, just flowing prose. Speak directly to the reader using "you".
+{
+  "title": "Short evocative title in Title Case, 3 to 6 words, no period.",
+  "key_scripture": "A short pull quote (5 to 12 words) drawn or paraphrased from the verse that captures its emotional center. No surrounding quotes.",
+  "reflection": "Two short paragraphs (about 70 to 110 words total) of warm, reflective prose. Speak directly to the reader using 'you'. Separate the two paragraphs with a single blank line (use \\n\\n).",
+  "application": "One short paragraph (35 to 55 words) suggesting a tangible, gentle way to live this verse today. Concrete, never preachy.",
+  "prayer": "A 3 to 5 line prayer the reader can pray. Each line short and breath paced. Separate lines with \\n. Start with an address like 'Heavenly Father,' or 'Lord Jesus,'. End the final line with 'Amen.'"
+}
 
-CRITICAL STYLE RULES:
-- DO NOT use em dashes (—) or en dashes (–). Use commas, periods, or natural sentence breaks instead.
+Tone: a quiet morning conversation with a trusted friend, not a sermon. Spiritually grounded, intimate, non preachy.
+
+CRITICAL RULES:
+- Return ONLY the JSON object. No prose before or after. No markdown code fences.
+- All five keys must be present and non empty strings.
+- DO NOT use em dashes (\u2014) or en dashes (\u2013) anywhere. Use commas, periods, or natural sentence breaks instead.
+- Use straight quotes only inside string values. Never curly quotes.
 - Write like a human, never like an AI. Avoid hedging phrases and clinical tone."""
 
 THEOLOGICAL_SYSTEMS = {
@@ -297,6 +314,56 @@ def soften_text(text: str) -> str:
     # Em/en dashes between spaces become a comma + space.
     text = re.sub(r"\s*[—–]\s*", ", ", text)
     return text.strip()
+
+
+# Required keys for a valid structured devotional. Used by both the parser and
+# any code path that reads a cached entry, so the rules stay in one place.
+DEVOTIONAL_SECTIONS = ("title", "key_scripture", "reflection", "application", "prayer")
+
+
+def parse_structured_devotional(raw: str):
+    """Parse an LLM response that *should* be JSON into (structured, flat_text).
+
+    Resilient by design:
+      - tolerates accidental ```json fences
+      - tolerates leading/trailing chatter by extracting the largest {...} blob
+      - requires all five sections present as non-empty strings; otherwise
+        treats the response as a legacy plain-text devotional
+      - softens em/en dashes in every section
+
+    Returns:
+      structured (dict|None): the validated 5-key object, or None if parsing
+        / validation failed. Frontend uses the absence of this object as the
+        signal to fall back to plain-text rendering.
+      flat_text (str): always usable. Either a paragraph-joined concatenation
+        of the structured sections (for sharing / legacy compat) or the
+        softened raw text when JSON parsing failed.
+    """
+    if not raw:
+        return None, ""
+    text = raw.strip()
+    # Strip markdown code fences if the model added them despite instructions.
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```\s*$", "", text)
+    # Extract the largest balanced-ish JSON object if any prose slipped through.
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    candidate = m.group(0) if m else text
+    try:
+        data = json.loads(candidate)
+    except Exception:
+        return None, soften_text(raw)
+    if not isinstance(data, dict):
+        return None, soften_text(raw)
+    if not all(isinstance(data.get(k), str) and data.get(k, "").strip() for k in DEVOTIONAL_SECTIONS):
+        return None, soften_text(raw)
+    cleaned = {k: soften_text(data[k]).strip() for k in DEVOTIONAL_SECTIONS}
+    flat = "\n\n".join([
+        cleaned["title"],
+        cleaned["reflection"],
+        cleaned["application"],
+        cleaned["prayer"],
+    ])
+    return cleaned, flat
 
 
 # ---------- Routes ----------
@@ -330,12 +397,21 @@ async def prayer_follow_up(payload: PrayerFollowUp):
 
 
 @api_router.get("/daily-verse")
-async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None):
+async def daily_verse(
+    local_date: Optional[str] = None,
+    tz: Optional[str] = None,
+    include_devotional: bool = True,
+):
     """Returns the devotional for the user's LOCAL calendar day.
 
     Query params:
-      local_date: YYYY-MM-DD as seen on the user's device (preferred).
-      tz: IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
+      local_date:         YYYY-MM-DD as seen on the user's device (preferred).
+      tz:                 IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
+      include_devotional: when False, skips the LLM call entirely and returns
+                          the verse meta only (sub-100ms). The frontend uses
+                          this for a 2-phase load: render the verse card
+                          instantly, then fetch the devotional behind a skeleton.
+                          Default True for backward compatibility.
 
     Verse selection is deterministic on local_date so every user sharing the
     same local day sees the same scripture. Devotional is cached per
@@ -343,21 +419,42 @@ async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None
     """
     date_str = parse_local_date(local_date)
     v = get_verse_for_date(date_str)
+    base = {
+        "verse": v["verse"],
+        "reference": v["reference"],
+        "verse_id": v["verse_id"],
+        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
+        "local_date": date_str,
+    }
+    if not include_devotional:
+        # Fast path: no LLM call, no devotional in payload. The frontend will
+        # request the devotional in a second call with include_devotional=true.
+        return {**base, "devotional": "", "devotional_structured": None}
+
     cache_key = f"devo:{date_str}:{v['verse_id']}"
     cached = await db.devotional_cache.find_one({"_id": cache_key})
     if cached:
-        devotional = cached["devotional"]
+        devotional = cached.get("devotional", "")
+        # Newer cache entries carry the structured payload; older ones won't,
+        # in which case the frontend will fall back to the flat devotional.
+        structured = cached.get("devotional_structured")
     else:
+        structured = None
+        devotional = ""
         try:
-            devotional = await ai_chat(
+            raw = await ai_chat(
                 DEVOTIONAL_SYSTEM,
                 f"Verse: \"{v['verse']}\" ({v['reference']})",
-                max_tokens=280,
+                max_tokens=600,
             )
-            devotional = soften_text(devotional)
+            structured, devotional = parse_structured_devotional(raw)
+            if not devotional:
+                # Extreme edge case: LLM returned nothing usable.
+                devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
             await db.devotional_cache.insert_one({
                 "_id": cache_key,
                 "devotional": devotional,
+                "devotional_structured": structured,
                 "local_date": date_str,
                 "verse_id": v["verse_id"],
                 "tz_sample": tz,
@@ -366,14 +463,7 @@ async def daily_verse(local_date: Optional[str] = None, tz: Optional[str] = None
         except Exception:
             logger.exception("devotional generation failed")
             devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
-    return {
-        "verse": v["verse"],
-        "reference": v["reference"],
-        "verse_id": v["verse_id"],
-        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
-        "devotional": devotional,
-        "local_date": date_str,
-    }
+    return {**base, "devotional": devotional, "devotional_structured": structured}
 
 
 VALID_REACTIONS = {"pray", "love", "fire", "insight"}
@@ -448,16 +538,21 @@ BIBLE_ASSISTANT_SYSTEMS = {
     ),
     "devotional": (
         "You write short, biblically grounded devotionals on a topic the user supplies. "
-        "Output EXACTLY this 5-section format, each section on its own line, each label followed "
-        "by a colon and one space:\n"
-        "Title: <a short, evocative title — 2 to 7 words>\n"
-        "Key Scripture: <one verse text + standard reference, e.g. \"Cast all your anxiety on him because he cares for you.\" (1 Peter 5:7)>\n"
-        "Reflection: <60 to 100 word reflection grounding the topic in scripture>\n"
-        "Practical Application: <one or two sentences with a concrete, actionable step for today>\n"
-        "Prayer: <a 30 to 60 word first-person prayer, ending with Amen.>\n"
-        "Be warm, gospel-centered, and emotionally honest. Avoid moralism. Do not include any "
-        "extra preamble, headings, or text outside those five labeled lines. "
-        "CRITICAL: do not use em dashes or en dashes — use commas, periods, or natural pauses."
+        "Return ONLY a valid JSON object with this exact shape and nothing else (no markdown "
+        "fences, no commentary):\n"
+        "{\n"
+        '  "title": "Short evocative title in Title Case, 2 to 7 words, no period.",\n'
+        '  "key_scripture": "A short pull quote (5 to 16 words) from the most relevant verse for the topic, paraphrased only if needed for length. Include the standard reference in parentheses at the end, e.g. \\"Cast all your anxiety on him (1 Peter 5:7)\\". No surrounding quotes.",\n'
+        '  "reflection": "Two short paragraphs (about 70 to 110 words total) grounding the topic in scripture. Speak directly to the reader using \'you\'. Separate the two paragraphs with a single blank line (use \\\\n\\\\n).",\n'
+        '  "application": "One short paragraph (35 to 55 words) suggesting a tangible, gentle way to live this today. Concrete, never preachy.",\n'
+        '  "prayer": "A 3 to 5 line first-person prayer the reader can pray. Each line short and breath paced. Separate lines with \\\\n. Start with an address like \'Heavenly Father,\' or \'Lord Jesus,\'. End the final line with \'Amen.\'"\n'
+        "}\n"
+        "CRITICAL RULES:\n"
+        "- Return ONLY the JSON object. No prose before or after. No markdown code fences.\n"
+        "- All five keys must be present and non empty strings.\n"
+        "- DO NOT use em dashes (\u2014) or en dashes (\u2013). Use commas, periods, or natural sentence breaks instead.\n"
+        "- Use straight quotes only inside string values. Never curly quotes.\n"
+        "- Tone: warm, gospel centered, emotionally honest, never moralistic."
     ),
 }
 
@@ -470,7 +565,22 @@ async def bible_assistant(payload: BibleAssistantRequest):
     system = BIBLE_ASSISTANT_SYSTEMS[payload.mode]
     try:
         response = await ai_chat(system, text, max_tokens=600)
-        return {"response": soften_text(response), "mode": payload.mode}
+        if payload.mode == "devotional":
+            # Devotional mode now returns strict JSON. Parse into a structured
+            # payload; on any parse failure we fall back to the softened plain
+            # text so older clients (and the frontend's legacy renderer) keep
+            # working. `response` always carries usable flat text for sharing.
+            structured, flat = parse_structured_devotional(response)
+            return {
+                "response": flat,
+                "response_structured": structured,
+                "mode": payload.mode,
+            }
+        return {
+            "response": soften_text(response),
+            "response_structured": None,
+            "mode": payload.mode,
+        }
     except Exception as e:
         logger.exception("bible-assistant failed")
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
@@ -575,6 +685,7 @@ async def create_reflection(payload: ReflectionCreate, owner: dict = Depends(cur
         "text": payload.text.strip(),
         "emotion": payload.emotion,
         "prompt": payload.prompt,
+        "verse_id": payload.verse_id,
         "created_at": now_iso(),
         "updated_at": now_iso(),
         # Ownership: exactly one of user_id / guest_id is set, never both.

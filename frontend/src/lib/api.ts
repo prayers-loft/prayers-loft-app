@@ -237,12 +237,31 @@ export const api = {
       body: JSON.stringify({ message, consent: true }),
     }),
 
-  dailyVerse: (localDate?: string, tz?: string) => {
+  dailyVerse: (localDate?: string, tz?: string, includeDevotional: boolean = true) => {
     const params = new URLSearchParams();
     if (localDate) params.set("local_date", localDate);
     if (tz) params.set("tz", tz);
+    if (!includeDevotional) params.set("include_devotional", "false");
     const qs = params.toString();
-    return request<{ verse: string; reference: string; verse_id: string; bible_link: string; devotional: string; local_date: string }>(
+    return request<{
+      verse: string;
+      reference: string;
+      verse_id: string;
+      bible_link: string;
+      devotional: string;
+      // New structured payload. Null when the backend could not parse the LLM
+      // response into the expected 5-section shape, or when this is the fast
+      // verse-only fetch. Frontend falls back to plain-text devotional in
+      // either case.
+      devotional_structured: {
+        title: string;
+        key_scripture: string;
+        reflection: string;
+        application: string;
+        prayer: string;
+      } | null;
+      local_date: string;
+    }>(
       `/daily-verse${qs ? `?${qs}` : ""}`
     );
   },
@@ -257,7 +276,19 @@ export const api = {
     request<{ verse_id: string; counts: Record<string, number> }>(`/get-reaction-counts?verse_id=${encodeURIComponent(verse_id)}`),
 
   bibleAssistant: (mode: "question" | "devotional", input: string) =>
-    request<{ response: string; mode: string }>("/bible-assistant", {
+    request<{
+      response: string;
+      // Populated only for mode=devotional. Null when the LLM returns a non
+      // JSON answer (graceful degradation to the legacy plain text card).
+      response_structured: {
+        title: string;
+        key_scripture: string;
+        reflection: string;
+        application: string;
+        prayer: string;
+      } | null;
+      mode: string;
+    }>("/bible-assistant", {
       method: "POST",
       body: JSON.stringify({ mode, input }),
     }),
@@ -274,12 +305,12 @@ export const api = {
     }),
 
   listReflections: () =>
-    request<{ reflections: { id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string }[] }>("/reflections"),
+    request<{ reflections: { id: string; text: string; emotion?: string; prompt?: string; verse_id?: string; created_at: string; updated_at: string }[] }>("/reflections"),
 
-  createReflection: (text: string, emotion?: string, prompt?: string) =>
-    request<{ id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string }>("/reflections", {
+  createReflection: (text: string, emotion?: string, prompt?: string, verse_id?: string) =>
+    request<{ id: string; text: string; emotion?: string; prompt?: string; verse_id?: string; created_at: string; updated_at: string }>("/reflections", {
       method: "POST",
-      body: JSON.stringify({ text, emotion, prompt }),
+      body: JSON.stringify({ text, emotion, prompt, verse_id }),
     }),
 
   updateReflection: (id: string, text: string, emotion?: string) =>
