@@ -47,6 +47,8 @@ import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -76,7 +78,8 @@ type ShareSource = { kind: "verse" } | { kind: "devotional" };
 export default function ScriptureScreen() {
   const router = useRouter();
   const [verse, setVerse] = useState<VerseMeta | null>(null);
-  const [devotional, setDevotional] = useState<string>(""); // "" while loading
+  const [devotional, setDevotional] = useState<string>(""); // flat text — used for share + fallback
+  const [structuredDevo, setStructuredDevo] = useState<StructuredDevotionalType | null>(null);
   const [verseLoading, setVerseLoading] = useState(true);
   const [devoLoading, setDevoLoading] = useState(true);
   const [bannerIdx, setBannerIdx] = useState(0);
@@ -120,6 +123,7 @@ export default function ScriptureScreen() {
           const p = cached!.payload;
           setVerse({ verse: p.verse, reference: p.reference, verse_id: p.verse_id, bible_link: p.bible_link });
           setDevotional(p.devotional);
+          setStructuredDevo(p.devotional_structured ?? null);
           setVerseLoading(false);
           setDevoLoading(false);
           Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
@@ -142,6 +146,7 @@ export default function ScriptureScreen() {
         const full = await api.dailyVerse(today, tz, true);
         if (cancelled) return;
         setDevotional(full.devotional);
+        setStructuredDevo(full.devotional_structured ?? null);
         setDevoLoading(false);
         await saveCachedDevotional({ date: today, tz, payload: full });
 
@@ -369,7 +374,15 @@ export default function ScriptureScreen() {
               <View style={[styles.skeletonBar, { width: "92%", height: 13 }]} />
               <View style={[styles.skeletonBar, { width: "60%", height: 13 }]} />
             </Animated.View>
+          ) : structuredDevo ? (
+            <StructuredDevotional
+              devo={structuredDevo}
+              reference={verse?.reference ?? ""}
+              testID="devotional-card"
+            />
           ) : (
+            // Legacy / fallback path — older cached entries or LLM JSON
+            // parse failures render as a single flowing paragraph card.
             <View style={styles.devotionalCard} testID="devotional-card">
               <Text style={styles.devotionalText}>{devotional}</Text>
             </View>
@@ -512,7 +525,7 @@ const styles = StyleSheet.create({
   devotionalCard: {
     backgroundColor: colors.surface1,
     borderRadius: 20,
-    padding: 22,
+    padding: 24,
   },
   devotionalText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 26 },
 

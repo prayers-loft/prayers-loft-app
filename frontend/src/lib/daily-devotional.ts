@@ -2,12 +2,23 @@
 // calendar day so refreshes, navigation, and reopens never regenerate.
 import { storage } from "@/src/utils/storage";
 
+export type StructuredDevotional = {
+  title: string;
+  key_scripture: string;
+  reflection: string;
+  application: string;
+  prayer: string;
+};
+
 export type DailyVersePayload = {
   verse: string;
   reference: string;
   verse_id: string;
   bible_link: string;
   devotional: string;
+  // Newer payloads include the structured form. Optional + nullable so legacy
+  // cached entries (just plain text) continue to deserialize cleanly.
+  devotional_structured?: StructuredDevotional | null;
   local_date: string;
 };
 

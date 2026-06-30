@@ -27,6 +27,8 @@ import { api } from "@/src/lib/api";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { showToast } from "@/src/components/Toast";
+import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 type Style = "Devotional" | "Theologian";
 const STYLES: Style[] = ["Devotional", "Theologian"];
@@ -37,6 +39,9 @@ export default function BibleAssistantScreen() {
   const [style, setStyle] = useState<Style>("Devotional");
   const [qaLoading, setQaLoading] = useState(false);
   const [qaResponses, setQaResponses] = useState<Record<Style, string>>({ Devotional: "", Theologian: "" });
+  // Structured devotional payload — only ever populated for Devotional style
+  // (mode=devotional on the backend). Null for Theologian (Bible Questions).
+  const [devoStructured, setDevoStructured] = useState<StructuredDevotionalType | null>(null);
   const fade = useRef(new Animated.Value(1)).current;
 
   // Share state ----------------------------------------------------------
@@ -49,10 +54,17 @@ export default function BibleAssistantScreen() {
       if (!q.trim()) return;
       setQaLoading(true);
       try {
-        // mode=question → Bible Q&A; mode=devotional → topic-driven structured devotional.
+        // mode=question → Bible Q&A (plain text); mode=devotional → structured JSON.
         const mode: "question" | "devotional" = s === "Theologian" ? "question" : "devotional";
         const r = await api.bibleAssistant(mode, q.trim());
         setQaResponses((prev) => ({ ...prev, [s]: r.response }));
+        if (mode === "devotional") {
+          // Cache the structured payload separately. Falls back gracefully to
+          // the flat text card when the LLM didn't produce parseable JSON.
+          setDevoStructured(r.response_structured ?? null);
+        } else {
+          setDevoStructured(null);
+        }
         Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
       } catch (e) {
         console.warn("bible assistant failed", e);
@@ -191,25 +203,41 @@ export default function BibleAssistantScreen() {
               <ActivityIndicator color={colors.accent} />
             </View>
           ) : !!currentResponse ? (
-            <Animated.View style={[styles.qaResponseCard, { opacity: fade }]} testID="qa-response">
-              <View style={styles.qaResponseHeader}>
-                <Text style={styles.qaResponseStyle}>{style}</Text>
-                <Pressable
-                  onPress={openShare}
-                  hitSlop={8}
-                  style={styles.qaShareBtn}
-                  testID="share-qa-button"
-                  accessibilityRole="button"
-                  accessibilityLabel="Share this insight"
-                >
-                  {sharePreparing ? (
-                    <ActivityIndicator size="small" color={colors.accent} />
-                  ) : (
-                    <Ionicons name="share-outline" size={16} color={colors.accent} />
-                  )}
-                </Pressable>
+            <Animated.View style={{ opacity: fade, gap: 12 }} testID="qa-response">
+              {/* Header strip (style label + share). For the Devotional path
+                  this header sits above the structured card so the share
+                  affordance is still discoverable. */}
+              <View style={[styles.qaResponseCard, styles.qaResponseHeaderStrip]}>
+                <View style={styles.qaResponseHeader}>
+                  <Text style={styles.qaResponseStyle}>{style}</Text>
+                  <Pressable
+                    onPress={openShare}
+                    hitSlop={8}
+                    style={styles.qaShareBtn}
+                    testID="share-qa-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="Share this insight"
+                  >
+                    {sharePreparing ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Ionicons name="share-outline" size={16} color={colors.accent} />
+                    )}
+                  </Pressable>
+                </View>
               </View>
-              <Text style={styles.qaResponseText}>{currentResponse}</Text>
+
+              {style === "Devotional" && devoStructured ? (
+                // Magazine-style devotional card. Same renderer as Scripture
+                // so visual treatment stays identical across both surfaces.
+                <StructuredDevotional devo={devoStructured} testID="qa-structured-devotional" />
+              ) : (
+                // Theologian (Q&A) — or Devotional fallback when JSON parse
+                // failed on the backend — renders as a single prose block.
+                <View style={styles.qaResponseCard}>
+                  <Text style={styles.qaResponseText}>{currentResponse}</Text>
+                </View>
+              )}
             </Animated.View>
           ) : (
             <View style={styles.emptyHintCard} testID="bible-assistant-empty">
@@ -299,6 +327,13 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 80,
     justifyContent: "center",
+  },
+  // Slimmer wrapper used when the structured devotional card follows below;
+  // we drop the minHeight so the header strip hugs its content tightly.
+  qaResponseHeaderStrip: {
+    paddingVertical: 14,
+    minHeight: 0,
+    gap: 0,
   },
   qaResponseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   qaResponseStyle: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.accent, textTransform: "uppercase" },
