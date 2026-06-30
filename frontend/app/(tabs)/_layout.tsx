@@ -7,12 +7,12 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "@/src/theme/theme";
 
-type TabKey = "prayer" | "scripture" | "reflections";
+type TabKey = "prayer" | "scripture" | "bible-assistant";
 
 const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap; label: string }> = {
   prayer: { icon: "leaf-outline", iconFocused: "leaf", label: "Prayer" },
   scripture: { icon: "book-outline", iconFocused: "book", label: "Scripture" },
-  reflections: { icon: "journal-outline", iconFocused: "journal", label: "Reflections" },
+  "bible-assistant": { icon: "school-outline", iconFocused: "school", label: "Bible Assistant" },
 };
 
 export default function TabsLayout() {
@@ -23,7 +23,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="prayer" />
       <Tabs.Screen name="scripture" />
-      <Tabs.Screen name="reflections" />
+      <Tabs.Screen name="bible-assistant" />
     </Tabs>
   );
 }

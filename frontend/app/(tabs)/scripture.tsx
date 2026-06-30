@@ -1,4 +1,15 @@
-// Scripture. Editorial, immersive verse card with subtle interactions.
+// Scripture. Editorial reading + reflection surface.
+//
+// Reading flow (top → bottom):
+//   1. Today's Verse  (hero, date)
+//   2. Verse card    (NLT text + open-in-Bible.com + share)
+//   3. Insights      (reactions row)
+//   4. Devotional    (devotional card + share)
+//   5. Reflection    (inline write input + emotion chips + save + "View all")
+//
+// The Bible Assistant (Q&A + on-demand devotional) now lives in its own tab.
+// The reflections list/history lives at /reflections-history (also reachable
+// from Settings → My Reflections).
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +27,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
-import { colors, fonts } from "@/src/theme/theme";
+import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import {
   detectTimezone,
@@ -28,6 +39,8 @@ import {
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { showToast } from "@/src/components/Toast";
+import { ConversionTrigger, track } from "@/src/lib/analytics";
+import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 
 const BANNER_QUOTES = [
   "Stillness is a kind of prayer.",
@@ -46,16 +59,21 @@ const REACTIONS: ReactionMeta[] = [
   { key: "insight", icon: "bulb-outline", label: "Insight" },
 ];
 
-type Style = "Devotional" | "Theologian";
-const STYLES: Style[] = ["Devotional", "Theologian"];
+const EMOTIONS = ["Grateful", "Hopeful", "Anxious", "Peaceful", "Confused", "Joyful", "Tired", "Seeking"] as const;
+type Emotion = (typeof EMOTIONS)[number];
+
+const REFLECTION_PROMPTS = [
+  "What is God saying to you through this verse?",
+  "Where in your life does this verse meet you today?",
+  "What comfort, conviction, or invitation do you hear here?",
+  "How would your day change if you took this verse to heart?",
+  "What word or phrase keeps drawing you back? Why?",
+];
 
 const todayLabel = () =>
   new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
-type ShareSource =
-  | { kind: "verse" }
-  | { kind: "devotional" }
-  | { kind: "qa"; style: Style; text: string; question: string };
+type ShareSource = { kind: "verse" } | { kind: "devotional" };
 
 export default function ScriptureScreen() {
   const router = useRouter();
@@ -68,11 +86,18 @@ export default function ScriptureScreen() {
   const [, setNewDayPill] = useState(false);
   const newDayOpacity = useRef(new Animated.Value(0)).current;
 
-  const [question, setQuestion] = useState("");
-  const [lastAskedQuestion, setLastAskedQuestion] = useState<string>("");
-  const [style, setStyle] = useState<Style>("Devotional");
-  const [qaLoading, setQaLoading] = useState(false);
-  const [qaResponses, setQaResponses] = useState<Record<Style, string>>({ Devotional: "", Theologian: "" });
+  // Reflection state (inline, below devotional) ------------------------
+  const [reflectionText, setReflectionText] = useState("");
+  const [reflectionEmotion, setReflectionEmotion] = useState<Emotion | null>(null);
+  const [reflectionSaving, setReflectionSaving] = useState(false);
+  const [reflectionSavedCount, setReflectionSavedCount] = useState(0);
+  // Stable prompt for this scripture session (verse_id-derived → same prompt for the day).
+  const todayReflectionPrompt = (() => {
+    if (!verse) return REFLECTION_PROMPTS[0];
+    let h = 0;
+    for (const c of verse.verse_id) h = (h * 31 + c.charCodeAt(0)) | 0;
+    return REFLECTION_PROMPTS[Math.abs(h) % REFLECTION_PROMPTS.length];
+  })();
 
   // Share state ----------------------------------------------------------
   const [shareOpen, setShareOpen] = useState(false);
@@ -86,24 +111,19 @@ export default function ScriptureScreen() {
       const today = localDateInTz(tz);
       try {
         const cached = await loadCachedDevotional();
-        // 1. Same local day + same timezone → use cache instantly. No fetch.
         if (cacheMatchesToday(cached, tz, today)) {
           setVerse(cached!.payload);
-          // still load reactions
           const c = await api.getReactionCounts(cached!.payload.verse_id);
           setCounts(c.counts);
           Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
           return;
         }
-        // 2. New local day (or first run, or tz change) → fetch and save.
         const payload = await api.dailyVerse(today, tz);
         setVerse(payload);
         await saveCachedDevotional({ date: today, tz, payload });
         const c = await api.getReactionCounts(payload.verse_id);
         setCounts(c.counts);
         Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
-        // If we had a previous cached entry (i.e. user crossed midnight),
-        // show the "Today's scripture has arrived" transition pill.
         if (cached) {
           setNewDayPill(true);
           Animated.sequence([
@@ -147,57 +167,46 @@ export default function ScriptureScreen() {
     }
   };
 
-  const runQA = useCallback(
-    async (q: string, s: Style) => {
-      if (!q.trim()) return;
-      setQaLoading(true);
-      try {
-        // Bible Assistant: free-form Q&A + on-demand devotional generation.
-        // The "Bible Questions" pill maps to mode=question (any Bible / theology /
-        // Christian-living question, NOT bound to the daily verse).
-        // The "Write Devotional" pill maps to mode=devotional (user supplies a
-        // topic → structured 5-section devotional response).
-        const mode: "question" | "devotional" = s === "Theologian" ? "question" : "devotional";
-        const r = await api.bibleAssistant(mode, q.trim());
-        setQaResponses((prev) => ({ ...prev, [s]: r.response }));
-      } catch (e) {
-        console.warn("bible assistant failed", e);
-        showToast({
-          variant: "error",
-          title: s === "Theologian" ? "Couldn't answer your question" : "Couldn't generate devotional",
-          message: e instanceof Error ? e.message : "Please check your connection and try again.",
-          duration: 5000,
-        });
-      } finally {
-        setQaLoading(false);
-      }
-    },
-    []
-  );
-
-  const submitQuestion = async () => {
-    if (!question.trim() || qaLoading) return;
-    const q = question.trim();
-    setLastAskedQuestion(q);
-    setQaResponses({ Devotional: "", Theologian: "" });
-    await runQA(q, style);
-  };
-
-  const handleStyleChange = async (s: Style) => {
-    if (s === style) return;
-    setStyle(s);
-    if (!lastAskedQuestion || qaResponses[s]) return;
-    await runQA(lastAskedQuestion, s);
-  };
-
-  const goReflect = () => {
-    if (!verse) return;
-    router.push({ pathname: "/(tabs)/reflections", params: { prompt: `Reflecting on ${verse.reference}: "${verse.verse}"` } });
-  };
-
   const openVerse = () => verse && Linking.openURL(verse.bible_link);
 
-  const currentResponse = qaResponses[style];
+  const saveReflection = useCallback(async () => {
+    if (!verse || !reflectionText.trim() || reflectionSaving) return;
+    setReflectionSaving(true);
+    try {
+      const chars = reflectionText.trim().length;
+      await api.createReflection(
+        reflectionText.trim(),
+        reflectionEmotion ?? undefined,
+        todayReflectionPrompt,
+        verse.verse_id,
+      );
+      setReflectionText("");
+      setReflectionEmotion(null);
+      const nextCount = reflectionSavedCount + 1;
+      setReflectionSavedCount(nextCount);
+      showToast({
+        variant: "success",
+        title: "Reflection saved",
+        message: "View all your reflections from My Reflections.",
+        duration: 3000,
+      });
+      track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });
+      // Surface the upgrade prompt after 5 reflections (best-effort).
+      try {
+        if (nextCount >= 5) requestUpgradePrompt("five_reflections");
+      } catch {}
+    } catch (e) {
+      console.warn("save reflection (inline) failed", e);
+      showToast({
+        variant: "error",
+        title: "Couldn't save reflection",
+        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        duration: 5000,
+      });
+    } finally {
+      setReflectionSaving(false);
+    }
+  }, [verse, reflectionText, reflectionEmotion, reflectionSaving, reflectionSavedCount, todayReflectionPrompt]);
 
   // --- Share orchestration ---------------------------------------------
   const openShare = async (src: ShareSource) => {
@@ -214,9 +223,7 @@ export default function ScriptureScreen() {
           style: "Devotional",
           defaultTemplate: "centered",
         });
-      } else if (src.kind === "devotional") {
-        // Hybrid excerpt: if devotional is short & emotionally strong, use as-is.
-        // Otherwise, Claude pulls the most beautiful 1-2 sentences.
+      } else {
         const excerpt = await getShareExcerpt(verse.devotional, "Devotional");
         setSharePayload({
           kind: "qa",
@@ -224,21 +231,10 @@ export default function ScriptureScreen() {
           fullText: verse.devotional,
           reference: verse.reference,
           style: "Devotional",
-          // Rotate the default template so each share feels fresh.
           defaultTemplate: ["centered", "reflection", "insight"][Math.floor(Math.random() * 3)] as
             | "centered"
             | "reflection"
             | "insight",
-        });
-      } else {
-        const excerpt = await getShareExcerpt(src.text, src.style, { question: src.question });
-        setSharePayload({
-          kind: "qa",
-          excerpt,
-          fullText: src.text,
-          reference: verse.reference,
-          question: src.question,
-          style: src.style,
         });
       }
       setShareOpen(true);
@@ -269,7 +265,7 @@ export default function ScriptureScreen() {
           <Text style={styles.dateLine}>{todayLabel()}</Text>
         </View>
 
-        {/* Rotating quote — minimal, no card */}
+        {/* Rotating quote */}
         <Animated.View style={[styles.banner, { opacity: bannerOpacity }]} testID="rotating-banner">
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
@@ -280,7 +276,7 @@ export default function ScriptureScreen() {
           </View>
         ) : (
           <Animated.View style={{ opacity: fade, gap: 16 }}>
-            {/* Verse card — editorial */}
+            {/* Verse card */}
             <View style={styles.verseCard} testID="verse-card">
               <View style={styles.metaRow}>
                 <Text style={styles.metaText}>NLT · {verse.reference}</Text>
@@ -305,21 +301,24 @@ export default function ScriptureScreen() {
               <Text style={styles.verseText}>"{verse.verse}"</Text>
             </View>
 
-            {/* Reactions — minimal floating row */}
-            <View style={styles.reactionsRow} testID="reactions-row">
-              {REACTIONS.map((r) => (
-                <ReactionButton
-                  key={r.key}
-                  icon={r.icon}
-                  label={r.label}
-                  count={counts[r.key] ?? 0}
-                  onPress={() => handleReact(r.key)}
-                  testID={`react-${r.key}`}
-                />
-              ))}
+            {/* Insights — reactions row */}
+            <View>
+              <Text style={styles.sectionLabel}>Insights</Text>
+              <View style={styles.reactionsRow} testID="reactions-row">
+                {REACTIONS.map((r) => (
+                  <ReactionButton
+                    key={r.key}
+                    icon={r.icon}
+                    label={r.label}
+                    count={counts[r.key] ?? 0}
+                    onPress={() => handleReact(r.key)}
+                    testID={`react-${r.key}`}
+                  />
+                ))}
+              </View>
             </View>
 
-            {/* Devotional — no card border, soft tint */}
+            {/* Devotional */}
             <View>
               <View style={styles.devoHeader}>
                 <Text style={styles.sectionLabel}>Devotional</Text>
@@ -343,107 +342,68 @@ export default function ScriptureScreen() {
               </View>
             </View>
 
-            {/* Discussion */}
-            <View>
-              <Text style={styles.sectionLabel}>Bible Assistant</Text>
-              <View style={styles.qaWrap}>
-                <View style={styles.qaInputWrap}>
-                  <TextInput
-                    value={question}
-                    onChangeText={setQuestion}
-                    placeholder="Ask any Bible question or enter a devotional topic…"
-                    placeholderTextColor={colors.textTertiary}
-                    multiline
-                    style={styles.qaInput}
-                    testID="theological-question-input"
-                  />
-                </View>
-                <View style={styles.styleSegment}>
-                  {STYLES.map((s) => (
-                    <Pressable
-                      key={s}
-                      onPress={() => handleStyleChange(s)}
-                      style={[styles.stylePill, style === s && styles.stylePillActive]}
-                      testID={`style-pill-${s}`}
-                    >
-                      <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>
-                        {s === "Theologian" ? "Bible Questions" : "Write Devotional"}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                {/* Example chips — populate input on tap. Mode-aware. */}
-                <View style={styles.chipsRow} testID="bible-assistant-chips">
-                  {(style === "Theologian"
-                    ? ["Salvation", "Forgiveness", "Prayer", "Faith"]
-                    : ["Anxiety", "Purpose", "Discipline", "Trust"]
-                  ).map((chip) => (
-                    <Pressable
-                      key={chip}
-                      onPress={() => setQuestion(chip)}
-                      style={styles.chip}
-                      testID={`chip-${chip.toLowerCase()}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Use example: ${chip}`}
-                    >
-                      <Text style={styles.chipText}>{chip}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Pressable
-                  onPress={submitQuestion}
-                  disabled={!question.trim() || qaLoading}
-                  style={[styles.askBtn, (!question.trim() || qaLoading) && styles.askBtnDisabled]}
-                  testID="ask-question-button"
-                >
-                  {qaLoading && !currentResponse ? (
-                    <ActivityIndicator color={colors.textOnAccent} />
-                  ) : (
-                    <Text style={styles.askBtnText}>
-                      {style === "Theologian" ? "Ask" : "Generate"}
-                    </Text>
-                  )}
-                </Pressable>
-                {qaLoading && !currentResponse ? (
-                  <View style={styles.qaResponseCard}>
-                    <ActivityIndicator color={colors.accent} />
-                  </View>
-                ) : !!currentResponse ? (
-                  <View style={styles.qaResponseCard} testID="qa-response">
-                    <View style={styles.qaResponseHeader}>
-                      <Text style={styles.qaResponseStyle}>{style}</Text>
-                      <Pressable
-                        onPress={() =>
-                          openShare({
-                            kind: "qa",
-                            style,
-                            text: currentResponse,
-                            question: lastAskedQuestion,
-                          })
-                        }
-                        hitSlop={8}
-                        style={styles.qaShareBtn}
-                        testID="share-qa-button"
-                        accessibilityRole="button"
-                        accessibilityLabel="Share this insight"
-                      >
-                        {sharePreparing && shareSource?.kind === "qa" ? (
-                          <ActivityIndicator size="small" color={colors.accent} />
-                        ) : (
-                          <Ionicons name="share-outline" size={16} color={colors.accent} />
-                        )}
-                      </Pressable>
-                    </View>
-                    <Text style={styles.qaResponseText}>{currentResponse}</Text>
-                  </View>
-                ) : null}
-              </View>
-            </View>
+            {/* Reflection — inline, scoped to today's verse */}
+            <View testID="reflection-section">
+              <Text style={styles.sectionLabel}>Reflection</Text>
+              <Text style={styles.reflectionPrompt}>{todayReflectionPrompt}</Text>
 
-            <Pressable onPress={goReflect} style={styles.reflectCta} testID="want-to-reflect-button">
-              <Text style={styles.reflectCtaText}>Reflect on this verse</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
-            </Pressable>
+              <View style={styles.reflectionInputWrap}>
+                <TextInput
+                  value={reflectionText}
+                  onChangeText={setReflectionText}
+                  placeholder="Write what's stirring…"
+                  placeholderTextColor={colors.textTertiary}
+                  multiline
+                  style={styles.reflectionInput}
+                  testID="scripture-reflection-input"
+                />
+              </View>
+
+              <View style={styles.emotionChipsWrap} testID="scripture-emotion-chips">
+                {EMOTIONS.map((em) => {
+                  const c = emotionColors[em];
+                  const active = reflectionEmotion === em;
+                  return (
+                    <Pressable
+                      key={em}
+                      onPress={() => setReflectionEmotion(active ? null : em)}
+                      style={[
+                        styles.emotionChip,
+                        { backgroundColor: active ? c.bg : colors.surface1 },
+                        active && { borderColor: c.border, borderWidth: 1 },
+                      ]}
+                      testID={`scripture-emotion-chip-${em}`}
+                    >
+                      <Text style={[styles.emotionChipText, active && { color: c.text }]}>{em}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Pressable
+                onPress={saveReflection}
+                disabled={!reflectionText.trim() || reflectionSaving}
+                style={[styles.saveBtn, (!reflectionText.trim() || reflectionSaving) && styles.saveBtnDisabled]}
+                testID="scripture-save-reflection-button"
+              >
+                {reflectionSaving ? (
+                  <ActivityIndicator color={colors.textOnAccent} />
+                ) : (
+                  <Text style={styles.saveBtnText}>Save reflection</Text>
+                )}
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push("/reflections-history" as any)}
+                style={styles.viewAllLink}
+                testID="view-all-reflections-link"
+                accessibilityRole="button"
+                accessibilityLabel="View all your reflections"
+              >
+                <Text style={styles.viewAllText}>View all reflections</Text>
+                <Ionicons name="arrow-forward" size={13} color={colors.accent} />
+              </Pressable>
+            </View>
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
@@ -552,79 +512,61 @@ const styles = StyleSheet.create({
     padding: 22,
   },
   devotionalText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 26 },
-  qaWrap: { gap: 12 },
-  qaInputWrap: {
+
+  // ---- Reflection (inline) ----
+  reflectionPrompt: {
+    fontFamily: fonts.serif,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  reflectionInputWrap: {
     backgroundColor: colors.surface1,
     borderRadius: 18,
     padding: 4,
+    marginBottom: 12,
   },
-  qaInput: {
+  reflectionInput: {
     color: colors.text,
     fontFamily: fonts.sans,
     fontSize: 15,
-    minHeight: 70,
+    minHeight: 110,
     textAlignVertical: "top",
     padding: 14,
     lineHeight: 22,
   },
-  styleSegment: {
-    flexDirection: "row",
-    padding: 4,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderRadius: 14,
-  },
-  stylePill: { flex: 1, paddingVertical: 11, borderRadius: 11, alignItems: "center" },
-  stylePillActive: { backgroundColor: colors.accent },
-  stylePillText: { fontFamily: fonts.sansMedium, color: colors.textSecondary, fontSize: 13 },
-  stylePillTextActive: { color: colors.textOnAccent, fontFamily: fonts.sansSemibold },
-  chipsRow: {
+  emotionChipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 12,
   },
-  chip: {
+  emotionChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: colors.surface2,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  chipText: {
+  emotionChipText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: colors.textSecondary,
-    letterSpacing: 0.1,
   },
-  askBtn: {
+  saveBtn: {
     backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
   },
-  askBtnDisabled: { opacity: 0.35 },
-  askBtnText: { fontFamily: fonts.sansSemibold, color: colors.textOnAccent, fontSize: 14, letterSpacing: 0.2 },
-  qaResponseCard: {
-    backgroundColor: colors.surface1,
-    borderRadius: 18,
-    padding: 22,
-    gap: 8,
-    minHeight: 80,
-    justifyContent: "center",
+  saveBtnDisabled: { opacity: 0.35 },
+  saveBtnText: {
+    fontFamily: fonts.sansSemibold,
+    color: colors.textOnAccent,
+    fontSize: 14,
+    letterSpacing: 0.2,
   },
-  qaResponseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  qaResponseStyle: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 2, color: colors.accent, textTransform: "uppercase" },
-  qaShareBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qaResponseText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 25 },
-  reflectCta: {
+  viewAllLink: {
     alignSelf: "center",
     paddingVertical: 16,
     flexDirection: "row",
@@ -632,5 +574,5 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
   },
-  reflectCtaText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
+  viewAllText: { fontFamily: fonts.sansMedium, color: colors.accent, fontSize: 14 },
 });

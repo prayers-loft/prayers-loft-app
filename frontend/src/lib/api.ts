@@ -274,12 +274,12 @@ export const api = {
     }),
 
   listReflections: () =>
-    request<{ reflections: { id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string }[] }>("/reflections"),
+    request<{ reflections: { id: string; text: string; emotion?: string; prompt?: string; verse_id?: string; created_at: string; updated_at: string }[] }>("/reflections"),
 
-  createReflection: (text: string, emotion?: string, prompt?: string) =>
-    request<{ id: string; text: string; emotion?: string; prompt?: string; created_at: string; updated_at: string }>("/reflections", {
+  createReflection: (text: string, emotion?: string, prompt?: string, verse_id?: string) =>
+    request<{ id: string; text: string; emotion?: string; prompt?: string; verse_id?: string; created_at: string; updated_at: string }>("/reflections", {
       method: "POST",
-      body: JSON.stringify({ text, emotion, prompt }),
+      body: JSON.stringify({ text, emotion, prompt, verse_id }),
     }),
 
   updateReflection: (id: string, text: string, emotion?: string) =>

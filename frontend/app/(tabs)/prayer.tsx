@@ -321,7 +321,7 @@ export default function PrayerScreen() {
               <IconAction icon={saved ? "checkmark" : "bookmark-outline"} label={saved ? "Saved" : "Save"} onPress={handleSave} disabled={saved} testID="save-prayer-button" />
               <IconAction icon="share-outline" label="Share" onPress={handleShare} testID="share-prayer-button" />
             </View>
-            <Pressable onPress={() => router.push("/(tabs)/reflections")} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
+            <Pressable onPress={() => router.push("/reflections-history" as any)} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
               <Text style={styles.sitWithText}>Want to sit with this?</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>

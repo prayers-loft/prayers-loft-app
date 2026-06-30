@@ -229,6 +229,13 @@ export default function SettingsScreen() {
         {/* ---- DATA & SYNC ---- */}
         <Section label="Data & Sync">
           <Row
+            title="My Reflections"
+            subtitle="Your full reflection history"
+            onPress={() => router.push("/reflections-history" as any)}
+            right={<Chev />}
+            testID="my-reflections-row"
+          />
+          <Row
             title="Export backup"
             subtitle="Save your spiritual journey as a JSON file"
             onPress={handleExport}

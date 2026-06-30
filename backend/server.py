@@ -194,11 +194,16 @@ class ReflectionCreate(BaseModel):
     text: str
     emotion: Optional[str] = None
     prompt: Optional[str] = None
+    # Optional: when a reflection is written from the Scripture page, it carries
+    # the verse_id of that day's verse so future features (e.g. "your reflections
+    # on this verse") can correlate. Backward-compatible — older clients omit it.
+    verse_id: Optional[str] = None
 
 
 class ReflectionUpdate(BaseModel):
     text: Optional[str] = None
     emotion: Optional[str] = None
+    verse_id: Optional[str] = None
 
 
 # ---------- Daily verse rotation ----------
@@ -575,6 +580,7 @@ async def create_reflection(payload: ReflectionCreate, owner: dict = Depends(cur
         "text": payload.text.strip(),
         "emotion": payload.emotion,
         "prompt": payload.prompt,
+        "verse_id": payload.verse_id,
         "created_at": now_iso(),
         "updated_at": now_iso(),
         # Ownership: exactly one of user_id / guest_id is set, never both.
