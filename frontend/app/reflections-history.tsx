@@ -375,7 +375,7 @@ export default function MyReflectionsScreen() {
       >
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Journal</Text>
-          <Text style={styles.title}>My journal</Text>
+          <Text style={styles.title}>My Journal</Text>
         </View>
 
         {/* Streak card — restored in Build 14. Hidden while the initial
