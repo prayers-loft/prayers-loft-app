@@ -1,8 +1,10 @@
-// My Journal — read-only history of saved reflections.
+// My Journal — read-only history of saved reflections + streak card.
 //
-// Single responsibility: browse and revisit previously saved reflections.
-// All creation, editing, prompts, emotion-chips-as-input, and streaks live
-// on the Scripture tab. This screen never offers a reflection editor.
+// Single responsibility: browse and revisit previously saved reflections,
+// with the streak visualization at the top of the screen (restored in
+// Build 14 after being accidentally lost when the old Reflections tab was
+// deleted during the Bible Assistant nav refactor — the streak lived
+// inside that removed file).
 //
 // Each row shows:
 //   • date
@@ -71,6 +73,121 @@ function verseReferenceFor(verse_id?: string): string | null {
   return VERSE_REF_LABELS[verse_id] ?? verse_id;
 }
 
+// -----------------------------------------------------------------------------
+// Streak — restored in Build 14.
+//
+// Prior to the nav refactor (commit 41840ab) the streak block lived on the
+// old Reflections tab and computed itself client-side from the reflection
+// list, keyed by *local-timezone* YYYY-MM-DD strings. That file was deleted
+// when the tab was replaced by Bible Assistant and the streak went with it.
+// The backend still computes streakMeta on every reflection save (see
+// backend/auth.py:880-945) for signed-in users, but the app never rendered
+// it after the refactor. This client-side computation restores the exact
+// visual behavior and also keeps guest users covered (no auth required).
+//
+// Verified contract (backed by testing_agent iter 13):
+//   * Streak keyed by user's LOCAL calendar day via new Date()/getDate()
+//     — server timezone is irrelevant.
+//   * activeDays is a Set<string> of YYYY-MM-DD keys, so multiple saves
+//     on the same day only count once.
+//   * The while-loop breaks the first day it doesn't find in activeDays,
+//     so missing a day resets naturally.
+//   * Entries come from the API on every screen focus, so restart-safety
+//     is inherited from server persistence.
+// -----------------------------------------------------------------------------
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function computeStreak(activeDays: Set<string>): number {
+  let streak = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cursor = new Date(today);
+  // If nothing was saved today, start counting from yesterday — this way a
+  // user who reflected daily for a week still sees the 7 even before they
+  // do today's entry.
+  if (!activeDays.has(ymd(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while (activeDays.has(ymd(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function lastNDays(n: number): Date[] {
+  const out: Date[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    out.push(d);
+  }
+  return out;
+}
+
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function StreakBlock({
+  streak,
+  days,
+  activeDays,
+}: {
+  streak: number;
+  days: Date[];
+  activeDays: Set<string>;
+}) {
+  const todayStr = ymd(new Date());
+  const headline = streak === 0 ? "Begin today" : `${streak}`;
+  const sub =
+    streak === 0
+      ? "A single reflection is enough to begin."
+      : streak === 1
+      ? "day streak"
+      : "day streak";
+  return (
+    <View style={styles.streakBlock} testID="streak-card">
+      <View style={styles.streakTop}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.streakLabel}>Your streak</Text>
+          <View style={styles.streakHeadlineRow}>
+            <Text style={styles.streakNumber}>{headline}</Text>
+            {streak > 0 && <Text style={styles.streakUnit}>{sub}</Text>}
+          </View>
+          {streak === 0 && <Text style={styles.streakHint}>{sub}</Text>}
+        </View>
+        {streak >= 3 && (
+          <View style={styles.flameBubble}>
+            <Ionicons name="flame" size={20} color={colors.accent} />
+          </View>
+        )}
+      </View>
+      <View style={styles.streakRow} testID="streak-row">
+        {days.map((d) => {
+          const key = ymd(d);
+          const active = activeDays.has(key);
+          const isToday = key === todayStr;
+          return (
+            <View key={key} style={styles.streakCell}>
+              <View
+                style={[
+                  styles.streakDot,
+                  active && styles.streakDotActive,
+                  isToday && !active && styles.streakDotToday,
+                ]}
+              />
+              <Text style={[styles.streakDay, isToday && styles.streakDayToday]}>
+                {WEEKDAY_LETTERS[d.getDay()]}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export default function MyReflectionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -117,6 +234,21 @@ export default function MyReflectionsScreen() {
     () => [...entries].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
     [entries]
   );
+
+  // Streak: derived from LOCAL-timezone YYYY-MM-DD keys of every saved
+  // reflection. Guest users get this without any auth — server-side
+  // streakMeta on the user is a nice-to-have but we compute defensively
+  // from the list so signed-in and guest paths look identical.
+  const activeDays = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) {
+      const d = new Date(e.created_at);
+      if (!Number.isNaN(d.getTime())) set.add(ymd(d));
+    }
+    return set;
+  }, [entries]);
+  const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
+  const last14 = useMemo(() => lastNDays(14), []);
 
   const handleDelete = (id: string) => {
     Alert.alert(
@@ -173,6 +305,13 @@ export default function MyReflectionsScreen() {
           <Text style={styles.eyebrow}>Journal</Text>
           <Text style={styles.title}>My reflections</Text>
         </View>
+
+        {/* Streak card — restored in Build 14. Hidden while the initial
+            fetch is in flight and when the session is fully expired
+            (both of those states already own the entire viewport). */}
+        {!loading && !authExpired && (
+          <StreakBlock streak={streak} days={last14} activeDays={activeDays} />
+        )}
 
         {loading ? (
           <View style={styles.loadingBox}>
@@ -444,5 +583,103 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: "#F8B8B8",
+  },
+  // ---------------------------------------------------------------------------
+  // Streak block — restored in Build 14. Styled to match the emptyCard so it
+  // feels like a first-class Journal element rather than a bolt-on. Uses the
+  // same surface1/surface2 palette + 22px radius as the empty state for
+  // visual continuity when the list is empty *and* when the list is full.
+  // ---------------------------------------------------------------------------
+  streakBlock: {
+    backgroundColor: colors.surface1,
+    borderRadius: 22,
+    padding: 20,
+    gap: 16,
+    marginTop: 4,
+  },
+  streakTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  streakLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: colors.accent,
+    letterSpacing: 2.4,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  streakHeadlineRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  streakNumber: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 34,
+    color: colors.text,
+    letterSpacing: -0.6,
+    lineHeight: 38,
+  },
+  streakUnit: {
+    fontFamily: fonts.sans,
+    fontSize: 14,
+    color: colors.textSecondary,
+    letterSpacing: 0.2,
+  },
+  streakHint: {
+    fontFamily: fonts.serif,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 4,
+    lineHeight: 20,
+  },
+  flameBubble: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+  },
+  streakRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 4,
+  },
+  streakCell: {
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  streakDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+  },
+  streakDotActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  streakDotToday: {
+    borderColor: colors.accent,
+    borderWidth: 1.5,
+  },
+  streakDay: {
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    color: colors.textTertiary,
+    letterSpacing: 0.4,
+  },
+  streakDayToday: {
+    color: colors.accent,
+    fontFamily: fonts.sansSemibold,
   },
 });
