@@ -103,7 +103,20 @@ export function ToastHost() {
   if (!toast) return null;
   const variant = toast.variant || "success";
   const accent = VARIANT_ACCENT[variant];
-  const top = (insets.top || 12) + 8;
+  // Sit below the app header, not on top of it.
+  //
+  // ScreenHeader on the main tabs (Prayer / Scripture / Bible Assistant)
+  // occupies roughly `insets.top + 56` — that's `insets.top + 14` paddingTop
+  // plus a 36px avatar (the tallest child) plus 6px paddingBottom. The
+  // reflections-history and settings screens use a lighter custom header at
+  // roughly `insets.top + 46`. We anchor to the tallest of those + a small
+  // gap so the toast never overlaps the "Prayers Loft" wordmark or the
+  // profile avatar on any iPhone size (SE through 15 Pro Max).
+  //
+  // The `insets.top || 12` fallback matches the pre-fix behavior on the
+  // web preview where useSafeAreaInsets returns 0.
+  const HEADER_HEIGHT = 56;
+  const top = (insets.top || 12) + HEADER_HEIGHT + 8;
 
   return (
     <Animated.View
