@@ -170,16 +170,40 @@ export default function PrayerScreen() {
   const handleSave = async () => {
     if (!reflection || !prayer) return;
     const id = Crypto.randomUUID();
-    await addSavedPrayer({
-      id,
-      request: message.trim(),
-      reflection: [reflection.empathy, reflection.characterReflection].filter(Boolean).join("\n\n"),
-      prayer,
-      verseReference: reflection.verseReference,
-      bibleLink: reflection.bibleLink,
-      created_at: new Date().toISOString(),
-    });
+    // Persist locally. addSavedPrayer returns false when AsyncStorage rejects
+    // the write (quota exceeded, disk full, etc.); we surface that so the
+    // user never sees a "Saved" checkmark on top of a silent failure.
+    let ok = false;
+    try {
+      ok = await addSavedPrayer({
+        id,
+        request: message.trim(),
+        reflection: [reflection.empathy, reflection.characterReflection].filter(Boolean).join("\n\n"),
+        prayer,
+        verseReference: reflection.verseReference,
+        bibleLink: reflection.bibleLink,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn("save prayer failed", e);
+      ok = false;
+    }
+    if (!ok) {
+      showToast({
+        variant: "error",
+        title: "Couldn't save prayer",
+        message: "We couldn't store this prayer on your device. Please try again.",
+        duration: 5000,
+      });
+      return;
+    }
     setSaved(true);
+    showToast({
+      variant: "success",
+      title: "Prayer saved",
+      message: "You can revisit it anytime from My Reflections.",
+      duration: 3000,
+    });
     track(ConversionTrigger.PrayerSaved, {
       has_verse: !!reflection.verseReference,
       prayer_chars: prayer.length,

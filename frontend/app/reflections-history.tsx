@@ -31,6 +31,11 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
+import {
+  getSavedPrayers,
+  removeSavedPrayer,
+  SavedPrayer,
+} from "@/src/lib/local-store";
 
 type Reflection = {
   id: string;
@@ -41,6 +46,15 @@ type Reflection = {
   created_at: string;
   updated_at: string;
 };
+
+// Merged card kind — we render reflections and saved prayers on the same
+// time-sorted timeline (this restores the pre-refactor "Reflections + Saved
+// Prayers" combined feed that lived on the old (tabs)/reflections.tsx before
+// commit 41840ab deleted it). Kept as a discriminated union so the render
+// branch never confuses the two shapes.
+type FeedItem =
+  | { kind: "reflection"; id: string; created_at: string; data: Reflection }
+  | { kind: "prayer"; id: string; created_at: string; data: SavedPrayer };
 
 // Light-weight verse_id → human reference mapping for the small library of
 // daily verses. Falls back to the raw verse_id if unknown.
@@ -192,6 +206,7 @@ export default function MyReflectionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [entries, setEntries] = useState<Reflection[]>([]);
+  const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -200,6 +215,18 @@ export default function MyReflectionsScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Saved prayers are stored client-side in AsyncStorage and do NOT depend
+    // on auth. We always attempt to load them, even if the reflections call
+    // 401s — otherwise a signed-out user with local prayers would see an
+    // empty screen despite their data being intact on disk.
+    let localPrayers: SavedPrayer[] = [];
+    try {
+      localPrayers = await getSavedPrayers();
+    } catch (e) {
+      console.warn("load saved prayers failed", e);
+    }
+    setPrayers(localPrayers);
+
     try {
       const res = await api.listReflections();
       setEntries(res.reflections as Reflection[]);
@@ -208,12 +235,12 @@ export default function MyReflectionsScreen() {
       console.warn("load reflections failed", e);
       const isAuthExpired = !!(e && typeof e === "object" && (e as any).isAuthExpired);
       if (isAuthExpired) {
-        // Render the dedicated "please sign in" empty state instead of an
-        // error toast. After refresh fell back to guest, the call would
-        // have succeeded with an empty list — so this branch means the
-        // user genuinely has no auth and the screen prefers a calm prompt
-        // over a red toast.
-        setAuthExpired(true);
+        // Session expired — reflections are unreachable. But saved prayers
+        // live on-device, so if the user has any we still show the timeline
+        // (with prayer entries only) rather than the "sign in" wall. The
+        // wall is reserved for the truly-empty case where the user has
+        // nothing local either.
+        setAuthExpired(localPrayers.length === 0);
         setEntries([]);
       } else {
         showToast({
@@ -230,23 +257,35 @@ export default function MyReflectionsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
-    [entries]
-  );
+  // Time-sorted merged feed: reflections + saved prayers on one timeline.
+  // Both use ISO created_at strings so a string compare is a valid time sort.
+  const feed: FeedItem[] = useMemo(() => {
+    const refl: FeedItem[] = entries.map((r) => ({
+      kind: "reflection" as const,
+      id: r.id,
+      created_at: r.created_at,
+      data: r,
+    }));
+    const pr: FeedItem[] = prayers.map((p) => ({
+      kind: "prayer" as const,
+      id: p.id,
+      created_at: p.created_at,
+      data: p,
+    }));
+    return [...refl, ...pr].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  }, [entries, prayers]);
 
   // Streak: derived from LOCAL-timezone YYYY-MM-DD keys of every saved
-  // reflection. Guest users get this without any auth — server-side
-  // streakMeta on the user is a nice-to-have but we compute defensively
-  // from the list so signed-in and guest paths look identical.
+  // reflection AND every saved prayer — both count as spiritual practice
+  // for the day. Guest users get this without any auth (prayers are local).
   const activeDays = useMemo(() => {
     const set = new Set<string>();
-    for (const e of entries) {
-      const d = new Date(e.created_at);
+    for (const item of feed) {
+      const d = new Date(item.created_at);
       if (!Number.isNaN(d.getTime())) set.add(ymd(d));
     }
     return set;
-  }, [entries]);
+  }, [feed]);
   const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
   const last14 = useMemo(() => lastNDays(14), []);
 
@@ -270,6 +309,39 @@ export default function MyReflectionsScreen() {
               showToast({
                 variant: "error",
                 title: "Couldn't delete",
+                message: e instanceof Error ? e.message : "Please try again.",
+                duration: 4000,
+              });
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeletePrayer = (id: string) => {
+    Alert.alert(
+      "Remove saved prayer?",
+      "This prayer will be removed from your journal on this device. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingId(id);
+            try {
+              const ok = await removeSavedPrayer(id);
+              if (!ok) throw new Error("Storage write failed");
+              setPrayers((prev) => prev.filter((p) => p.id !== id));
+              if (expandedId === id) setExpandedId(null);
+            } catch (e) {
+              console.warn("delete prayer failed", e);
+              showToast({
+                variant: "error",
+                title: "Couldn't remove",
                 message: e instanceof Error ? e.message : "Please try again.",
                 duration: 4000,
               });
@@ -333,15 +405,15 @@ export default function MyReflectionsScreen() {
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
           </View>
-        ) : sortedEntries.length === 0 ? (
+        ) : feed.length === 0 ? (
           <View style={styles.emptyCard} testID="reflections-empty-state">
             <Ionicons name="journal-outline" size={28} color={colors.textTertiary} />
             <Text style={styles.emptyTitle}>My Journal</Text>
             <Text style={styles.emptyText}>
-              Your reflections will appear here as you spend time in God's Word.
+              Your reflections and saved prayers will appear here as you spend time in God's Word.
             </Text>
             <Text style={styles.emptyHint}>
-              Write your first reflection from today's Scripture.
+              Write your first reflection from today's Scripture, or save a prayer from the Prayer tab.
             </Text>
             <Pressable
               onPress={() => router.replace("/(tabs)/scripture" as any)}
@@ -354,18 +426,31 @@ export default function MyReflectionsScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-            {sortedEntries.map((entry) => (
-              <ReflectionRow
-                key={entry.id}
-                entry={entry}
-                expanded={expandedId === entry.id}
-                onToggle={() =>
-                  setExpandedId((curr) => (curr === entry.id ? null : entry.id))
-                }
-                onDelete={() => handleDelete(entry.id)}
-                deleting={deletingId === entry.id}
-              />
-            ))}
+            {feed.map((item) =>
+              item.kind === "reflection" ? (
+                <ReflectionRow
+                  key={`r-${item.id}`}
+                  entry={item.data}
+                  expanded={expandedId === item.id}
+                  onToggle={() =>
+                    setExpandedId((curr) => (curr === item.id ? null : item.id))
+                  }
+                  onDelete={() => handleDelete(item.id)}
+                  deleting={deletingId === item.id}
+                />
+              ) : (
+                <PrayerRow
+                  key={`p-${item.id}`}
+                  entry={item.data}
+                  expanded={expandedId === item.id}
+                  onToggle={() =>
+                    setExpandedId((curr) => (curr === item.id ? null : item.id))
+                  }
+                  onDelete={() => handleDeletePrayer(item.id)}
+                  deleting={deletingId === item.id}
+                />
+              )
+            )}
           </View>
         )}
       </ScrollView>
@@ -436,6 +521,78 @@ function ReflectionRow({
               <ActivityIndicator color={colors.textTertiary} size="small" />
             ) : (
               <Text style={styles.deleteText}>Delete</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+// PrayerRow — renders a locally-saved prayer entry (from AsyncStorage). Uses
+// the same shell as ReflectionRow so the merged feed reads as one journal
+// timeline, but with a "Saved prayer" leaf-icon tag and an italic prayer body
+// to visually distinguish AI-composed prayers from user-written reflections.
+function PrayerRow({
+  entry,
+  expanded,
+  onToggle,
+  onDelete,
+  deleting,
+}: {
+  entry: SavedPrayer;
+  expanded: boolean;
+  onToggle: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={[styles.card, styles.cardPrayer]}
+      testID={`prayer-row-${entry.id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`Open saved prayer from ${formatDate(entry.created_at)}`}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.cardHeaderLeft}>
+          <View style={styles.prayerTag}>
+            <Ionicons name="leaf-outline" size={11} color={colors.accent} />
+            <Text style={styles.prayerTagText}>Saved prayer</Text>
+          </View>
+        </View>
+        <Text style={styles.cardDate}>{formatDate(entry.created_at)}</Text>
+      </View>
+
+      {!!entry.request && (
+        <Text style={styles.prayerRequest} numberOfLines={expanded ? undefined : 2}>
+          &ldquo;{entry.request}&rdquo;
+        </Text>
+      )}
+      <Text
+        style={styles.prayerBody}
+        numberOfLines={expanded ? undefined : 4}
+      >
+        {entry.prayer}
+      </Text>
+      {!!entry.verseReference && (
+        <Text style={styles.prayerVerseRef}>{entry.verseReference}</Text>
+      )}
+
+      {expanded && (
+        <View style={styles.cardActions}>
+          <Pressable
+            onPress={onDelete}
+            disabled={deleting}
+            hitSlop={6}
+            testID={`prayer-delete-${entry.id}`}
+            accessibilityRole="button"
+            accessibilityLabel="Remove this saved prayer"
+          >
+            {deleting ? (
+              <ActivityIndicator color={colors.textTertiary} size="small" />
+            ) : (
+              <Text style={styles.deleteText}>Remove</Text>
             )}
           </Pressable>
         </View>
@@ -583,6 +740,52 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: "#F8B8B8",
+  },
+  // ---------------------------------------------------------------------------
+  // Saved-prayer card — restored in Build 14 alongside the streak card.
+  //
+  // Reuses `.card` shell for layout continuity with reflection rows but layers
+  // a warm-gold tint (accentSoft) so the two entry kinds are visually distinct
+  // in the merged feed. The prayer body is italic + serif to signal that the
+  // AI composed it (as opposed to reflections, which the user wrote).
+  // ---------------------------------------------------------------------------
+  cardPrayer: {
+    backgroundColor: colors.accentSoft,
+  },
+  prayerTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.surface2,
+  },
+  prayerTagText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 11,
+    color: colors.accent,
+    letterSpacing: 0.4,
+  },
+  prayerRequest: {
+    fontFamily: fonts.sans,
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  prayerBody: {
+    fontFamily: fonts.serif,
+    fontStyle: "italic",
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 23,
+  },
+  prayerVerseRef: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    color: colors.accent,
+    letterSpacing: 0.4,
+    marginTop: 2,
   },
   // ---------------------------------------------------------------------------
   // Streak block — restored in Build 14. Styled to match the emptyCard so it
