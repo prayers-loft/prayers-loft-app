@@ -94,52 +94,11 @@ function verseReferenceFor(verse_id?: string): string | null {
 // old Reflections tab and computed itself client-side from the reflection
 // list, keyed by *local-timezone* YYYY-MM-DD strings. That file was deleted
 // when the tab was replaced by Bible Assistant and the streak went with it.
-// The backend still computes streakMeta on every reflection save (see
-// backend/auth.py:880-945) for signed-in users, but the app never rendered
-// it after the refactor. This client-side computation restores the exact
-// visual behavior and also keeps guest users covered (no auth required).
 //
-// Verified contract (backed by testing_agent iter 13):
-//   * Streak keyed by user's LOCAL calendar day via new Date()/getDate()
-//     — server timezone is irrelevant.
-//   * activeDays is a Set<string> of YYYY-MM-DD keys, so multiple saves
-//     on the same day only count once.
-//   * The while-loop breaks the first day it doesn't find in activeDays,
-//     so missing a day resets naturally.
-//   * Entries come from the API on every screen focus, so restart-safety
-//     is inherited from server persistence.
+// Client-side (device-local) is the DISPLAYED source of truth. See
+// src/lib/streak.ts for the full contract + backend-divergence notes.
 // -----------------------------------------------------------------------------
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function computeStreak(activeDays: Set<string>): number {
-  let streak = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const cursor = new Date(today);
-  // If nothing was saved today, start counting from yesterday — this way a
-  // user who reflected daily for a week still sees the 7 even before they
-  // do today's entry.
-  if (!activeDays.has(ymd(cursor))) cursor.setDate(cursor.getDate() - 1);
-  while (activeDays.has(ymd(cursor))) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
-}
-
-function lastNDays(n: number): Date[] {
-  const out: Date[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    out.push(d);
-  }
-  return out;
-}
+import { activeDaysFromISOs, computeStreak, lastNDays, ymd } from "@/src/lib/streak";
 
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -278,14 +237,11 @@ export default function MyReflectionsScreen() {
   // Streak: derived from LOCAL-timezone YYYY-MM-DD keys of every saved
   // reflection AND every saved prayer — both count as spiritual practice
   // for the day. Guest users get this without any auth (prayers are local).
-  const activeDays = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of feed) {
-      const d = new Date(item.created_at);
-      if (!Number.isNaN(d.getTime())) set.add(ymd(d));
-    }
-    return set;
-  }, [feed]);
+  // See src/lib/streak.ts for the full timezone contract.
+  const activeDays = useMemo(
+    () => activeDaysFromISOs(feed.map((f) => f.created_at)),
+    [feed]
+  );
   const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
   const last14 = useMemo(() => lastNDays(14), []);
 
@@ -486,23 +442,17 @@ function ReflectionRow({
       accessibilityRole="button"
       accessibilityLabel={`Open reflection from ${formatDate(entry.created_at)}`}
     >
+      {/* Header mirrors PrayerRow's layout: pill on the left, date on the
+          right. Keeps the merged Journal feed visually parallel so users
+          can scan Reflection vs Saved Prayer without extra cognitive load. */}
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
-          <Text style={styles.cardDate}>{formatDate(entry.created_at)}</Text>
-          {verseRef && (
-            <>
-              <Text style={styles.cardDot}>·</Text>
-              <Text style={styles.cardVerseRef} numberOfLines={1}>
-                {verseRef}
-              </Text>
-            </>
-          )}
-        </View>
-        {ec && entry.emotion ? (
-          <View style={[styles.emotionTag, { backgroundColor: ec.bg }]}>
-            <Text style={[styles.emotionTagText, { color: ec.text }]}>{entry.emotion}</Text>
+          <View style={styles.reflectionTag}>
+            <Ionicons name="book-outline" size={11} color={colors.accent} />
+            <Text style={styles.reflectionTagText}>Reflection</Text>
           </View>
-        ) : null}
+        </View>
+        <Text style={styles.cardDate}>{formatDate(entry.created_at)}</Text>
       </View>
 
       <Text
@@ -511,6 +461,24 @@ function ReflectionRow({
       >
         {entry.text}
       </Text>
+
+      {/* Metadata footer — verse ref (subtle gold, matches PrayerRow) and
+          the optional emotion chip. Shown only when at least one exists,
+          so plain-text reflections stay uncluttered. */}
+      {(verseRef || (ec && entry.emotion)) && (
+        <View style={styles.reflectionMetaRow}>
+          {verseRef && (
+            <Text style={styles.reflectionVerseRef} numberOfLines={1}>
+              {verseRef}
+            </Text>
+          )}
+          {ec && entry.emotion ? (
+            <View style={[styles.emotionTag, { backgroundColor: ec.bg }]}>
+              <Text style={[styles.emotionTagText, { color: ec.text }]}>{entry.emotion}</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
 
       {expanded && (
         <View style={styles.cardActions}>
@@ -631,10 +599,11 @@ const styles = StyleSheet.create({
   // Hero with just the JOURNAL eyebrow — the large "My Journal" title
   // was removed to eliminate the duplicate with the nav header (Apple/
   // Notion/Headspace pattern: each piece of text has a unique purpose).
-  // The eyebrow's own bottom-margin is dropped to 0 because the hero
-  // container's marginBottom now owns the gap to the streak card,
-  // yielding ~18px of premium breathing room.
-  hero: { marginTop: 8, marginBottom: 14 },
+  // marginBottom tuned to 4 (was 14) so the streak card feels
+  // anchored to the eyebrow — ~8px effective gap with the card's own
+  // marginTop:4, matching the tight vertical rhythm of premium consumer
+  // apps without feeling cramped.
+  hero: { marginTop: 8, marginBottom: 4 },
   eyebrow: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
@@ -755,6 +724,44 @@ const styles = StyleSheet.create({
   // ---------------------------------------------------------------------------
   cardPrayer: {
     backgroundColor: colors.accentSoft,
+  },
+  // Reflection pill — mirrors prayerTag so the merged Journal feed reads
+  // as one design system: same 10/5 padding, same 999 radius, same surface2
+  // background, same 11pt semibold accent-colored label + 11pt icon. The
+  // ICON is what differentiates: book-outline for reflections (user wrote),
+  // leaf-outline for saved prayers (AI composed).
+  reflectionTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.surface2,
+  },
+  reflectionTagText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 11,
+    color: colors.accent,
+    letterSpacing: 0.4,
+  },
+  // Footer meta row for reflections — verse ref + optional emotion tag.
+  // Only rendered when at least one exists, so plain-text reflections
+  // stay uncluttered. Uses the same subtle gold reference styling as
+  // PrayerRow's verseRef for visual continuity.
+  reflectionMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 2,
+  },
+  reflectionVerseRef: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    color: colors.accent,
+    letterSpacing: 0.4,
+    flexShrink: 1,
   },
   prayerTag: {
     flexDirection: "row",
