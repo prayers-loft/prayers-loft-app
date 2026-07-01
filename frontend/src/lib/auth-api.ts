@@ -4,6 +4,7 @@ import { postJson, authFetch } from "@/src/lib/auth-client";
 import { AuthTokens, AuthUser, setAuth, clearAuth, getAuthState } from "@/src/lib/auth-store";
 import { runGuestMigration } from "@/src/lib/account-migration";
 import { showToast } from "@/src/components/Toast";
+import { markSessionRestored } from "@/src/lib/api";
 
 type AuthResponse = { user: AuthUser; tokens: AuthTokens };
 
@@ -36,6 +37,7 @@ export async function registerEmail(email: string, password: string, name?: stri
     ...(name ? { name } : {}),
   });
   await setAuth({ user: data.user, tokens: data.tokens, provider: "email" });
+  markSessionRestored();
   void postSigninMigrate();
   return data.user;
 }
@@ -46,6 +48,7 @@ export async function loginEmail(email: string, password: string): Promise<AuthU
     password,
   });
   await setAuth({ user: data.user, tokens: data.tokens, provider: "email" });
+  markSessionRestored();
   void postSigninMigrate();
   return data.user;
 }
@@ -53,6 +56,7 @@ export async function loginEmail(email: string, password: string): Promise<AuthU
 export async function exchangeGoogleSession(session_id: string): Promise<AuthUser> {
   const data = await postJson<AuthResponse>("/api/auth/google", { session_id });
   await setAuth({ user: data.user, tokens: data.tokens, provider: "google" });
+  markSessionRestored();
   void postSigninMigrate();
   return data.user;
 }

@@ -4,6 +4,7 @@
 // to work via raw fetch — auth is additive, not gating.
 import Constants from "expo-constants";
 import { getAuthState, patchTokens, clearAuth, AuthTokens } from "@/src/lib/auth-store";
+import { markSessionExpired } from "@/src/lib/api";
 
 function backendBase(): string {
   // Resolve the same EXPO_PUBLIC_BACKEND_URL the rest of the app uses.
@@ -33,12 +34,26 @@ async function doRefresh(): Promise<AuthTokens | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: tokens.refresh_token }),
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      // Refresh rejected. Clear the session AND signal the api.ts
+      // interceptor so subsequent owner-scoped calls short-circuit with
+      // AuthExpiredError instead of silently becoming guest writes.
+      await clearAuth();
+      markSessionExpired();
+      return null;
+    }
     const data = (await resp.json()) as AuthTokens;
-    if (!data?.access_token || !data?.refresh_token) return null;
+    if (!data?.access_token || !data?.refresh_token) {
+      await clearAuth();
+      markSessionExpired();
+      return null;
+    }
     await patchTokens({ access_token: data.access_token, refresh_token: data.refresh_token });
     return data;
   } catch {
+    // Network error mid-refresh. Same treatment: kill auth, arm the guard.
+    await clearAuth();
+    markSessionExpired();
     return null;
   }
 }
@@ -70,7 +85,8 @@ export async function authFetch(
   // Try a single-flight refresh, then retry once.
   const next = await ensureRefresh();
   if (!next) {
-    await clearAuth();
+    // ensureRefresh() -> doRefresh() has already run clearAuth() +
+    // markSessionExpired() on the failure path.
     return resp;
   }
   const retryHeaders = new Headers(init.headers || {});

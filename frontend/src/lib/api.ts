@@ -44,6 +44,126 @@ export function getApiBaseSource(): string {
   return BASE_SOURCE;
 }
 
+// ---------------------------------------------------------------------------
+// Auth refresh interceptor (single-flight)
+// ---------------------------------------------------------------------------
+// Bug fixed: TestFlight Build 13 users with stale access tokens (token issued
+// against a prior backend JWT_SECRET / session lifetime) saw `API 401:
+// {"detail":"Invalid token"}` raw in a toast when saving / loading
+// reflections. There was no refresh attempt and no guest fallback.
+//
+// New behavior (per the JWT rotation playbook):
+//   1. If a protected request returns 401, attempt ONE refresh via
+//      POST /api/auth/refresh using the stored refresh_token.
+//   2. On refresh success, persist the new {access, refresh} pair and retry
+//      the original request with the new Bearer header.
+//   3. On refresh FAILURE we do NOT silently downgrade a previously-signed-in
+//      user to guest — that would orphan their next save under a new
+//      guest_id and hide their journal (which is scoped by user_id).
+//      Instead:
+//        - clearAuth() is called (session is dead)
+//        - a module-level `sessionExpiredAt` timestamp is set
+//        - the current request throws AuthExpiredError (friendly, non-raw)
+//        - any *subsequent* request to an owner-scoped endpoint
+//          (/reflections, /saved-prayers, /auth/me) throws AuthExpiredError
+//          up-front, without hitting the network, until the user signs in
+//          again. This closes the observed leak where an initial GET
+//          dropped auth and the very next POST silently saved as a guest.
+//   4. Concurrent 401s share a single in-flight refresh via the
+//      `refreshPromise` lock so we never stampede the rotation endpoint.
+//
+// Raw API messages ("API 401: ...", "Invalid token", etc.) are mapped to
+// friendly errors before being thrown to callers.
+let refreshPromise: Promise<string | null> | null = null;
+// Timestamp (ms) of the most recent refresh failure that cleared auth. Zero
+// when there's no expired-session state to enforce. Reset to zero on any
+// successful sign-in via markSessionRestored().
+let sessionExpiredAt = 0;
+
+/** Paths that MUST have an authenticated user; guest access on these after
+ *  a session expiry would silently orphan data or leak state. When the
+ *  session-expired flag is set and no fresh Bearer is available, these paths
+ *  fail up-front with AuthExpiredError instead of falling through to guest. */
+const OWNER_SCOPED_PATH_PREFIXES = ["/reflections", "/saved-prayers", "/auth/me"];
+
+class AuthExpiredError extends Error {
+  readonly isAuthExpired = true;
+  constructor(message = "Please sign in again to continue.") {
+    super(message);
+    this.name = "AuthExpiredError";
+  }
+}
+export { AuthExpiredError };
+
+/** Called by the auth flow (sign-in / register / social) after a fresh
+ *  session is established, so subsequent owner-scoped requests are allowed
+ *  through the interceptor again. */
+export function markSessionRestored(): void {
+  sessionExpiredAt = 0;
+}
+
+/** Called by other refresh code paths (e.g. `src/lib/auth-client.ts`
+ *  authFetch → doRefresh) when they observe a refresh failure and clear
+ *  auth. Without this, an initial /api/auth/me probe on /scripture that
+ *  fails refresh via auth-client would NOT arm the guard here, and the
+ *  user's next Save would silently save under a guest_id. */
+export function markSessionExpired(): void {
+  sessionExpiredAt = Date.now();
+}
+
+function isOwnerScopedPath(path: string): boolean {
+  return OWNER_SCOPED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+async function performRefresh(): Promise<string | null> {
+  // Lazy import to keep this module side-effect free and avoid cycles.
+  const { getAuthState, patchTokens, clearAuth } = await import("@/src/lib/auth-store");
+  const refresh = getAuthState()?.tokens?.refresh_token;
+  if (!refresh) {
+    // No refresh token to work with — treat as a plain sign-out.
+    await clearAuth();
+    return null;
+  }
+  try {
+    const res = await fetch(`${BASE}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) throw new Error(`refresh status ${res.status}`);
+    const data = (await res.json()) as { access_token: string; refresh_token: string };
+    if (!data?.access_token || !data?.refresh_token) {
+      throw new Error("refresh returned malformed payload");
+    }
+    await patchTokens({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    // Successful refresh clears any prior expired-session state.
+    sessionExpiredAt = 0;
+    return data.access_token;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[api] refresh failed, session marked expired:", e instanceof Error ? e.message : e);
+    await clearAuth();
+    // Sticky flag: subsequent owner-scoped requests will short-circuit
+    // through the interceptor with AuthExpiredError instead of silently
+    // becoming guest writes (which would orphan data under a guest_id).
+    sessionExpiredAt = Date.now();
+    return null;
+  }
+}
+
+/** Single-flight wrapper so simultaneous 401s share one refresh. */
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = performRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 // Lazy reads of the auth state and the stable guest_id. We avoid top-level
 // imports to keep this module side-effect-free and to dodge import cycles
 // (auth-store and guest-identity both reach into storage on first call).
@@ -80,15 +200,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // and friends) never see a "no owner" request. The patch in
   // backend/server.py for the v1.0 P0 cross-user leak requires this.
   // Caller-supplied headers win on conflict.
-  const ownerHeaders = await resolveOwnerHeaders();
-  const mergedInit: RequestInit = {
+  let ownerHeaders = await resolveOwnerHeaders();
+
+  // STICKY EXPIRED-SESSION GUARD.
+  // If a previous request in this app session had its refresh fail
+  // (performRefresh -> clearAuth -> sessionExpiredAt set), and we don't
+  // have a fresh Authorization header now, refuse owner-scoped calls
+  // up-front. Without this, an initial GET on /scripture kills the auth
+  // via a failed refresh and the very next Save silently writes under a
+  // guest_id, orphaning the user's reflection. This guard closes that
+  // window until the user signs in again (markSessionRestored() clears).
+  if (sessionExpiredAt > 0 && !ownerHeaders["Authorization"] && isOwnerScopedPath(path)) {
+    throw new AuthExpiredError(
+      "Please sign in to save and view your reflections."
+    );
+  }
+
+  const buildInit = (oh: Record<string, string>): RequestInit => ({
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...ownerHeaders,
+      ...oh,
       ...(init?.headers || {}),
     },
-  };
+  });
 
   // Retry-with-exponential-backoff. Preview/dev environments occasionally
   // 404 routes during a wake-up window between when the server starts
@@ -98,20 +233,67 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Final 404/500/network error still surfaces to the caller as before.
   const MAX_ATTEMPTS = 3;
   const RETRYABLE_STATUSES = new Set([404, 408, 425, 429, 500, 502, 503, 504]);
+  // Tracks whether we've already performed the one-shot 401 → refresh → retry
+  // dance for this request. We never loop on auth (would mask a real server
+  // error if the refreshed token still gets 401'd, or stampede the refresh
+  // endpoint).
+  let didAuthRetry = false;
+  // Did this request start with a Bearer token? If yes, and refresh fails,
+  // we must surface AuthExpiredError so the UI can prompt sign-in — silently
+  // downgrading a signed-in user to guest would make their saved reflections
+  // vanish (guest_id != user_id) which is worse UX than the 401 leak we're
+  // fixing. Pure-guest requests that receive 401 (rare) also still throw
+  // the clean error.
+  const hadAuthAttempt = !!ownerHeaders["Authorization"];
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(url, mergedInit);
+      const res = await fetch(url, buildInit(ownerHeaders));
       if (res.ok) return (await res.json()) as T;
+
+      // One-shot 401 handling: try refresh. If refresh succeeds retry with
+      // the new access token. If refresh fails and the request originally
+      // had auth, throw AuthExpiredError so the UI prompts sign-in.
+      if (res.status === 401 && !didAuthRetry) {
+        didAuthRetry = true;
+        // eslint-disable-next-line no-console
+        console.warn(`[api] 401 on ${url} — attempting token refresh`);
+        const newAccess = await refreshAccessToken(); // null if refresh failed
+        if (newAccess) {
+          // Refresh succeeded — retry with the fresh access token.
+          ownerHeaders = await resolveOwnerHeaders();
+          attempt -= 1; // don't consume a backoff slot
+          continue;
+        }
+        // Refresh failed. If the caller was authed, this is an expired
+        // session — surface it cleanly. clearAuth() has already run inside
+        // performRefresh().
+        if (hadAuthAttempt) {
+          throw new AuthExpiredError(
+            "Please sign in to save and view your reflections."
+          );
+        }
+        // Pure guest that got 401 — very rare. Fall through to the normal
+        // error path below (still yields a clean AuthExpiredError since we
+        // don't loop retries on auth failures).
+      }
+
       const bodyText = await res.text().catch(() => "");
       const shouldRetry = RETRYABLE_STATUSES.has(res.status) && attempt < MAX_ATTEMPTS;
       // eslint-disable-next-line no-console
       console.warn(
-        `[api] ${mergedInit.method || "GET"} ${url} → ${res.status} ` +
+        `[api] ${init?.method || "GET"} ${url} → ${res.status} ` +
           `(attempt ${attempt}/${MAX_ATTEMPTS}, base=${BASE}). ` +
           `Body: ${bodyText.slice(0, 200)}${bodyText.length > 200 ? "…" : ""}`
       );
       if (!shouldRetry) {
+        // Translate 401 to a clean, user-facing error. Raw 'API 401:
+        // {"detail":"Invalid token"}' must NEVER reach a toast.
+        if (res.status === 401) {
+          throw new AuthExpiredError(
+            "Please sign in to save and view your reflections."
+          );
+        }
         throw new Error(`API ${res.status}: ${bodyText || res.statusText}`);
       }
     } catch (err: any) {
@@ -119,11 +301,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const isFinal = attempt >= MAX_ATTEMPTS;
       // Distinguish "thrown by us above" (Error with API status prefix)
       // from network-layer errors (TypeError: Network request failed).
-      const isOurThrow = err instanceof Error && /^API \d+:/.test(err.message);
+      const isOurThrow =
+        err instanceof Error && (/^API \d+:/.test(err.message) || (err as any).isAuthExpired);
       if (isOurThrow && isFinal) throw err;
+      if (isOurThrow && err instanceof AuthExpiredError) throw err; // never retry auth errors
       // eslint-disable-next-line no-console
       console.warn(
-        `[api] ${mergedInit.method || "GET"} ${url} threw on attempt ` +
+        `[api] ${init?.method || "GET"} ${url} threw on attempt ` +
           `${attempt}/${MAX_ATTEMPTS} (base=${BASE}): ${err?.message || err}`
       );
       if (isFinal) throw err;

@@ -79,19 +79,33 @@ export default function MyReflectionsScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [authExpired, setAuthExpired] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.listReflections();
       setEntries(res.reflections as Reflection[]);
+      setAuthExpired(false);
     } catch (e) {
       console.warn("load reflections failed", e);
-      showToast({
-        variant: "error",
-        title: "Couldn't load your journal",
-        message: e instanceof Error ? e.message : "Check your connection and try again.",
-        duration: 5000,
-      });
+      const isAuthExpired = !!(e && typeof e === "object" && (e as any).isAuthExpired);
+      if (isAuthExpired) {
+        // Render the dedicated "please sign in" empty state instead of an
+        // error toast. After refresh fell back to guest, the call would
+        // have succeeded with an empty list — so this branch means the
+        // user genuinely has no auth and the screen prefers a calm prompt
+        // over a red toast.
+        setAuthExpired(true);
+        setEntries([]);
+      } else {
+        showToast({
+          variant: "error",
+          title: "Couldn't load your journal",
+          message: "Check your connection and try again.",
+          duration: 5000,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -163,6 +177,22 @@ export default function MyReflectionsScreen() {
         {loading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={colors.accent} />
+          </View>
+        ) : authExpired ? (
+          <View style={styles.emptyCard} testID="reflections-auth-expired">
+            <Ionicons name="lock-closed-outline" size={28} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>Sign in to see your journal</Text>
+            <Text style={styles.emptyText}>
+              Your session has expired. Sign in again from Settings to access your saved reflections.
+            </Text>
+            <Pressable
+              onPress={() => router.push("/settings" as any)}
+              style={styles.emptyCta}
+              testID="auth-expired-go-to-settings"
+            >
+              <Text style={styles.emptyCtaText}>Open Settings</Text>
+              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+            </Pressable>
           </View>
         ) : sortedEntries.length === 0 ? (
           <View style={styles.emptyCard} testID="reflections-empty-state">

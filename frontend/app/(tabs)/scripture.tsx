@@ -230,10 +230,14 @@ export default function ScriptureScreen() {
       } catch {}
     } catch (e) {
       console.warn("save reflection (inline) failed", e);
+      // Friendly toast — never surface raw "API 401: ..." text.
+      const isAuthExpired = !!(e && typeof e === "object" && (e as any).isAuthExpired);
       showToast({
-        variant: "error",
-        title: "Couldn't save reflection",
-        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        variant: isAuthExpired ? "info" : "error",
+        title: isAuthExpired ? "Sign in to save" : "Couldn't save reflection",
+        message: isAuthExpired
+          ? "Sign in from Settings to save reflections to your journal."
+          : "Check your connection and try again.",
         duration: 5000,
       });
     } finally {
