@@ -221,7 +221,7 @@ export default function ScriptureScreen() {
       showToast({
         variant: "success",
         title: "Reflection saved",
-        message: "View all your reflections from My Reflections.",
+        message: "View all your reflections from My Journal.",
         duration: 3000,
       });
       track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });

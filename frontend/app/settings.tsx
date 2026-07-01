@@ -229,8 +229,8 @@ export default function SettingsScreen() {
         {/* ---- DATA & SYNC ---- */}
         <Section label="Data & Sync">
           <Row
-            title="My Reflections"
-            subtitle="Your full reflection history"
+            title="My Journal"
+            subtitle="Reflections and saved prayers"
             onPress={() => router.push("/reflections-history" as any)}
             right={<Chev />}
             testID="my-reflections-row"

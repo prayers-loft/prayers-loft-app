@@ -201,7 +201,7 @@ export default function PrayerScreen() {
     showToast({
       variant: "success",
       title: "Prayer saved",
-      message: "You can revisit it anytime from My Reflections.",
+      message: "You can revisit it anytime from My Journal.",
       duration: 3000,
     });
     track(ConversionTrigger.PrayerSaved, {

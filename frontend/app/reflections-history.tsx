@@ -365,7 +365,7 @@ export default function MyReflectionsScreen() {
         >
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>My Reflections</Text>
+        <Text style={styles.headerTitle}>My Journal</Text>
         <View style={{ width: 32 }} />
       </View>
 
@@ -375,7 +375,7 @@ export default function MyReflectionsScreen() {
       >
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Journal</Text>
-          <Text style={styles.title}>My reflections</Text>
+          <Text style={styles.title}>My journal</Text>
         </View>
 
         {/* Streak card — restored in Build 14. Hidden while the initial
