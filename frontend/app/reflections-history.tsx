@@ -373,14 +373,19 @@ export default function MyReflectionsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 60 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Journal eyebrow sits alone above the streak — the nav header
+            already carries "My Journal" as the page title, so a duplicate
+            hero heading is redundant. The gold JOURNAL section marker
+            preserves visual anchoring while letting content take primacy
+            (Apple/Notion/Headspace pattern). */}
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Journal</Text>
-          <Text style={styles.title}>My Journal</Text>
         </View>
 
-        {/* Streak card — restored in Build 14. Hidden while the initial
-            fetch is in flight and when the session is fully expired
-            (both of those states already own the entire viewport). */}
+        {/* Streak card — now the primary focal point of the page. Hidden
+            while the initial fetch is in flight and when the session is
+            fully expired (both of those states already own the entire
+            viewport). */}
         {!loading && !authExpired && (
           <StreakBlock streak={streak} days={last14} activeDays={activeDays} />
         )}
@@ -623,6 +628,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   scroll: { paddingHorizontal: 24, paddingTop: 8, gap: 14 },
+  // Hero with just the JOURNAL eyebrow — the large "My Journal" title
+  // was removed to eliminate the duplicate with the nav header (Apple/
+  // Notion/Headspace pattern: each piece of text has a unique purpose).
+  // The eyebrow's own bottom-margin is dropped to 0 because the hero
+  // container's marginBottom now owns the gap to the streak card,
+  // yielding ~18px of premium breathing room.
   hero: { marginTop: 8, marginBottom: 14 },
   eyebrow: {
     fontFamily: fonts.sansMedium,
@@ -630,14 +641,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     letterSpacing: 2.4,
     textTransform: "uppercase",
-    marginBottom: 16,
-  },
-  title: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 24,
-    color: colors.text,
-    letterSpacing: -0.4,
-    lineHeight: 30,
+    marginBottom: 0,
   },
   loadingBox: { padding: 60, alignItems: "center" },
   emptyCard: {
