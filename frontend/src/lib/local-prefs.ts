@@ -14,8 +14,6 @@ export type Preferences = {
   notificationsDailyTime: string; // "HH:MM" 24h, local-time.
   // Appearance.
   accent: AccentChoice;
-  // Ambient.
-  ambientDefaultOn: boolean;
   // Scripture.
   preferredTranslation: ScriptureTranslation;
   // Share defaults.
@@ -30,7 +28,6 @@ export const DEFAULT_PREFS: Preferences = {
   // Users can change this from Settings, and the value is persisted locally.
   notificationsDailyTime: "20:00",
   accent: "sand",
-  ambientDefaultOn: false,
   preferredTranslation: "NLT",
   defaultShareAspect: "portrait",
   analyticsOptIn: true,

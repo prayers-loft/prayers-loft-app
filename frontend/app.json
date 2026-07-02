@@ -54,7 +54,6 @@
           "backgroundColor": "#0a0e1a"
         }
       ],
-      "expo-audio",
       "expo-font",
       "expo-secure-store",
       "expo-web-browser",

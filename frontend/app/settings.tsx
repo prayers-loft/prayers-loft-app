@@ -385,25 +385,6 @@ export default function SettingsScreen() {
           />
         </Section>
 
-        {/* ---- APPEARANCE ---- */}
-        <Section label="Appearance">
-          <Row
-            title="Ambient sound on by default"
-            subtitle="Soft background tones during prayer"
-            testID="ambient-sound-row"
-            right={
-              <Switch
-                value={prefs.ambientDefaultOn}
-                onValueChange={(v) => onTogglePref("ambientDefaultOn", v)}
-                trackColor={{ true: colors.accent, false: "#33405A" }}
-                thumbColor="#F8FAFC"
-                accessibilityLabel="Ambient sound on by default"
-                accessibilityHint="Soft background tones during prayer"
-              />
-            }
-          />
-        </Section>
-
         {/* ---- DATA & SYNC ---- */}
         <Section label="Data & Sync">
           <Row
