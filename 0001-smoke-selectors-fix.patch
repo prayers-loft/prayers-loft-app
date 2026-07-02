@@ -1,0 +1,84 @@
+From 0c3442eb41d33b21b48e10715d15cd5d3764f4ab Mon Sep 17 00:00:00 2001
+From: Prayers Loft Agent <agent@prayersloft.local>
+Date: Thu, 2 Jul 2026 01:40:04 +0000
+Subject: [PATCH] test(smoke): update stale selectors to match current Journal
+ + Bible Assistant UX
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Root cause: two smoke-CI assertions still pointed at the pre-refactor UI.
+Both fail against the current branch code — neither is a real regression.
+
+Failing assertions
+------------------
+1. tests/tests/00-smoke-ci.spec.ts:59
+   Old:  getByPlaceholder(/Ask any Bible question|devotional topic/i)
+   Broke on commit ba792c7 (dynamic mode-aware placeholder). The old
+   static text 'Ask any Bible question or enter a devotional topic…'
+   no longer exists in the DOM.
+2. tests/tests/00-smoke-ci.spec.ts:68
+   Old:  getByText(/My Reflections/i)
+   Broke on commits 8fff1ce + 6118c0e (rename + title-case). The page
+   nav header, hero title, and empty-state title all now read
+   'My Journal' — no occurrence of 'My Reflections' anywhere.
+
+Fixes
+-----
+* Line 59: getByPlaceholder(/Enter a topic|Ask any Bible or theology/i)
+    Tolerates either mode's placeholder so the smoke test doesn't
+    need to know which one is default. Both are unique to the Bible
+    Assistant screen so false positives are impossible.
+* Line 68: getByText(/My Journal/i)
+    Matches the nav header AND the empty-state title, so the test
+    passes on a fresh CI database (empty state) OR a populated one.
+* Test name also renamed for accuracy:
+    'read-only My Reflections (journal) route renders'
+      -> 'read-only My Journal route renders'
+    Route path (/reflections-history) intentionally unchanged — that
+    was the branch's stated policy (rename UI copy only, keep routes/
+    component names).
+
+No application code changed. No functional regression. This is a pure
+test-selector refresh to catch up with the branch's own commits.
+---
+ tests/tests/00-smoke-ci.spec.ts | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/tests/tests/00-smoke-ci.spec.ts b/tests/tests/00-smoke-ci.spec.ts
+index 02fed8b..c976c19 100644
+--- a/tests/tests/00-smoke-ci.spec.ts
++++ b/tests/tests/00-smoke-ci.spec.ts
+@@ -55,17 +55,24 @@ test.describe("@smoke CI gate", () => {
+     await page.goto("/bible-assistant", { waitUntil: "domcontentloaded" });
+     await page.getByTestId("bottom-tab-bar").waitFor({ state: "attached", timeout: 30_000 });
+     await page.waitForTimeout(SPLASH_SETTLE_MS);
++    // After commit ba792c7 the placeholder became mode-aware. Default mode is
++    // "Devotional" → placeholder starts with "Enter a topic you'd like to
++    // study or pray about...". The alternate mode "Bible Questions" swaps in
++    // "Ask any Bible or theology question...". This regex tolerates either
++    // so the smoke test doesn't need to know which mode is default.
+     await expect(
+-      page.getByPlaceholder(/Ask any Bible question|devotional topic/i)
++      page.getByPlaceholder(/Enter a topic|Ask any Bible or theology/i)
+     ).toBeVisible({ timeout: 10_000 });
+   });
+ 
+-  test("read-only My Reflections (journal) route renders", async ({ page }) => {
++  test("read-only My Journal route renders", async ({ page }) => {
+     await page.goto("/reflections-history", { waitUntil: "domcontentloaded" });
+-    // Page-level header is plain text "My Reflections". Empty state is
+-    // also acceptable (test runs in a fresh CI database).
++    // Page-level nav header + hero both read "My Journal" after commits
++    // 8fff1ce (rename) and 6118c0e (title-case). Empty state is also
++    // acceptable (test runs in a fresh CI database) — that state also
++    // renders "My Journal" as the empty-card title.
+     await expect(
+-      page.getByText(/My Reflections/i).first()
++      page.getByText(/My Journal/i).first()
+     ).toBeVisible({ timeout: 15_000 });
+   });
+ 
+-- 
+2.39.5
+
