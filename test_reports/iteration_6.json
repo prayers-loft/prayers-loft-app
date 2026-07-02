@@ -1,0 +1,46 @@
+{
+  "summary": "Pre-Build-14 notification preflight — STATIC + UNIT verification pass. All 14 checkpoints in the review request verified against file:line evidence. Backend auth-refresh suite: 4/4 PASS. Streak timezone/DST unit suite: 15/15 PASS. No runtime end-to-end notification testing performed (correctly out of scope — expo-notifications LOCAL scheduling cannot fire in Expo Go SDK 53+ / web preview; TestFlight required). No code was modified.",
+  "checkpoint_results": [
+    {"id": 1, "status": "PASS", "evidence": "frontend/package.json:38 → expo-notifications ~0.32.17. grep confirms imported in exactly 2 files: src/lib/reminders.ts:22 and src/hooks/use-notification-deep-link.ts:21. expo-av is NOT present anywhere in src/, app/, or package.json (grep exit 1)."},
+    {"id": 2, "status": "PASS", "evidence": "frontend/app.json:60-67 → expo.plugins contains ['expo-notifications', { sounds: [], color: '#C8A96B', enableBackgroundRemoteNotifications: false }]."},
+    {"id": 3, "status": "PASS", "evidence": "frontend/app.json:29-34 → android.permissions contains 'android.permission.POST_NOTIFICATIONS' (line 32) and 'android.permission.SCHEDULE_EXACT_ALARM' (line 33)."},
+    {"id": 4, "status": "PASS", "evidence": "frontend/src/lib/reminders.ts:187-195 → trigger uses Notifications.SchedulableTriggerInputTypes.DAILY with { hour, minute } (lines 191-193). CALENDAR is only referenced in the comment on line 147 explaining the migration away from it."},
+    {"id": 5, "status": "PASS", "evidence": "frontend/src/lib/reminders.ts:179 → content.sound: false (Boolean literal, NOT null)."},
+    {"id": 6, "status": "PASS", "evidence": "frontend/src/lib/reminders.ts:185 → data: { route: '/(tabs)/scripture', kind: 'daily-reminder' }."},
+    {"id": 7, "status": "PASS", "evidence": "frontend/app/settings.tsx handleReminderToggle → ensurePermission() at line 108 called BEFORE scheduleDailyReminder() at line 119. Denied-permission path shows exact copy 'Notifications are turned off.' title (line 112) + 'Enable them in Settings to receive reminders.' message (line 113). Same copy also on the schedule-time permission race path at lines 128-129."},
+    {"id": 8, "status": "PASS", "evidence": "frontend/app/settings.tsx:152-153 → toggle-OFF branch calls cancelDailyReminder() (line 152) BEFORE onTogglePref('notificationsEnabled', false) (line 153)."},
+    {"id": 9, "status": "PASS", "evidence": "frontend/app/settings.tsx:184 → handleTimePicked calls scheduleDailyReminder(nextHhmm), which internally calls cancelDailyReminder() at reminders.ts:159 before rescheduling."},
+    {"id": 10, "status": "PASS", "evidence": "frontend/src/hooks/use-notification-deep-link.ts:25 declares module-level guard `let coldLaunchHandled = false`. Lines 36-54: cold-launch calls Notifications.getLastNotificationResponseAsync() guarded by !coldLaunchHandled, routes via router.replace(route). Lines 57-62: warm path uses Notifications.addNotificationResponseReceivedListener → router.replace(route). Both paths funnel through routeFromResponse (reminders.ts:236)."},
+    {"id": 11, "status": "PASS", "evidence": "frontend/app/_layout.tsx:26 imports useNotificationDeepLink; line 44 mounts it inside RootLayout via `useNotificationDeepLink();`."},
+    {"id": 12, "status": "PASS", "evidence": "grep -rn 'BUILD_VERIFICATION_TEMP' frontend/app frontend/src → exit 1 (no matches). Zero occurrences remain."},
+    {"id": 13, "status": "PASS", "evidence": "pytest backend/tests/test_auth_refresh_reflection.py: 4 passed in 0.54s. All refresh + guest-fallback + isolation tests green. XML: /app/test_reports/pytest/iteration_6_auth_refresh.xml."},
+    {"id": 14, "status": "PASS", "evidence": "npx playwright test unit-streak: 15 passed (554ms). Covers same-day dedupe, 3-day streaks, missed-day resets, grace day, empty case, NY/LA/London/Tokyo boundary correctness, Tokyo→NY perspective, DST spring-forward, DST fall-back, cross-tz travel, ymd/lastNDays helpers."}
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/iteration_6_auth_refresh.xml",
+    "/app/backend/tests/test_auth_refresh_reflection.py",
+    "/app/tests/tests/unit-streak.spec.ts"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "reminders.ts is well-documented with inline rationale for CALENDAR→DAILY migration and sound:false vs null — future maintainers won't accidentally regress.",
+    "Cold-launch guard `coldLaunchHandled` is module-level (correct — survives React remounts/hot-reload) — matches the comment documentation.",
+    "handleReminderToggle correctly distinguishes 'permission' vs 'error' failure paths (settings.tsx:125-141), avoiding the generic 'try again' toast that was hiding the original bug.",
+    "ensurePermission (reminders.ts:108-120) respects canAskAgain=false — no infinite re-prompt loop on iOS.",
+    "Deep-link routing uses router.replace (not push) — avoids stacking the initial route below Scripture."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100% (static+unit only)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This was a static+unit preflight before TestFlight Build 14. The actual notification delivery + tap-response chain is only exercisable inside a native build (not Expo Go SDK 53+, not web preview). If a future iteration reports a notification-not-firing regression, first re-verify the 14 checkpoints above, then request a TestFlight validation from the user — do NOT attempt to reproduce in Expo Go or the web preview.",
+  "rca_of_issue": "Original bug ('Couldn't set reminder' toast on iOS) had three converging root causes, all now fixed and verified: (1) CALENDAR trigger with top-level hour+minute is invalid in expo-notifications 0.32.x — the field only accepts individual calendar components for one-shot dates; scheduleNotificationAsync threw. Fixed by switching to SchedulableTriggerInputTypes.DAILY (reminders.ts:191). (2) content.sound: null was rejected by the native validator (native expects Bool | String, not null). Fixed by using `false` (reminders.ts:179). (3) expo-notifications was missing from app.json plugins so the config plugin never ran, meaning the notification color / channel / permission strings weren't applied on native builds. Fixed by adding the plugin block (app.json:60-67). All three fixes are in place and internally consistent."
+}
