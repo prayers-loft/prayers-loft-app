@@ -135,37 +135,66 @@ export async function cancelDailyReminder(): Promise<void> {
  * Schedule (or reschedule) the repeating daily reminder at `hhmm` local time.
  *
  * Always cancels the previous one first so back-to-back time changes
- * don't leave orphaned schedules. Returns true on success, false if
- * permission is missing / scheduling failed — callers use that signal to
- * roll back the toggle in the UI.
+ * don't leave orphaned schedules. Returns `{ ok: true }` on success or
+ * `{ ok: false, reason }` with a machine-inspectable error the UI can
+ * use to build a specific toast (permission vs generic schedule failure).
+ *
+ * TRIGGER CHOICE
+ * --------------
+ * We use the DAILY trigger (SchedulableTriggerInputTypes.DAILY) — it takes
+ * { hour, minute } and repeats implicitly on both iOS and Android. Prior
+ * versions of this module used CALENDAR with hour+minute+repeats, which
+ * silently fails on SDK 53+/expo-notifications 0.32 because CalendarTriggerInput
+ * no longer has hour/minute at the top level (those are individual calendar
+ * components for one-shot dates). See:
+ * https://docs.expo.dev/versions/latest/sdk/notifications/#dailytriggerinput
  */
-export async function scheduleDailyReminder(hhmm: string): Promise<boolean> {
+export type ScheduleFailure =
+  | { ok: false; reason: "permission" }
+  | { ok: false; reason: "error"; error: unknown };
+export type ScheduleResult = { ok: true } | ScheduleFailure;
+
+export async function scheduleDailyReminder(hhmm: string): Promise<ScheduleResult> {
   const { hour, minute } = parseTime(hhmm);
   await cancelDailyReminder();
+
+  // Defensive: iOS scheduleNotificationAsync silently refuses if permission
+  // isn't granted, but we prefer to surface a specific error so the UI
+  // can point the user at system Settings instead of a generic message.
+  const perm = await Notifications.getPermissionsAsync();
+  if (!perm.granted) {
+    return { ok: false, reason: "permission" };
+  }
+
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: DAILY_REMINDER_ID,
       content: {
         title: "Prayers Loft",
         body: pickMessage(),
-        sound: null,
+        // Bool | String — cannot be null. `false` means "silent notification"
+        // on iOS. We deliberately don't play a sound because the reminder
+        // is meant to be a calm nudge, not an alarm. See:
+        // https://docs.expo.dev/versions/latest/sdk/notifications/#notificationcontentinput
+        sound: false,
       },
       trigger: {
-        // A calendar trigger that repeats daily at the given wall-clock
-        // time in the DEVICE's local timezone. When the user travels, iOS
-        // re-anchors this to the new local time on next reboot — which
-        // matches the client-side streak's local-tz behavior.
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        // Repeats every day at { hour, minute } in the DEVICE's local time.
+        // Cross-platform (iOS + Android). iOS re-anchors to the new local
+        // time when the user travels, matching the Journal's local-tz streak.
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour,
         minute,
-        repeats: true,
         ...(Platform.OS === "android" ? { channelId: "daily-reminder" } : {}),
       },
     });
-    return true;
-  } catch (e) {
-    console.warn("[reminders] schedule failed", e);
-    return false;
+    return { ok: true };
+  } catch (error) {
+    // Log the raw error for TestFlight/Xcode Console diagnostics so we can
+    // triage any future platform-specific scheduling failure. Never re-throw
+    // — the settings screen relies on the boolean to roll back its toggle.
+    console.error("[reminders] scheduleNotificationAsync failed:", error);
+    return { ok: false, reason: "error", error };
   }
 }
 

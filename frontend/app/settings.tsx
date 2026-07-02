@@ -109,21 +109,36 @@ export default function SettingsScreen() {
         if (!granted) {
           showToast({
             variant: "error",
-            title: "Notifications are off",
-            message: "Enable notifications for Prayers Loft in your device Settings.",
+            title: "Notifications are turned off.",
+            message: "Enable them in Settings to receive reminders.",
             duration: 4500,
           });
           return;
         }
         await ensureAndroidChannel();
-        const ok = await scheduleDailyReminder(prefs.notificationsDailyTime);
-        if (!ok) {
-          showToast({
-            variant: "error",
-            title: "Couldn't set reminder",
-            message: "We couldn't schedule your daily reminder. Please try again.",
-            duration: 4500,
-          });
+        const result = await scheduleDailyReminder(prefs.notificationsDailyTime);
+        if (!result.ok) {
+          // Two distinct paths: permission race (rare — user revoked between
+          // our ensurePermission call and the schedule call) vs a native
+          // scheduling error. Surface both clearly so we never fall back
+          // on the generic 'try again' toast that hid the real bug.
+          if (result.reason === "permission") {
+            showToast({
+              variant: "error",
+              title: "Notifications are turned off.",
+              message: "Enable them in Settings to receive reminders.",
+              duration: 4500,
+            });
+          } else {
+            console.error("[settings] schedule reminder error:", result.error);
+            const detail = result.error instanceof Error ? result.error.message : String(result.error);
+            showToast({
+              variant: "error",
+              title: "Couldn't set reminder",
+              message: detail.slice(0, 140) || "Please try again.",
+              duration: 5500,
+            });
+          }
           return;
         }
         await onTogglePref("notificationsEnabled", true);
@@ -166,14 +181,25 @@ export default function SettingsScreen() {
 
     await onTogglePref("notificationsDailyTime", nextHhmm);
     if (prefs.notificationsEnabled) {
-      const ok = await scheduleDailyReminder(nextHhmm);
-      if (!ok) {
-        showToast({
-          variant: "error",
-          title: "Couldn't update reminder",
-          message: "We couldn't reschedule your daily reminder. Please try again.",
-          duration: 4500,
-        });
+      const result = await scheduleDailyReminder(nextHhmm);
+      if (!result.ok) {
+        if (result.reason === "permission") {
+          showToast({
+            variant: "error",
+            title: "Notifications are turned off.",
+            message: "Enable them in Settings to receive reminders.",
+            duration: 4500,
+          });
+        } else {
+          console.error("[settings] reschedule reminder error:", result.error);
+          const detail = result.error instanceof Error ? result.error.message : String(result.error);
+          showToast({
+            variant: "error",
+            title: "Couldn't update reminder",
+            message: detail.slice(0, 140) || "Please try again.",
+            duration: 5500,
+          });
+        }
         return;
       }
     }
