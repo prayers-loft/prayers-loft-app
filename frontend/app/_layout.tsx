@@ -23,6 +23,7 @@ import { RootErrorBoundary } from "@/src/components/RootErrorBoundary";
 import { getApiBase, getApiBaseSource } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
 import { installForegroundHandler, ensureAndroidChannel } from "@/src/lib/reminders";
+import { useNotificationDeepLink } from "@/src/hooks/use-notification-deep-link";
 
 // Register the notification foreground handler + Android channel ONCE at
 // module load. These calls are safe on all platforms (they no-op on web
@@ -36,6 +37,11 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [iconsLoaded, iconsError] = useIconFonts();
+  // Wire the daily-reminder tap handler. Safe to call unconditionally —
+  // the hook subscribes to expo-notifications listeners and no-ops on
+  // web; it will route to /(tabs)/scripture when a daily-reminder
+  // notification is tapped (cold-launch or foreground).
+  useNotificationDeepLink();
   const [crimsonLoaded] = useCrimson({
     CrimsonText_400Regular,
     CrimsonText_400Regular_Italic,

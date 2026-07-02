@@ -177,6 +177,12 @@ export async function scheduleDailyReminder(hhmm: string): Promise<ScheduleResul
         // is meant to be a calm nudge, not an alarm. See:
         // https://docs.expo.dev/versions/latest/sdk/notifications/#notificationcontentinput
         sound: false,
+        // Deep-link payload. The response listener in the app root reads
+        // `data.route` and routes the user directly to that Expo Router
+        // path when they tap the reminder. Scripture is the intended
+        // landing spot because it leads naturally into daily-verse
+        // devotional reading + inline reflection authoring.
+        data: { route: "/(tabs)/scripture", kind: "daily-reminder" },
       },
       trigger: {
         // Repeats every day at { hour, minute } in the DEVICE's local time.
@@ -198,10 +204,48 @@ export async function scheduleDailyReminder(hhmm: string): Promise<ScheduleResul
   }
 }
 
+// -----------------------------------------------------------------------------
+// Tap-response deep linking.
+//
+// When the user taps the daily reminder (cold-launch OR foreground/background),
+// we route them straight to the Scripture tab. Scripture is the intended
+// landing spot because the reminder is meant to help users start or continue
+// their spiritual rhythm and Scripture leads naturally into devotional
+// reading + inline reflection authoring.
+//
+// Implementation
+// --------------
+// 1. Every scheduled reminder carries `data: { route, kind: 'daily-reminder' }`.
+// 2. useNotificationDeepLink() (mounted at the app root) subscribes to
+//    addNotificationResponseReceivedListener for the warm-path (foreground/
+//    background tap) AND calls getLastNotificationResponseAsync ONCE on mount
+//    for the cold-launch path.
+// 3. Both paths funnel to router.replace(data.route) so the initial route
+//    doesn't stack under Scripture in the back-stack.
+//
+// The listener is idempotent: getLastNotificationResponseAsync returns the
+// SAME response object across React remounts, so the hook file itself guards
+// with a module-level flag so a hot reload doesn't re-route mid-session.
+// -----------------------------------------------------------------------------
+
 /**
- * Android needs an explicit notification channel or notifications get
- * silently dropped on modern OS versions. Safe to call multiple times.
+ * Read the tap-response's target route, defensively normalizing shapes.
+ * Returns null when the tap didn't carry a routable payload (e.g. a
+ * non-reminder notification from a future channel).
  */
+export function routeFromResponse(
+  response: Notifications.NotificationResponse | null | undefined
+): string | null {
+  if (!response) return null;
+  const data = response.notification?.request?.content?.data as
+    | { route?: unknown; kind?: unknown }
+    | undefined;
+  if (!data || typeof data.route !== "string") return null;
+  // Only handle notifications we ourselves scheduled — future non-reminder
+  // notifications can add their own kinds without hijacking this router.
+  if (data.kind !== "daily-reminder") return null;
+  return data.route;
+}
 export async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   try {
