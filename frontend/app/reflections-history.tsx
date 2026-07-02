@@ -355,7 +355,7 @@ export default function MyReflectionsScreen() {
             <Ionicons name="lock-closed-outline" size={28} color={colors.textTertiary} />
             <Text style={styles.emptyTitle}>Sign in to see your journal</Text>
             <Text style={styles.emptyText}>
-              Your session has expired. Sign in again from Settings to access your saved reflections.
+              Your session has expired. Sign in again from Settings to access My Journal.
             </Text>
             <Pressable
               onPress={() => router.push("/settings" as any)}

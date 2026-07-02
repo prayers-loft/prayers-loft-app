@@ -201,7 +201,7 @@ export default function PrayerScreen() {
     showToast({
       variant: "success",
       title: "Prayer saved",
-      message: "You can revisit it anytime from My Journal.",
+      message: "View it anytime in My Journal.",
       duration: 3000,
     });
     track(ConversionTrigger.PrayerSaved, {
@@ -346,7 +346,7 @@ export default function PrayerScreen() {
               <IconAction icon="share-outline" label="Share" onPress={handleShare} testID="share-prayer-button" />
             </View>
             <Pressable onPress={() => router.push("/reflections-history" as any)} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
-              <Text style={styles.sitWithText}>Want to sit with this?</Text>
+              <Text style={styles.sitWithText}>View My Journal</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
             <Pressable onPress={handleStartOver} style={styles.startOver} testID="start-over-button">

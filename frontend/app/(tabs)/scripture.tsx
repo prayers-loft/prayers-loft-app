@@ -221,7 +221,7 @@ export default function ScriptureScreen() {
       showToast({
         variant: "success",
         title: "Reflection saved",
-        message: "View all your reflections from My Journal.",
+        message: "View it anytime in My Journal.",
         duration: 3000,
       });
       track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });
@@ -450,9 +450,9 @@ export default function ScriptureScreen() {
               style={styles.viewAllLink}
               testID="view-all-reflections-link"
               accessibilityRole="button"
-              accessibilityLabel="View all your reflections"
+              accessibilityLabel="View My Journal"
             >
-              <Text style={styles.viewAllText}>View all reflections</Text>
+              <Text style={styles.viewAllText}>View My Journal</Text>
               <Ionicons name="arrow-forward" size={13} color={colors.accent} />
             </Pressable>
           </Animated.View>
