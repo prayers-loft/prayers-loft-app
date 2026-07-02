@@ -58,6 +58,14 @@
       "expo-secure-store",
       "expo-web-browser",
       [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "color": "#C8A96B",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ],
+      [
         "expo-media-library",
         {
           "photosPermission": "Save your prayer cards to share later",
