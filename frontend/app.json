@@ -61,8 +61,7 @@
         "expo-notifications",
         {
           "sounds": [],
-          "color": "#C8A96B",
-          "enableBackgroundRemoteNotifications": false
+          "color": "#C8A96B"
         }
       ],
       [
