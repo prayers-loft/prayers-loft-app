@@ -23,23 +23,14 @@ function resolveBase(): { base: string; source: "process.env" | "Constants.expoC
 
 const { base: BASE, source: BASE_SOURCE } = resolveBase();
 
-// ── BUILD_VERIFICATION_TEMP — added for Build 11 verification ────────────────
-// Prints the resolved BASE URL and where it came from to the JS console at
-// module load. This appears in:
-//   • Metro logs (web/dev)
-//   • Xcode Console.app device log (iOS TestFlight) — search for "[api]"
-//   • Android adb logcat (Android internal builds)
-// Remove after Build 11 verification is complete (grep BUILD_VERIFICATION_TEMP).
-// eslint-disable-next-line no-console
-console.log(`[api] BUILD_VERIFICATION_TEMP — BASE="${BASE}" (source=${BASE_SOURCE})`);
-// ─────────────────────────────────────────────────────────────────────────────
-
 /** Diagnostic helper — used by _layout.tsx to surface a startup toast. */
 export function getApiBase(): string {
   return BASE;
 }
 
-/** BUILD_VERIFICATION_TEMP — exposes where the BASE was resolved from. Remove after Build 11. */
+/** Exposes where the BASE was resolved from — used only by the guarded
+ *  startup error log in _layout.tsx (fires when EXPO_PUBLIC_BACKEND_URL
+ *  is missing, i.e. a misconfigured build). */
 export function getApiBaseSource(): string {
   return BASE_SOURCE;
 }

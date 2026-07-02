@@ -71,15 +71,6 @@ export default function RootLayout() {
           duration: 10000,
         });
         console.error("[RootLayout] EXPO_PUBLIC_BACKEND_URL is empty at runtime");
-      } else {
-        // BUILD_VERIFICATION_TEMP — Build 11 visibility toast was REMOVED for
-        // Build 13 to stop polluting the TestFlight UX with a startup banner.
-        // The silent console.log below is intentionally kept for Xcode
-        // Console.app diagnostics. Full BUILD_VERIFICATION_TEMP cleanup
-        // (remove console.log here + the ones in src/lib/api.ts + the
-        // getApiBaseSource helper) will follow in a separate small PR.
-        // eslint-disable-next-line no-console
-        console.log(`[RootLayout] BUILD_VERIFICATION_TEMP — apiBase="${apiBase}" source=${apiBaseSource}`);
       }
       // Hide native splash. Defensive try/catch — if Expo's splash module fails,
       // do NOT let the error abort the process (root cause of v1.0.0 (2) crash).
