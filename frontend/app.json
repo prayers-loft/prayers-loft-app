@@ -28,7 +28,9 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM"
       ]
     },
     "web": {
@@ -52,10 +54,17 @@
           "backgroundColor": "#0a0e1a"
         }
       ],
-      "expo-audio",
       "expo-font",
       "expo-secure-store",
       "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "color": "#C8A96B",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ],
       [
         "expo-media-library",
         {
@@ -63,7 +72,8 @@
           "savePhotosPermission": "Save your prayer cards to share later",
           "isAccessMediaLocationEnabled": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

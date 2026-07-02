@@ -221,7 +221,7 @@ export default function ScriptureScreen() {
       showToast({
         variant: "success",
         title: "Reflection saved",
-        message: "View all your reflections from My Reflections.",
+        message: "View it anytime in My Journal.",
         duration: 3000,
       });
       track(ConversionTrigger.ReflectionSaved, { chars, has_emotion: !!reflectionEmotion, source: "scripture_inline" });
@@ -230,10 +230,14 @@ export default function ScriptureScreen() {
       } catch {}
     } catch (e) {
       console.warn("save reflection (inline) failed", e);
+      // Friendly toast — never surface raw "API 401: ..." text.
+      const isAuthExpired = !!(e && typeof e === "object" && (e as any).isAuthExpired);
       showToast({
-        variant: "error",
-        title: "Couldn't save reflection",
-        message: e instanceof Error ? e.message : "Check your connection and try again.",
+        variant: isAuthExpired ? "info" : "error",
+        title: isAuthExpired ? "Sign in to save" : "Couldn't save reflection",
+        message: isAuthExpired
+          ? "Sign in from Settings to save reflections to your journal."
+          : "Check your connection and try again.",
         duration: 5000,
       });
     } finally {
@@ -446,9 +450,9 @@ export default function ScriptureScreen() {
               style={styles.viewAllLink}
               testID="view-all-reflections-link"
               accessibilityRole="button"
-              accessibilityLabel="View all your reflections"
+              accessibilityLabel="View My Journal"
             >
-              <Text style={styles.viewAllText}>View all reflections</Text>
+              <Text style={styles.viewAllText}>View My Journal</Text>
               <Ionicons name="arrow-forward" size={13} color={colors.accent} />
             </Pressable>
           </Animated.View>

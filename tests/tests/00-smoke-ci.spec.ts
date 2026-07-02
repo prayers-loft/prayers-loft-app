@@ -55,17 +55,24 @@ test.describe("@smoke CI gate", () => {
     await page.goto("/bible-assistant", { waitUntil: "domcontentloaded" });
     await page.getByTestId("bottom-tab-bar").waitFor({ state: "attached", timeout: 30_000 });
     await page.waitForTimeout(SPLASH_SETTLE_MS);
+    // After commit ba792c7 the placeholder became mode-aware. Default mode is
+    // "Devotional" → placeholder starts with "Enter a topic you'd like to
+    // study or pray about...". The alternate mode "Bible Questions" swaps in
+    // "Ask any Bible or theology question...". This regex tolerates either
+    // so the smoke test doesn't need to know which mode is default.
     await expect(
-      page.getByPlaceholder(/Ask any Bible question|devotional topic/i)
+      page.getByPlaceholder(/Enter a topic|Ask any Bible or theology/i)
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("read-only My Reflections (journal) route renders", async ({ page }) => {
+  test("read-only My Journal route renders", async ({ page }) => {
     await page.goto("/reflections-history", { waitUntil: "domcontentloaded" });
-    // Page-level header is plain text "My Reflections". Empty state is
-    // also acceptable (test runs in a fresh CI database).
+    // Page-level nav header + hero both read "My Journal" after commits
+    // 8fff1ce (rename) and 6118c0e (title-case). Empty state is also
+    // acceptable (test runs in a fresh CI database) — that state also
+    // renders "My Journal" as the empty-card title.
     await expect(
-      page.getByText(/My Reflections/i).first()
+      page.getByText(/My Journal/i).first()
     ).toBeVisible({ timeout: 15_000 });
   });
 

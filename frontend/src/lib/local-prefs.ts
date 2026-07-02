@@ -14,8 +14,6 @@ export type Preferences = {
   notificationsDailyTime: string; // "HH:MM" 24h, local-time.
   // Appearance.
   accent: AccentChoice;
-  // Ambient.
-  ambientDefaultOn: boolean;
   // Scripture.
   preferredTranslation: ScriptureTranslation;
   // Share defaults.
@@ -26,9 +24,10 @@ export type Preferences = {
 
 export const DEFAULT_PREFS: Preferences = {
   notificationsEnabled: false,
-  notificationsDailyTime: "07:30",
+  // 8:00 PM local — matches the product spec for the daily reminder default.
+  // Users can change this from Settings, and the value is persisted locally.
+  notificationsDailyTime: "20:00",
   accent: "sand",
-  ambientDefaultOn: false,
   preferredTranslation: "NLT",
   defaultShareAspect: "portrait",
   analyticsOptIn: true,

@@ -141,7 +141,11 @@ export default function BibleAssistantScreen() {
             <TextInput
               value={question}
               onChangeText={setQuestion}
-              placeholder="Ask any Bible question or enter a devotional topic…"
+              placeholder={
+                style === "Theologian"
+                  ? "Ask any Bible or theology question..."
+                  : "Enter a topic you'd like to study or pray about..."
+              }
               placeholderTextColor={colors.textTertiary}
               multiline
               style={styles.qaInput}
@@ -158,7 +162,7 @@ export default function BibleAssistantScreen() {
                 testID={`style-pill-${s}`}
               >
                 <Text style={[styles.stylePillText, style === s && styles.stylePillTextActive]}>
-                  {s === "Theologian" ? "Bible Questions" : "Write Devotional"}
+                  {s === "Theologian" ? "Bible Questions" : "Devotional"}
                 </Text>
               </Pressable>
             ))}

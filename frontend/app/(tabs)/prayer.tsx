@@ -170,16 +170,40 @@ export default function PrayerScreen() {
   const handleSave = async () => {
     if (!reflection || !prayer) return;
     const id = Crypto.randomUUID();
-    await addSavedPrayer({
-      id,
-      request: message.trim(),
-      reflection: [reflection.empathy, reflection.characterReflection].filter(Boolean).join("\n\n"),
-      prayer,
-      verseReference: reflection.verseReference,
-      bibleLink: reflection.bibleLink,
-      created_at: new Date().toISOString(),
-    });
+    // Persist locally. addSavedPrayer returns false when AsyncStorage rejects
+    // the write (quota exceeded, disk full, etc.); we surface that so the
+    // user never sees a "Saved" checkmark on top of a silent failure.
+    let ok = false;
+    try {
+      ok = await addSavedPrayer({
+        id,
+        request: message.trim(),
+        reflection: [reflection.empathy, reflection.characterReflection].filter(Boolean).join("\n\n"),
+        prayer,
+        verseReference: reflection.verseReference,
+        bibleLink: reflection.bibleLink,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn("save prayer failed", e);
+      ok = false;
+    }
+    if (!ok) {
+      showToast({
+        variant: "error",
+        title: "Couldn't save prayer",
+        message: "We couldn't store this prayer on your device. Please try again.",
+        duration: 5000,
+      });
+      return;
+    }
     setSaved(true);
+    showToast({
+      variant: "success",
+      title: "Prayer saved",
+      message: "View it anytime in My Journal.",
+      duration: 3000,
+    });
     track(ConversionTrigger.PrayerSaved, {
       has_verse: !!reflection.verseReference,
       prayer_chars: prayer.length,
@@ -322,7 +346,7 @@ export default function PrayerScreen() {
               <IconAction icon="share-outline" label="Share" onPress={handleShare} testID="share-prayer-button" />
             </View>
             <Pressable onPress={() => router.push("/reflections-history" as any)} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
-              <Text style={styles.sitWithText}>Want to sit with this?</Text>
+              <Text style={styles.sitWithText}>View My Journal</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
             <Pressable onPress={handleStartOver} style={styles.startOver} testID="start-over-button">

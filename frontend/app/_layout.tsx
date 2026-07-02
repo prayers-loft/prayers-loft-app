@@ -22,12 +22,26 @@ import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
 import { RootErrorBoundary } from "@/src/components/RootErrorBoundary";
 import { getApiBase, getApiBaseSource } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
+import { installForegroundHandler, ensureAndroidChannel } from "@/src/lib/reminders";
+import { useNotificationDeepLink } from "@/src/hooks/use-notification-deep-link";
+
+// Register the notification foreground handler + Android channel ONCE at
+// module load. These calls are safe on all platforms (they no-op on web
+// and on the wrong OS) and do NOT prompt for permission — that only
+// happens when the user flips the Daily Reminder toggle in Settings.
+installForegroundHandler();
+void ensureAndroidChannel();
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [iconsLoaded, iconsError] = useIconFonts();
+  // Wire the daily-reminder tap handler. Safe to call unconditionally —
+  // the hook subscribes to expo-notifications listeners and no-ops on
+  // web; it will route to /(tabs)/scripture when a daily-reminder
+  // notification is tapped (cold-launch or foreground).
+  useNotificationDeepLink();
   const [crimsonLoaded] = useCrimson({
     CrimsonText_400Regular,
     CrimsonText_400Regular_Italic,
@@ -57,15 +71,6 @@ export default function RootLayout() {
           duration: 10000,
         });
         console.error("[RootLayout] EXPO_PUBLIC_BACKEND_URL is empty at runtime");
-      } else {
-        // BUILD_VERIFICATION_TEMP — Build 11 visibility toast was REMOVED for
-        // Build 13 to stop polluting the TestFlight UX with a startup banner.
-        // The silent console.log below is intentionally kept for Xcode
-        // Console.app diagnostics. Full BUILD_VERIFICATION_TEMP cleanup
-        // (remove console.log here + the ones in src/lib/api.ts + the
-        // getApiBaseSource helper) will follow in a separate small PR.
-        // eslint-disable-next-line no-console
-        console.log(`[RootLayout] BUILD_VERIFICATION_TEMP — apiBase="${apiBase}" source=${apiBaseSource}`);
       }
       // Hide native splash. Defensive try/catch — if Expo's splash module fails,
       // do NOT let the error abort the process (root cause of v1.0.0 (2) crash).
