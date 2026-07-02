@@ -22,6 +22,14 @@ import { handleGoogleReturnFromUrl } from "@/src/lib/google-auth";
 import { RootErrorBoundary } from "@/src/components/RootErrorBoundary";
 import { getApiBase, getApiBaseSource } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
+import { installForegroundHandler, ensureAndroidChannel } from "@/src/lib/reminders";
+
+// Register the notification foreground handler + Android channel ONCE at
+// module load. These calls are safe on all platforms (they no-op on web
+// and on the wrong OS) and do NOT prompt for permission — that only
+// happens when the user flips the Daily Reminder toggle in Settings.
+installForegroundHandler();
+void ensureAndroidChannel();
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();

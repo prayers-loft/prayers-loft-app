@@ -12,6 +12,9 @@ import {
   Text,
   View,
 } from "react-native";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +28,15 @@ import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { useAuthState } from "@/src/hooks/use-auth-state";
 import { logout, deleteAccount } from "@/src/lib/auth-api";
 import { replayOnboarding } from "@/src/lib/onboarding";
+import { showToast } from "@/src/components/Toast";
+import {
+  cancelDailyReminder,
+  ensureAndroidChannel,
+  ensurePermission,
+  formatTime,
+  parseTime,
+  scheduleDailyReminder,
+} from "@/src/lib/reminders";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -42,6 +54,10 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [exportBusy, setExportBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Reminder — controls the native time picker sheet + a local pending flag
+  // so we don't blast the OS with schedule calls on every state flicker.
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [reminderBusy, setReminderBusy] = useState(false);
   const auth = useAuthState();
   const isAuthed = !!auth.user;
 
@@ -64,6 +80,116 @@ export default function SettingsScreen() {
     const next = await updatePrefs({ [key]: value } as Partial<Preferences>);
     setPrefs(next);
   };
+
+  // -------------------------------------------------------------------------
+  // Daily reminder wiring.
+  //
+  // Toggle-on flow:
+  //   1. Ask for OS notification permission (only on the first flip — the OS
+  //      short-circuits subsequent calls to whatever the user already chose).
+  //   2. Schedule the repeating daily reminder at the currently-saved time.
+  //   3. Persist notificationsEnabled=true.
+  //   4. Show a "Daily reminders enabled." confirmation toast.
+  //
+  // If the OS denies permission, we roll back the toggle and point the user
+  // at their system Settings instead of pretending it succeeded.
+  //
+  // Time-change flow:
+  //   1. Persist the new HH:MM.
+  //   2. Reschedule (cancels the previous, creates fresh with a new random
+  //      message — see reminders.ts pickMessage()).
+  //   3. Show "Reminder updated to 8:00 PM." confirmation.
+  // -------------------------------------------------------------------------
+  const handleReminderToggle = async (nextEnabled: boolean) => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      if (nextEnabled) {
+        const granted = await ensurePermission();
+        if (!granted) {
+          showToast({
+            variant: "error",
+            title: "Notifications are off",
+            message: "Enable notifications for Prayers Loft in your device Settings.",
+            duration: 4500,
+          });
+          return;
+        }
+        await ensureAndroidChannel();
+        const ok = await scheduleDailyReminder(prefs.notificationsDailyTime);
+        if (!ok) {
+          showToast({
+            variant: "error",
+            title: "Couldn't set reminder",
+            message: "We couldn't schedule your daily reminder. Please try again.",
+            duration: 4500,
+          });
+          return;
+        }
+        await onTogglePref("notificationsEnabled", true);
+        showToast({
+          variant: "success",
+          title: "Daily reminders enabled.",
+          message: `You'll get a gentle nudge at ${formatTime(prefs.notificationsDailyTime)}.`,
+          duration: 3000,
+        });
+      } else {
+        await cancelDailyReminder();
+        await onTogglePref("notificationsEnabled", false);
+      }
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleReminderRowPress = () => {
+    if (!prefs.notificationsEnabled) return;
+    setTimePickerOpen(true);
+  };
+
+  const handleTimePicked = async (event: DateTimePickerEvent, picked?: Date) => {
+    // iOS "spinner" fires 'set' after user taps a bg element; Android fires
+    // 'set' when the user confirms. On both platforms, 'dismissed' or
+    // undefined picked means the user canceled — leave prefs alone.
+    const dismissedOrCanceled =
+      event.type === "dismissed" || !picked || Platform.OS !== "ios";
+    // On Android the picker is a modal dialog that dismisses itself — we
+    // always close our local state. On iOS the inline spinner needs an
+    // explicit close.
+    if (Platform.OS !== "ios") setTimePickerOpen(false);
+    if (event.type === "dismissed" || !picked) return;
+
+    const hh = String(picked.getHours()).padStart(2, "0");
+    const mm = String(picked.getMinutes()).padStart(2, "0");
+    const nextHhmm = `${hh}:${mm}`;
+    if (nextHhmm === prefs.notificationsDailyTime) return;
+
+    await onTogglePref("notificationsDailyTime", nextHhmm);
+    if (prefs.notificationsEnabled) {
+      const ok = await scheduleDailyReminder(nextHhmm);
+      if (!ok) {
+        showToast({
+          variant: "error",
+          title: "Couldn't update reminder",
+          message: "We couldn't reschedule your daily reminder. Please try again.",
+          duration: 4500,
+        });
+        return;
+      }
+    }
+    showToast({
+      variant: "success",
+      title: `Reminder updated to ${formatTime(nextHhmm)}.`,
+      message: prefs.notificationsEnabled
+        ? "Your next reminder will arrive at the new time."
+        : "Turn on Daily reminder to start receiving nudges.",
+      duration: 3000,
+    });
+    // Suppress the unused parameter warning without changing behavior.
+    void dismissedOrCanceled;
+  };
+
+  const closeTimePickerIOS = () => setTimePickerOpen(false);
 
   const handleCreateAccount = () => {
     track(ConversionTrigger.ManualUpgradeTap, { source: "settings" });
@@ -194,15 +320,41 @@ export default function SettingsScreen() {
           <Row
             title="Daily reminder"
             subtitle="A gentle nudge to pause and pray"
-            disabled
-            right={<Text style={styles.locked}>Soon</Text>}
             testID="daily-reminder-row"
+            right={
+              reminderBusy ? (
+                <ActivityIndicator color={colors.accent} size="small" />
+              ) : (
+                <Switch
+                  value={prefs.notificationsEnabled}
+                  onValueChange={handleReminderToggle}
+                  trackColor={{ false: colors.surface2, true: colors.accent }}
+                  thumbColor={colors.text}
+                  ios_backgroundColor={colors.surface2}
+                  testID="daily-reminder-switch"
+                />
+              )
+            }
           />
           <Row
             title="Reminder time"
-            subtitle="Choose when your daily nudge arrives"
-            disabled
-            right={<Text style={styles.locked}>Soon</Text>}
+            subtitle={
+              prefs.notificationsEnabled
+                ? "Tap to change when your daily nudge arrives"
+                : "Turn on Daily reminder to schedule"
+            }
+            disabled={!prefs.notificationsEnabled}
+            right={
+              <Text
+                style={[
+                  styles.chevronMeta,
+                  !prefs.notificationsEnabled && styles.chevronMetaDisabled,
+                ]}
+              >
+                {formatTime(prefs.notificationsDailyTime)}
+              </Text>
+            }
+            onPress={handleReminderRowPress}
             testID="reminder-time-row"
           />
         </Section>
@@ -349,6 +501,51 @@ export default function SettingsScreen() {
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
+
+      {/* Native iOS time picker sheet.
+          Rendered inline (Platform.OS === "ios") vs. as a modal dialog
+          (Android). We anchor to the currently saved time and let iOS
+          own the spinner UX; when the user taps "Done" the sheet closes
+          via the wrapper Pressable's onPress. */}
+      {timePickerOpen && Platform.OS === "ios" && (
+        <Pressable style={styles.pickerBackdrop} onPress={closeTimePickerIOS} testID="time-picker-backdrop">
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.pickerHeader}>
+              <Pressable onPress={closeTimePickerIOS} hitSlop={8} testID="time-picker-done">
+                <Text style={styles.pickerDone}>Done</Text>
+              </Pressable>
+            </View>
+            <DateTimePicker
+              value={(() => {
+                const { hour, minute } = parseTime(prefs.notificationsDailyTime);
+                const d = new Date();
+                d.setHours(hour, minute, 0, 0);
+                return d;
+              })()}
+              mode="time"
+              display="spinner"
+              onChange={handleTimePicked}
+              themeVariant="dark"
+              textColor={colors.text}
+              testID="time-picker"
+            />
+          </Pressable>
+        </Pressable>
+      )}
+      {timePickerOpen && Platform.OS !== "ios" && (
+        <DateTimePicker
+          value={(() => {
+            const { hour, minute } = parseTime(prefs.notificationsDailyTime);
+            const d = new Date();
+            d.setHours(hour, minute, 0, 0);
+            return d;
+          })()}
+          mode="time"
+          is24Hour={false}
+          onChange={handleTimePicked}
+          testID="time-picker"
+        />
+      )}
     </ScreenBackground>
   );
 }
@@ -492,6 +689,50 @@ const styles = StyleSheet.create({
   tinyNote: { fontFamily: fonts.sans, color: colors.textTertiary, fontSize: 11.5, marginTop: 4 },
 
   locked: { fontFamily: fonts.sansMedium, color: colors.textTertiary, fontSize: 12 },
+  // Right-side "8:00 PM" meta on the Reminder time row. Gold when the
+  // toggle is on (feels tappable), muted when off (matches the row's
+  // disabled state).
+  chevronMeta: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: colors.accent,
+    letterSpacing: 0.2,
+  },
+  chevronMetaDisabled: {
+    color: colors.textTertiary,
+  },
+  // Modal-ish iOS time picker sheet — dark backdrop + rounded bottom sheet
+  // for the native spinner. Android uses the OS-provided dialog directly
+  // so these styles are iOS-only.
+  pickerBackdrop: {
+    position: "absolute",
+    top: 0, right: 0, bottom: 0, left: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+    zIndex: 999,
+  },
+  pickerSheet: {
+    backgroundColor: colors.bgDeep,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 24,
+    paddingHorizontal: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.hairline,
+  },
+  pickerHeader: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  pickerDone: {
+    fontFamily: fonts.sansSemibold,
+    color: colors.accent,
+    fontSize: 15,
+    letterSpacing: 0.2,
+  },
 
   toast: {
     position: "absolute",

@@ -28,7 +28,9 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM"
       ]
     },
     "web": {
@@ -63,7 +65,8 @@
           "savePhotosPermission": "Save your prayer cards to share later",
           "isAccessMediaLocationEnabled": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
