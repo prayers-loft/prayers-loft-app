@@ -1,5 +1,6 @@
-// First-launch onboarding carousel. 3 slides, swipeable + button-paced.
-// Stores completion in AsyncStorage so it's shown only once.
+// First-launch onboarding carousel. 4 slides, swipeable + button-paced.
+// Stores completion in AsyncStorage so it's shown only once. On completion,
+// routes the user to today's verse (see FIRST_ACTION_ROUTE in lib/onboarding).
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -16,32 +17,51 @@ import {
   NativeScrollEvent,
   DeviceEventEmitter,
 } from "react-native";
+import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "@/src/theme/theme";
 import {
+  FIRST_ACTION_ROUTE,
   hasSeenOnboarding,
   markOnboardingSeen,
   ONBOARDING_REPLAY_EVENT,
 } from "@/src/lib/onboarding";
 
+// Copy audit (Build 16 spec):
+//   • Benefit-driven — every slide says what the user *gets*, not what
+//     the app *does*.
+//   • Concrete — no vague "spiritual growth" language.
+//   • Warm but not preachy.
+//   • Reminders framed as optional (footnote on the last slide, not its
+//     own slide) since we don't request the OS permission here.
 const SLIDES = [
-  {
-    key: "pray",
-    icon: "heart-outline" as const,
-    title: "A quiet place to pray.",
-    body: "Share what's on your heart and receive personalized prayers rooted in Scripture.",
-  },
   {
     key: "scripture",
     icon: "book-outline" as const,
-    title: "Scripture for today.",
-    body: "Receive daily verses, devotionals, and thoughtful biblical insight.",
+    title: "A verse for every day",
+    body:
+      "Open the app to today's Scripture with a short devotional written for right now.",
   },
   {
-    key: "journey",
-    icon: "leaf-outline" as const,
-    title: "Keep your journey.",
-    body: "Reflect, build streaks, and save meaningful moments as your faith grows.",
+    key: "pray",
+    icon: "heart-outline" as const,
+    title: "Prayers made for what you're carrying",
+    body:
+      "Share what's on your mind and receive a personalized prayer grounded in Scripture.",
+  },
+  {
+    key: "reflect",
+    icon: "sparkles-outline" as const,
+    title: "Guided reflection, kept in a Journal",
+    body:
+      "Sit with a verse, jot a thought, and watch your streak grow as you keep showing up.",
+  },
+  {
+    key: "reminder",
+    icon: "notifications-outline" as const,
+    title: "A gentle nudge, only if you want it",
+    body:
+      "Turn on optional daily reminders in Settings whenever you're ready — never before.",
   },
 ];
 
@@ -65,7 +85,9 @@ export function OnboardingHost() {
           await markOnboardingSeen();
           return;
         }
-      } catch {}
+      } catch {
+        // ignore
+      }
       const seen = await hasSeenOnboarding();
       if (!seen) {
         showCarousel();
@@ -79,7 +101,9 @@ export function OnboardingHost() {
       requestAnimationFrame(() => {
         try {
           scrollRef.current?.scrollTo({ x: 0, animated: false });
-        } catch {}
+        } catch {
+          // ignore
+        }
       });
       showCarousel();
     });
@@ -98,7 +122,13 @@ export function OnboardingHost() {
     }).start();
   }
 
-  async function finish() {
+  /** Dismiss the carousel and optionally route the user to their first
+   *  meaningful action. Skip → no route change (respect user intent).
+   *  Get Started → route to today's verse (the strongest first action).
+   */
+  async function finish(routeToFirstAction: boolean) {
+    // Storage write is wrapped in try/catch inside markOnboardingSeen —
+    // failures never block dismissal. See lib/onboarding.ts.
     await markOnboardingSeen();
     Animated.timing(opacity, {
       toValue: 0,
@@ -107,6 +137,17 @@ export function OnboardingHost() {
       useNativeDriver: Platform.OS !== "web",
     }).start(({ finished }) => {
       if (finished) setVisible(false);
+      if (routeToFirstAction) {
+        // Route after animation completes so the transition to the tab
+        // isn't visually stacked on top of the fade-out.
+        try {
+          router.replace(FIRST_ACTION_ROUTE);
+        } catch (e) {
+          // Router unavailable (deep-link race, cold navigation state)
+          // is non-fatal — user is already in the app.
+          console.warn("[onboarding] first-action route failed", e);
+        }
+      }
     });
   }
 
@@ -129,7 +170,7 @@ export function OnboardingHost() {
       animationType="none"
       transparent={false}
       statusBarTranslucent
-      onRequestClose={finish}
+      onRequestClose={() => void finish(false)}
     >
       <Animated.View style={[styles.root, { opacity }]} testID="onboarding">
         {/* Top bar: centered brand wordmark + Skip pinned to the right.
@@ -139,7 +180,12 @@ export function OnboardingHost() {
           <Text style={styles.brandWordmark} testID="onboarding-brand" accessibilityRole="header">
             Prayers Loft
           </Text>
-          <Pressable onPress={finish} hitSlop={12} style={styles.skipPressable} testID="onboarding-skip">
+          <Pressable
+            onPress={() => void finish(false)}
+            hitSlop={12}
+            style={styles.skipPressable}
+            testID="onboarding-skip"
+          >
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>
         </View>
@@ -179,11 +225,19 @@ export function OnboardingHost() {
         {/* Action */}
         <View style={styles.cta}>
           <Pressable
-            onPress={() => (isLast ? finish() : goTo(index + 1))}
+            onPress={() =>
+              isLast ? void finish(true) : goTo(index + 1)
+            }
             style={styles.ctaBtn}
             testID={isLast ? "onboarding-get-started" : "onboarding-next"}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isLast ? "Get started with today's verse" : "Next slide"
+            }
           >
-            <Text style={styles.ctaText}>{isLast ? "Get Started" : "Next"}</Text>
+            <Text style={styles.ctaText}>
+              {isLast ? "Read today's verse" : "Next"}
+            </Text>
           </Pressable>
         </View>
       </Animated.View>
