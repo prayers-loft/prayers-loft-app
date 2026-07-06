@@ -52,6 +52,8 @@ import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import { EmptyState } from "@/src/components/EmptyState";
+import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
 import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
@@ -461,28 +463,23 @@ export default function ScriptureScreen() {
         </Animated.View>
 
         {/* Verse card — skeleton while loading, real card once Phase 1 returns.
-            When a load hard-fails AND no cache exists, an inline retry card
-            is shown INSTEAD of the skeleton so the screen never goes blank. */}
+            When a load hard-fails AND no cache exists, the reusable
+            EmptyState (variant=error) is shown INSTEAD of the skeleton so
+            the screen never goes blank. Copy audited in unit-empty-states. */}
         {loadError && !verse ? (
-          <View style={styles.errorCard} testID="verse-error-card">
-            <Ionicons name="cloud-offline-outline" size={28} color={colors.accent} />
-            <Text style={styles.errorTitle}>Couldn't load today's verse</Text>
-            <Text style={styles.errorBody} numberOfLines={3}>
-              {loadError.slice(0, 140) ||
-                "Check your connection and try again."}
-            </Text>
-            <Pressable
-              onPress={onRetryLoad}
-              style={({ pressed }) => [
-                styles.retryBtn,
-                pressed && { opacity: 0.85 },
-              ]}
-              accessibilityRole="button"
-              testID="verse-retry-button"
-            >
-              <Text style={styles.retryBtnText}>Try again</Text>
-            </Pressable>
-          </View>
+          <EmptyState
+            variant="error"
+            icon="cloud-offline-outline"
+            title={DAILY_VERSE_ERROR.title}
+            body={DAILY_VERSE_ERROR.body}
+            action={{
+              label: DAILY_VERSE_ERROR.cta,
+              onPress: onRetryLoad,
+              loading: verseLoading,
+              testID: "verse-retry-button",
+            }}
+            testID="verse-error-card"
+          />
         ) : verseLoading || !verse ? (
           <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
             <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
@@ -666,43 +663,6 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   verseSkeleton: { minHeight: 140, justifyContent: "center" },
-  // Inline error card shown when a fresh install fails on cold network
-  // and no cached verse exists. Prefers to be visually calm — this is the
-  // user's first impression when things break.
-  errorCard: {
-    backgroundColor: "rgba(200, 169, 107, 0.06)",
-    borderColor: "rgba(200, 169, 107, 0.28)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    paddingVertical: 28,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  errorTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "600",
-    marginTop: 4,
-  },
-  errorBody: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-    maxWidth: 280,
-  },
-  retryBtn: {
-    marginTop: 12,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  retryBtnText: { color: "#0a0e1a", fontWeight: "600", fontSize: 15 },
   skeletonBar: {
     backgroundColor: "rgba(255,255,255,0.08)",
     borderRadius: 6,
