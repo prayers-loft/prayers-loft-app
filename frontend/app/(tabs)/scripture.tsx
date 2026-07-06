@@ -35,6 +35,7 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
+import { recordActiveDay } from "@/src/lib/streak-ledger";
 import {
   detectTimezone,
   localDateInTz,
@@ -214,6 +215,11 @@ export default function ScriptureScreen() {
         todayReflectionPrompt,
         verse.verse_id,
       );
+      // Mark today active in the persistent streak ledger so the Journal
+      // shows the new streak instantly on next focus, and so a subsequent
+      // deletion of this same reflection cannot lower the earned streak.
+      // Fire-and-forget; ledger errors must not block the save UX.
+      recordActiveDay().catch((e) => console.warn("streak ledger record failed", e));
       setReflectionText("");
       setReflectionEmotion(null);
       const nextCount = reflectionSavedCount + 1;
