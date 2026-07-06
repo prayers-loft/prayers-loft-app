@@ -39,23 +39,18 @@
 // -----------------------------------------------------------------------------
 
 // expo-notifications and react-native both drag in native modules that
-// can't be loaded by Node during pure unit tests. We reach for them via
-// lazy dynamic imports inside each function that actually needs them, so
-// the pure helpers below (parseTime, formatTime, pickMessagesForWeek,
-// isoWeekNumber, routeFromResponse) remain importable from Node-only
-// test environments.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function _notif(): Promise<any> {
-  return await import("expo-notifications");
-}
-async function _platformOS(): Promise<string> {
-  try {
-    const RN = await import("react-native");
-    return RN.Platform.OS;
-  } catch {
-    return "web";
-  }
-}
+// can't be loaded by Node during pure unit tests. All access is funneled
+// through src/lib/notification-module.ts — a single guarded lazy loader
+// that returns null in Expo Go (where the module cannot be loaded at all
+// without crashing) and lazy-imports it in TestFlight/dev-client/prod
+// builds. The pure helpers in THIS file (parseTime, formatTime,
+// pickMessagesForWeek, isoWeekNumber, routeFromResponse) remain
+// importable from Node-only test environments.
+import {
+  getNotificationModule,
+  detectPlatformOS,
+  isNotificationRuntimeUnavailable,
+} from "./notification-module";
 // Types-only import — `import type` is erased at runtime, so no native
 // module is loaded when this file is imported by Node tests.
 import type * as NotificationsType from "expo-notifications";
@@ -230,12 +225,18 @@ export function formatTime(hhmm: string): string {
 /** Register a foreground-friendly handler. Without this, notifications that
  *  fire while the app is in the FOREGROUND are silently swallowed on iOS. */
 export function installForegroundHandler(): void {
+  // Bail immediately in Expo Go — don't even schedule the promise. This
+  // avoids any chance that Metro's `importAll` on `expo-notifications`
+  // (via async-require) triggers RN's lazy `PushNotificationIOS` getter
+  // and crashes at cold start.
+  if (isNotificationRuntimeUnavailable()) return;
   // Fire-and-forget: the handler is a fire-once side-effect that must not
   // block synchronous callers. Errors are swallowed so a missing native
   // module (Expo Go on an unsupported channel, etc.) can never crash the
   // app root.
-  _notif()
+  getNotificationModule()
     .then((N) => {
+      if (!N) return; // no-op in Expo Go
       N.setNotificationHandler({
         handleNotification: async () => ({
           shouldShowBanner: true,
@@ -251,9 +252,11 @@ export function installForegroundHandler(): void {
 }
 
 export async function ensureAndroidChannel(): Promise<void> {
-  if ((await _platformOS()) !== "android") return;
+  if (isNotificationRuntimeUnavailable()) return;
+  if ((await detectPlatformOS()) !== "android") return;
   try {
-    const N = await _notif();
+    const N = await getNotificationModule();
+    if (!N) return;
     await N.setNotificationChannelAsync("daily-reminder", {
       name: "Daily reminder",
       importance: N.AndroidImportance.DEFAULT,
@@ -275,8 +278,12 @@ export async function getPermissionStatus(): Promise<{
   granted: boolean;
   canAskAgain: boolean;
 }> {
+  if (isNotificationRuntimeUnavailable()) {
+    return { granted: false, canAskAgain: false };
+  }
   try {
-    const N = await _notif();
+    const N = await getNotificationModule();
+    if (!N) return { granted: false, canAskAgain: false };
     const p = await N.getPermissionsAsync();
     return { granted: !!p.granted, canAskAgain: p.canAskAgain !== false };
   } catch (e) {
@@ -294,8 +301,10 @@ export async function getPermissionStatus(): Promise<{
  *  "open Settings" toast.
  */
 export async function ensurePermission(): Promise<boolean> {
+  if (isNotificationRuntimeUnavailable()) return false;
   try {
-    const N = await _notif();
+    const N = await getNotificationModule();
+    if (!N) return false;
     const current = await N.getPermissionsAsync();
     if (current.granted) return true;
     if (current.canAskAgain === false) return false;
@@ -322,8 +331,10 @@ export type ScheduleResult = { ok: true; count: number } | ScheduleFailure;
  *  queue and matches on kind so orphaned IDs from previous app versions are
  *  also cleaned up. Safe to call unconditionally. */
 export async function cancelAllDailyReminders(): Promise<void> {
+  if (isNotificationRuntimeUnavailable()) return;
   try {
-    const N = await _notif();
+    const N = await getNotificationModule();
+    if (!N) return;
     const scheduled = await N.getAllScheduledNotificationsAsync();
     const ids = scheduled
       .filter((n) => {
@@ -353,7 +364,8 @@ export async function cancelAllDailyReminders(): Promise<void> {
     // known IDs. Never throw — cancellation errors must not block the UI.
     console.warn("[reminders] cancelAll: queue read failed, trying by id", e);
     try {
-      const N = await _notif();
+      const N = await getNotificationModule();
+      if (!N) return;
       for (let w = 1; w <= 7; w++) {
         try {
           await N.cancelScheduledNotificationAsync(
@@ -390,6 +402,12 @@ export async function scheduleDailyReminder(
   hhmm: string,
 ): Promise<ScheduleResult> {
   const { hour, minute } = parseTime(hhmm);
+  // In Expo Go, scheduling is a no-op. Return a permission-shaped
+  // failure so the UI shows the "enable notifications in Settings"
+  // toast without crashing.
+  if (isNotificationRuntimeUnavailable()) {
+    return { ok: false, reason: "permission" };
+  }
   await cancelAllDailyReminders();
 
   // Defensive: iOS scheduleNotificationAsync silently refuses if permission
@@ -401,8 +419,9 @@ export async function scheduleDailyReminder(
   const week = pickMessagesForWeek();
   let scheduled = 0;
   try {
-    const N = await _notif();
-    const isAndroid = (await _platformOS()) === "android";
+    const N = await getNotificationModule();
+    if (!N) return { ok: false, reason: "permission" };
+    const isAndroid = (await detectPlatformOS()) === "android";
     for (let weekday = 1; weekday <= 7; weekday++) {
       const msg = week[weekday - 1];
       await N.scheduleNotificationAsync({

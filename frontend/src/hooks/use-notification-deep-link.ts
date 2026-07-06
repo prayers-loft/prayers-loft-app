@@ -5,85 +5,48 @@
 // available). The hook handles three launch paths:
 //
 //   1. Cold launch — app was killed and the user tapped the reminder to
-//      start it. We read Notifications.getLastNotificationResponseAsync()
-//      exactly once (guarded by a module-level flag) and route.
-//   2. Warm background — app was suspended and the user tapped the
-//      reminder to bring it forward. addNotificationResponseReceivedListener
-//      fires; we route on that event.
-//   3. Foreground — reminder banner drops down while the app is open;
-//      the same listener fires when the user taps the banner.
+//      start it.
+//   2. Warm background — app suspended and reminder tapped.
+//   3. Foreground — banner drops while the app is open.
 //
-// Normal launches (app icon tap, deep link, share extension, etc.) are
-// unaffected because the guard checks for our own `kind: 'daily-reminder'`
-// payload — anything else is left alone.
-//
-// -----------------------------------------------------------------------------
-// EXPO-GO COMPATIBILITY — lazy import of `expo-notifications`
-// -----------------------------------------------------------------------------
-// A previous version of this file did `import * as Notifications from
-// "expo-notifications"` at the top level. On SDK 54 that pulls in a native
-// module reference that Expo Go's runtime does not expose the same way as
-// a compiled dev/production build, and imports transitively touched
-// `PushNotificationIOS` — which is not registered in Expo Go's native
-// bridge. Result: the app crashed on startup in Expo Go with
-// "Your JavaScript code tried to access a native module that doesn't exist."
-//
-// Fix: load `expo-notifications` lazily inside the effect and wrap every
-// call in try/catch. On TestFlight (compiled binary) the dynamic import
-// resolves normally and behavior is identical to before. On Expo Go — or
-// on any future runtime where the module can't be loaded — we no-op
-// cleanly and the rest of the app runs.
+// EXPO-GO COMPATIBILITY
+// ---------------------
+// All expo-notifications access goes through src/lib/notification-module.ts's
+// `getNotificationModule()`, which returns `null` when running in Expo Go.
+// In that case this hook silently no-ops and the app continues to work with
+// deep-linking simply disabled. See notification-module.ts for the full
+// story on why lazy `import()` alone was NOT enough to prevent the
+// PushNotificationIOS crash on cold start.
 // -----------------------------------------------------------------------------
 import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { routeFromResponse } from "@/src/lib/reminders";
+import {
+  getNotificationModule,
+  isNotificationRuntimeUnavailable,
+} from "@/src/lib/notification-module";
 
 let coldLaunchHandled = false;
-
-// Cached module handle so the second render of the hook (StrictMode /
-// hot reload) doesn't re-import the whole native module.
-//
-let cachedNotifications: any | null = null;
-// Sticky "we already know it doesn't work here" flag. Prevents spamming
-// dynamic-import + warn on every hook re-run in Expo Go.
-let notificationsUnavailable = false;
-
-async function loadNotifications(): Promise<any | null> {
-  if (cachedNotifications) return cachedNotifications;
-  if (notificationsUnavailable) return null;
-  try {
-    const mod = await import("expo-notifications");
-    cachedNotifications = mod;
-    return mod;
-  } catch (err) {
-    // First-time failure — record so we don't retry forever.
-    notificationsUnavailable = true;
-    console.warn(
-      "[reminders] expo-notifications module unavailable — reminder deep-link " +
-        "disabled for this session (expected in Expo Go on SDK 54+). " +
-        "TestFlight/dev builds are unaffected.",
-      err,
-    );
-    return null;
-  }
-}
 
 export function useNotificationDeepLink(): void {
   const router = useRouter();
 
   useEffect(() => {
+    // Early exit: if we're on a runtime that can't load expo-notifications
+    // (Expo Go on SDK 53+), never even attempt the dynamic import.
+    // Metro's `importAll` on `expo-notifications` transitively touches
+    // RN's lazy `PushNotificationIOS` getter and crashes with an
+    // invariant. See notification-module.ts.
+    if (isNotificationRuntimeUnavailable()) return;
+
     let cancelled = false;
     let sub: { remove: () => void } | null = null;
 
     (async () => {
-      const Notifications = await loadNotifications();
+      const Notifications = await getNotificationModule();
       if (!Notifications || cancelled) return;
 
-      // ---- Cold-launch path ------------------------------------------------
-      // getLastNotificationResponseAsync() returns the response that launched
-      // the app, or null if the app was launched normally. We resolve it once
-      // per session; the module-level guard prevents re-triggering across
-      // hot reloads (which would re-route the user mid-session).
+      // Cold-launch path — read the response that launched the app.
       if (!coldLaunchHandled) {
         coldLaunchHandled = true;
         try {
@@ -92,23 +55,17 @@ export function useNotificationDeepLink(): void {
           if (cancelled) return;
           const route = routeFromResponse(response);
           if (route) {
-            // Use replace() so the initial "/" screen doesn't sit under
-            // Scripture in the back-stack — the tab bar remains
-            // navigable but the back button won't leave a phantom stop.
             router.replace(route as never);
           }
         } catch (err) {
-          // Non-fatal — cold-launch payload retrieval is a best-effort
-          // read on iOS. Log for TestFlight triage but never throw into
-          // the render tree.
           console.warn("[reminders] cold-launch response failed", err);
         }
       }
 
-      // ---- Warm / foreground path -----------------------------------------
+      // Warm / foreground path — subscribe to future taps.
       try {
         sub = Notifications.addNotificationResponseReceivedListener(
-          (response: any) => {
+          (response) => {
             const route = routeFromResponse(response);
             if (route) {
               router.replace(route as never);
@@ -116,9 +73,6 @@ export function useNotificationDeepLink(): void {
           },
         );
       } catch (err) {
-        // Some Expo Go / SDK combinations expose the module but throw on
-        // subscribe. Fail soft — the app still works, deep-linking is
-        // simply disabled.
         console.warn(
           "[reminders] addNotificationResponseReceivedListener failed",
           err,
