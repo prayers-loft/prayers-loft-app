@@ -29,8 +29,18 @@ import { useNotificationDeepLink } from "@/src/hooks/use-notification-deep-link"
 // module load. These calls are safe on all platforms (they no-op on web
 // and on the wrong OS) and do NOT prompt for permission — that only
 // happens when the user flips the Daily Reminder toggle in Settings.
-installForegroundHandler();
-void ensureAndroidChannel();
+//
+// Wrapped in try/catch so a broken expo-notifications native module
+// (e.g. old cached JS bundle, Expo Go on an unsupported channel) can
+// never crash the app root. The rest of the app works without reminders.
+try {
+  installForegroundHandler();
+} catch (e) {
+  console.warn("[app] installForegroundHandler at module load failed", e);
+}
+void ensureAndroidChannel().catch((e) =>
+  console.warn("[app] ensureAndroidChannel at module load failed", e),
+);
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
