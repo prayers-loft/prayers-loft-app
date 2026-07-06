@@ -48,6 +48,8 @@ import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import { EmptyState } from "@/src/components/EmptyState";
+import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
 import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
@@ -82,6 +84,16 @@ export default function ScriptureScreen() {
   const [structuredDevo, setStructuredDevo] = useState<StructuredDevotionalType | null>(null);
   const [verseLoading, setVerseLoading] = useState(true);
   const [devoLoading, setDevoLoading] = useState(true);
+  // Set when the Phase-1 verse fetch fails AND we have no cached
+  // devotional to fall back on. The screen swaps the skeleton for an
+  // on-page EmptyState so users have a clear retry affordance instead
+  // of a lingering skeleton or a toast that scrolls off the top.
+  const [verseLoadFailed, setVerseLoadFailed] = useState(false);
+  // Bumping this triggers the load effect to re-run. Cheaper than
+  // extracting the effect body into a named callback we'd have to keep
+  // stable with useCallback and dependency arrays for state we've
+  // deliberately captured in closure.
+  const [loadNonce, setLoadNonce] = useState(0);
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
@@ -112,6 +124,14 @@ export default function ScriptureScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Retry-safe reset: clear any prior error the moment we start a
+      // fresh load so the EmptyState's spinner CTA visually resolves
+      // even if the retry succeeds quickly from cache.
+      setVerseLoadFailed(false);
+      if (loadNonce > 0) {
+        setVerseLoading(true);
+        setDevoLoading(true);
+      }
       const tz = detectTimezone();
       const today = localDateInTz(tz);
 
@@ -162,6 +182,11 @@ export default function ScriptureScreen() {
       } catch (e) {
         if (cancelled) return;
         console.warn("daily verse load failed", e);
+        // We ONLY surface an on-page EmptyState when we truly have
+        // nothing to render. If Phase 2 (devotional) fails but Phase 1
+        // (verse) already succeeded, the verse card is still on screen
+        // and a toast is the right recovery affordance.
+        setVerseLoadFailed((prev) => (verse ? prev : true));
         showToast({
           variant: "error",
           title: "Couldn't load today's scripture",
@@ -175,7 +200,11 @@ export default function ScriptureScreen() {
     return () => {
       cancelled = true;
     };
-  }, [fade, newDayOpacity]);
+    // `verse` is intentionally excluded — including it would re-run the
+    // effect after a successful Phase-1 fetch and start a duplicate
+    // Phase-2 request. `loadNonce` is the manual retry lever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fade, newDayOpacity, loadNonce]);
 
   // Skeleton shimmer animation — only runs while something is loading.
   useEffect(() => {
@@ -311,16 +340,34 @@ export default function ScriptureScreen() {
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
 
-        {/* Verse card — skeleton while loading, real card once Phase 1 returns. */}
+        {/* Verse card — skeleton while loading, empty-state error when
+            the fetch failed with no cached content, real card once
+            Phase 1 (or cache) returns. */}
         {verseLoading || !verse ? (
-          <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
-            <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
-            <View style={{ gap: 10 }}>
-              <View style={[styles.skeletonBar, { width: "100%", height: 18 }]} />
-              <View style={[styles.skeletonBar, { width: "90%", height: 18 }]} />
-              <View style={[styles.skeletonBar, { width: "65%", height: 18 }]} />
-            </View>
-          </Animated.View>
+          verseLoadFailed && !verse ? (
+            <EmptyState
+              variant="error"
+              icon="cloud-offline-outline"
+              title={DAILY_VERSE_ERROR.title}
+              body={DAILY_VERSE_ERROR.body}
+              action={{
+                label: DAILY_VERSE_ERROR.cta,
+                onPress: () => setLoadNonce((n) => n + 1),
+                loading: verseLoading,
+                testID: "daily-verse-retry-cta",
+              }}
+              testID="daily-verse-error"
+            />
+          ) : (
+            <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
+              <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
+              <View style={{ gap: 10 }}>
+                <View style={[styles.skeletonBar, { width: "100%", height: 18 }]} />
+                <View style={[styles.skeletonBar, { width: "90%", height: 18 }]} />
+                <View style={[styles.skeletonBar, { width: "65%", height: 18 }]} />
+              </View>
+            </Animated.View>
+          )
         ) : (
           <Animated.View style={[styles.verseCard, { opacity: fade }]} testID="verse-card">
             <View style={styles.metaRow}>
