@@ -22,6 +22,7 @@ import { GuestSoftBanner } from "@/src/components/GuestSoftBanner";
 import { colors, fonts } from "@/src/theme/theme";
 import { api, parsePrayerReflection, PrayerReflection } from "@/src/lib/api";
 import { addSavedPrayer, getSavedPrayers } from "@/src/lib/local-store";
+import { recordActiveDay } from "@/src/lib/streak-ledger";
 import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
@@ -198,6 +199,10 @@ export default function PrayerScreen() {
       return;
     }
     setSaved(true);
+    // Mark today active in the persistent streak ledger so a subsequent
+    // deletion of a corresponding reflection cannot rob the earned streak.
+    // Fire-and-forget; ledger errors must not disturb the save UX.
+    recordActiveDay().catch((e) => console.warn("streak ledger record failed", e));
     showToast({
       variant: "success",
       title: "Prayer saved",

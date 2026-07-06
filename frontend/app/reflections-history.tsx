@@ -14,7 +14,7 @@
 // Tap a row to expand the full reflection inline. Tap again to collapse.
 // Long-press (or the explicit Delete button) removes the entry, with a
 // confirmation alert — this is a journal-management primitive, not creation.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -99,6 +99,7 @@ function verseReferenceFor(verse_id?: string): string | null {
 // src/lib/streak.ts for the full contract + backend-divergence notes.
 // -----------------------------------------------------------------------------
 import { activeDaysFromISOs, computeStreak, lastNDays, ymd } from "@/src/lib/streak";
+import { hydrateFromDerivedDays, mergeDays } from "@/src/lib/streak-ledger";
 
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -236,12 +237,43 @@ export default function MyReflectionsScreen() {
 
   // Streak: derived from LOCAL-timezone YYYY-MM-DD keys of every saved
   // reflection AND every saved prayer — both count as spiritual practice
-  // for the day. Guest users get this without any auth (prayers are local).
-  // See src/lib/streak.ts for the full timezone contract.
-  const activeDays = useMemo(
+  // for the day. The result is unioned with the *persistent* streak ledger
+  // (see src/lib/streak-ledger.ts) so that deleting a historical reflection
+  // does NOT rob the user of credit they already earned. Guest users still
+  // get this without any auth (prayers are local).
+  // See src/lib/streak.ts for the timezone contract.
+  const derivedDays = useMemo(
     () => activeDaysFromISOs(feed.map((f) => f.created_at)),
     [feed]
   );
+
+  // Persistent ledger, hydrated from AsyncStorage. Starts empty on the first
+  // render and updates once loadLedger + backfill complete. Backfill unions
+  // the derived days into the persisted set so upgraders from a pre-Build-16
+  // build get their historical days folded in automatically.
+  const [ledger, setLedger] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    // Fire-and-forget: hydrate + backfill. The union() below already covers
+    // the derived days in the meantime, so a slow ledger read never causes
+    // the streak to briefly show a lower number.
+    (async () => {
+      try {
+        const next = await hydrateFromDerivedDays(derivedDays);
+        if (!cancelled) setLedger(next);
+      } catch (e) {
+        console.warn("streak ledger hydrate failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [derivedDays]);
+
+  // Streak input = union(ledger, derivedDays). The ledger is the source of
+  // durable truth (grows monotonically); derivedDays keeps the current
+  // render pass fresh without waiting for the async ledger write.
+  const activeDays = useMemo(() => mergeDays(ledger, derivedDays), [ledger, derivedDays]);
   const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
   const last14 = useMemo(() => lastNDays(14), []);
 
