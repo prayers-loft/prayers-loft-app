@@ -14,7 +14,7 @@
 // Tap a row to expand the full reflection inline. Tap again to collapse.
 // Long-press (or the explicit Delete button) removes the entry, with a
 // confirmation alert — this is a journal-management primitive, not creation.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +31,13 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
+import { EmptyState } from "@/src/components/EmptyState";
+import {
+  JOURNAL_EMPTY,
+  JOURNAL_LOAD_ERROR,
+  JOURNAL_AUTH_EXPIRED,
+  EMPTY_CTA_ROUTE,
+} from "@/src/lib/empty-state-copy";
 import {
   getSavedPrayers,
   removeSavedPrayer,
@@ -99,6 +106,7 @@ function verseReferenceFor(verse_id?: string): string | null {
 // src/lib/streak.ts for the full contract + backend-divergence notes.
 // -----------------------------------------------------------------------------
 import { activeDaysFromISOs, computeStreak, lastNDays, ymd } from "@/src/lib/streak";
+import { hydrateFromDerivedDays, mergeDays } from "@/src/lib/streak-ledger";
 
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -171,6 +179,11 @@ export default function MyReflectionsScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [authExpired, setAuthExpired] = useState(false);
+  // Distinct from authExpired — set when the reflections GET fails for a
+  // non-auth reason (network, 5xx) AND we have no local prayers to fall
+  // back on. The screen renders a soft "try again" EmptyState instead of
+  // burying the failure in a toast that scrolls off the top.
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,6 +203,7 @@ export default function MyReflectionsScreen() {
       const res = await api.listReflections();
       setEntries(res.reflections as Reflection[]);
       setAuthExpired(false);
+      setLoadError(false);
     } catch (e) {
       console.warn("load reflections failed", e);
       const isAuthExpired = !!(e && typeof e === "object" && (e as any).isAuthExpired);
@@ -200,14 +214,28 @@ export default function MyReflectionsScreen() {
         // wall is reserved for the truly-empty case where the user has
         // nothing local either.
         setAuthExpired(localPrayers.length === 0);
+        setLoadError(false);
         setEntries([]);
       } else {
-        showToast({
-          variant: "error",
-          title: "Couldn't load your journal",
-          message: "Check your connection and try again.",
-          duration: 5000,
-        });
+        // Non-auth failure. Suppress the toast (which used to run in
+        // parallel with an empty list, giving users no clear recovery
+        // path) IF we have no local content — in that case the on-page
+        // EmptyState error card owns the recovery affordance. If we DO
+        // have local content, keep the toast because the timeline is
+        // still useful.
+        setEntries([]);
+        setAuthExpired(false);
+        if (localPrayers.length === 0) {
+          setLoadError(true);
+        } else {
+          setLoadError(false);
+          showToast({
+            variant: "error",
+            title: "Couldn't load your journal",
+            message: "Check your connection and try again.",
+            duration: 5000,
+          });
+        }
       }
     } finally {
       setLoading(false);
@@ -236,12 +264,43 @@ export default function MyReflectionsScreen() {
 
   // Streak: derived from LOCAL-timezone YYYY-MM-DD keys of every saved
   // reflection AND every saved prayer — both count as spiritual practice
-  // for the day. Guest users get this without any auth (prayers are local).
-  // See src/lib/streak.ts for the full timezone contract.
-  const activeDays = useMemo(
+  // for the day. The result is unioned with the *persistent* streak ledger
+  // (see src/lib/streak-ledger.ts) so that deleting a historical reflection
+  // does NOT rob the user of credit they already earned. Guest users still
+  // get this without any auth (prayers are local).
+  // See src/lib/streak.ts for the timezone contract.
+  const derivedDays = useMemo(
     () => activeDaysFromISOs(feed.map((f) => f.created_at)),
     [feed]
   );
+
+  // Persistent ledger, hydrated from AsyncStorage. Starts empty on the first
+  // render and updates once loadLedger + backfill complete. Backfill unions
+  // the derived days into the persisted set so upgraders from a pre-Build-16
+  // build get their historical days folded in automatically.
+  const [ledger, setLedger] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    // Fire-and-forget: hydrate + backfill. The union() below already covers
+    // the derived days in the meantime, so a slow ledger read never causes
+    // the streak to briefly show a lower number.
+    (async () => {
+      try {
+        const next = await hydrateFromDerivedDays(derivedDays);
+        if (!cancelled) setLedger(next);
+      } catch (e) {
+        console.warn("streak ledger hydrate failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [derivedDays]);
+
+  // Streak input = union(ledger, derivedDays). The ledger is the source of
+  // durable truth (grows monotonically); derivedDays keeps the current
+  // render pass fresh without waiting for the async ledger write.
+  const activeDays = useMemo(() => mergeDays(ledger, derivedDays), [ledger, derivedDays]);
   const streak = useMemo(() => computeStreak(activeDays), [activeDays]);
   const last14 = useMemo(() => lastNDays(14), []);
 
@@ -339,10 +398,11 @@ export default function MyReflectionsScreen() {
         </View>
 
         {/* Streak card — now the primary focal point of the page. Hidden
-            while the initial fetch is in flight and when the session is
-            fully expired (both of those states already own the entire
-            viewport). */}
-        {!loading && !authExpired && (
+            while the initial fetch is in flight, when the session is
+            fully expired, and when the initial fetch failed with no
+            local content to render (all of those states already own the
+            entire viewport). */}
+        {!loading && !authExpired && !loadError && (
           <StreakBlock streak={streak} days={last14} activeDays={activeDays} />
         )}
 
@@ -351,40 +411,44 @@ export default function MyReflectionsScreen() {
             <ActivityIndicator color={colors.accent} />
           </View>
         ) : authExpired ? (
-          <View style={styles.emptyCard} testID="reflections-auth-expired">
-            <Ionicons name="lock-closed-outline" size={28} color={colors.textTertiary} />
-            <Text style={styles.emptyTitle}>Sign in to see your journal</Text>
-            <Text style={styles.emptyText}>
-              Your session has expired. Sign in again from Settings to access My Journal.
-            </Text>
-            <Pressable
-              onPress={() => router.push("/settings" as any)}
-              style={styles.emptyCta}
-              testID="auth-expired-go-to-settings"
-            >
-              <Text style={styles.emptyCtaText}>Open Settings</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
-            </Pressable>
-          </View>
+          <EmptyState
+            icon="lock-closed-outline"
+            title={JOURNAL_AUTH_EXPIRED.title}
+            body={JOURNAL_AUTH_EXPIRED.body}
+            action={{
+              label: JOURNAL_AUTH_EXPIRED.cta,
+              onPress: () => router.push("/settings" as any),
+              testID: "auth-expired-go-to-settings",
+            }}
+            testID="reflections-auth-expired"
+          />
+        ) : loadError ? (
+          <EmptyState
+            variant="error"
+            icon="cloud-offline-outline"
+            title={JOURNAL_LOAD_ERROR.title}
+            body={JOURNAL_LOAD_ERROR.body}
+            action={{
+              label: JOURNAL_LOAD_ERROR.cta,
+              onPress: load,
+              loading: loading,
+              testID: "reflections-load-error-retry",
+            }}
+            testID="reflections-load-error"
+          />
         ) : feed.length === 0 ? (
-          <View style={styles.emptyCard} testID="reflections-empty-state">
-            <Ionicons name="journal-outline" size={28} color={colors.textTertiary} />
-            <Text style={styles.emptyTitle}>My Journal</Text>
-            <Text style={styles.emptyText}>
-              Your reflections and saved prayers will appear here as you spend time in God's Word.
-            </Text>
-            <Text style={styles.emptyHint}>
-              Write your first reflection from today's Scripture, or save a prayer from the Prayer tab.
-            </Text>
-            <Pressable
-              onPress={() => router.replace("/(tabs)/scripture" as any)}
-              style={styles.emptyCta}
-              testID="empty-go-to-scripture"
-            >
-              <Text style={styles.emptyCtaText}>Open Scripture</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
-            </Pressable>
-          </View>
+          <EmptyState
+            icon="journal-outline"
+            title={JOURNAL_EMPTY.title}
+            body={JOURNAL_EMPTY.body}
+            hint={JOURNAL_EMPTY.hint}
+            action={{
+              label: JOURNAL_EMPTY.cta,
+              onPress: () => router.replace(EMPTY_CTA_ROUTE as any),
+              testID: "empty-go-to-scripture",
+            }}
+            testID="reflections-empty-state"
+          />
         ) : (
           <View style={styles.list}>
             {feed.map((item) =>
@@ -613,54 +677,6 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   loadingBox: { padding: 60, alignItems: "center" },
-  emptyCard: {
-    backgroundColor: colors.surface1,
-    borderRadius: 22,
-    padding: 36,
-    alignItems: "center",
-    gap: 12,
-    marginTop: 12,
-  },
-  emptyTitle: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 15,
-    color: colors.text,
-    letterSpacing: 0.2,
-    marginTop: 2,
-  },
-  emptyText: {
-    fontFamily: fonts.serif,
-    color: colors.textSecondary,
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 23,
-  },
-  emptyHint: {
-    fontFamily: fonts.sans,
-    color: colors.textTertiary,
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-    marginTop: 2,
-  },
-  emptyCta: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    backgroundColor: colors.surface2,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emptyCtaText: {
-    fontFamily: fonts.sansMedium,
-    color: colors.accent,
-    fontSize: 13,
-    letterSpacing: 0.2,
-  },
   list: { gap: 12, marginTop: 4 },
   card: {
     backgroundColor: colors.surface1,

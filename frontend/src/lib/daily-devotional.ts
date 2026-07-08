@@ -1,6 +1,15 @@
 // Timezone-aware daily devotional cache. Locks the devotional per local
 // calendar day so refreshes, navigation, and reopens never regenerate.
-import { storage } from "@/src/utils/storage";
+//
+// `storage` is imported lazily inside the storage-bound helpers so the
+// pure functions below (detectTimezone, localDateInTz, cacheMatchesToday)
+// remain importable from Node-only unit tests without dragging in native
+// modules (expo-secure-store, AsyncStorage). See streak-ledger.ts for the
+// same pattern.
+async function _storage() {
+  const mod = await import("@/src/utils/storage");
+  return mod.storage;
+}
 
 export type StructuredDevotional = {
   title: string;
@@ -64,6 +73,7 @@ export function localDateInTz(tz: string, now: Date = new Date()): string {
 
 export async function loadCachedDevotional(): Promise<CacheEntry | null> {
   try {
+    const storage = await _storage();
     const raw = await storage.getItem(CACHE_KEY, "");
     if (!raw) return null;
     const parsed = JSON.parse(raw as string) as CacheEntry;
@@ -76,6 +86,7 @@ export async function loadCachedDevotional(): Promise<CacheEntry | null> {
 
 export async function saveCachedDevotional(entry: CacheEntry): Promise<void> {
   try {
+    const storage = await _storage();
     await storage.setItem(CACHE_KEY, JSON.stringify(entry));
   } catch {
     // ignore

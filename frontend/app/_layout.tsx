@@ -25,12 +25,13 @@ import { showToast } from "@/src/components/Toast";
 import { installForegroundHandler, ensureAndroidChannel } from "@/src/lib/reminders";
 import { useNotificationDeepLink } from "@/src/hooks/use-notification-deep-link";
 
-// Register the notification foreground handler + Android channel ONCE at
-// module load. These calls are safe on all platforms (they no-op on web
-// and on the wrong OS) and do NOT prompt for permission — that only
-// happens when the user flips the Daily Reminder toggle in Settings.
-installForegroundHandler();
-void ensureAndroidChannel();
+// Notification setup used to run at MODULE LOAD here. That was moved
+// into the `ready` effect below so that (a) cold-start module init is
+// FREE of any notification-touching code — critical in Expo Go on
+// SDK 53+ where `expo-notifications` cannot be loaded at all without
+// crashing — and (b) the setup runs AFTER the runtime detection in
+// notification-module.ts has had a chance to short-circuit. Both calls
+// are safe no-ops on any unsupported runtime; see reminders.ts.
 
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
@@ -94,6 +95,20 @@ export default function RootLayout() {
         try { await handleGoogleReturnFromUrl(); } catch (e) { console.warn("[RootLayout] google return failed", e); }
         try { await probeMe(); } catch (e) { console.warn("[RootLayout] probeMe failed", e); }
       })();
+      // Notification foreground handler + Android channel — POST-render
+      // side-effect. These functions are internally gated by
+      // isNotificationRuntimeUnavailable() so they no-op cleanly in Expo
+      // Go and in any other runtime that can't load expo-notifications.
+      // Kept out of module-load so cold-start bundle evaluation stays
+      // completely free of notification-touching code paths.
+      try {
+        installForegroundHandler();
+      } catch (e) {
+        console.warn("[RootLayout] installForegroundHandler failed", e);
+      }
+      void ensureAndroidChannel().catch((e) =>
+        console.warn("[RootLayout] ensureAndroidChannel failed", e),
+      );
     }
   }, [ready]);
 

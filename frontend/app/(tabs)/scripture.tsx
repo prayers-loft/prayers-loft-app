@@ -23,6 +23,8 @@ import {
   Easing,
   Linking,
   Pressable,
+  RefreshControl,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +37,7 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, emotionColors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
+import { recordActiveDay } from "@/src/lib/streak-ledger";
 import {
   detectTimezone,
   localDateInTz,
@@ -44,10 +47,13 @@ import {
 } from "@/src/lib/daily-devotional";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
+import { formatVerseShareText } from "@/src/lib/verse-share";
 import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import { EmptyState } from "@/src/components/EmptyState";
+import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
 import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 const BANNER_QUOTES = [
@@ -108,74 +114,201 @@ export default function ScriptureScreen() {
   const [sharePreparing, setSharePreparing] = useState(false);
   const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
 
+  // Load-error + pull-to-refresh state (Build 16 polish) -----------------
+  // `loadError` drives the inline retry card that replaces the blank
+  // fallback when a fresh install fails on a cold network. It's cleared
+  // as soon as a subsequent load — from cache OR fresh fetch — succeeds.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Two-phase load orchestrator, extracted into a callable so pull-to-
+  // refresh and inline retry can invoke it. `force=true` skips the cache
+  // hit fast-path and always hits the network.
+  const loadDailyVerse = useCallback(
+    async (force = false) => {
+      const tz = detectTimezone();
+      const today = localDateInTz(tz);
+      setLoadError(null);
+
+      try {
+        // Phase 0: client cache hit → render instantly. Force-refresh
+        // (pull-to-refresh / retry) skips this so we always re-fetch.
+        if (!force) {
+          const cached = await loadCachedDevotional();
+          if (cacheMatchesToday(cached, tz, today)) {
+            const p = cached!.payload;
+            setVerse({
+              verse: p.verse,
+              reference: p.reference,
+              verse_id: p.verse_id,
+              bible_link: p.bible_link,
+            });
+            setDevotional(p.devotional);
+            setStructuredDevo(p.devotional_structured ?? null);
+            setVerseLoading(false);
+            setDevoLoading(false);
+            Animated.timing(fade, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }).start();
+            return { fromCache: true, hadStaleCache: false };
+          }
+        }
+
+        // Cache miss or force: hit the network. If phase 1 also fails
+        // AND we have ANY prior cached payload, surface that as an offline
+        // fallback so the screen never goes blank. This is the "display
+        // cached verse if network is unavailable" branch from the ticket.
+        try {
+          const verseOnly = await api.dailyVerse(today, tz, false);
+          setVerse({
+            verse: verseOnly.verse,
+            reference: verseOnly.reference,
+            verse_id: verseOnly.verse_id,
+            bible_link: verseOnly.bible_link,
+          });
+          setVerseLoading(false);
+          Animated.timing(fade, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.cubic),
+          }).start();
+        } catch (networkError) {
+          // Network is unavailable — try to surface ANY stale cache
+          // rather than a hard failure. Even yesterday's verse is more
+          // useful than an error card while the user's on the subway.
+          const stale = await loadCachedDevotional();
+          if (stale) {
+            const p = stale.payload;
+            setVerse({
+              verse: p.verse,
+              reference: p.reference,
+              verse_id: p.verse_id,
+              bible_link: p.bible_link,
+            });
+            setDevotional(p.devotional);
+            setStructuredDevo(p.devotional_structured ?? null);
+            setVerseLoading(false);
+            setDevoLoading(false);
+            Animated.timing(fade, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }).start();
+            // Return early — background refresh will retry on next focus.
+            return { fromCache: true, hadStaleCache: true };
+          }
+          throw networkError; // no cache → let outer catch surface error card
+        }
+
+        // Phase 2: devotional fetch (LLM). Skeleton stays visible until
+        // this returns. On failure we keep the verse rendered — a
+        // missing devotional is a soft failure, not a screen-blank event.
+        try {
+          const full = await api.dailyVerse(today, tz, true);
+          setDevotional(full.devotional);
+          setStructuredDevo(full.devotional_structured ?? null);
+          setDevoLoading(false);
+          await saveCachedDevotional({ date: today, tz, payload: full });
+        } catch (devoError) {
+          console.warn("devotional phase failed (verse still visible)", devoError);
+          setDevotional("");
+          setStructuredDevo(null);
+          setDevoLoading(false);
+        }
+        return { fromCache: false, hadStaleCache: false };
+      } catch (e) {
+        console.warn("daily verse load failed", e);
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "Check your connection and try again.";
+        setLoadError(msg);
+        setVerseLoading(false);
+        setDevoLoading(false);
+        return { fromCache: false, hadStaleCache: false };
+      }
+    },
+    [fade],
+  );
+
   // Two-phase load orchestrator.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const tz = detectTimezone();
       const today = localDateInTz(tz);
-
-      // Phase 0: client cache hit → render everything instantly.
-      try {
-        const cached = await loadCachedDevotional();
-        if (cacheMatchesToday(cached, tz, today)) {
-          if (cancelled) return;
-          const p = cached!.payload;
-          setVerse({ verse: p.verse, reference: p.reference, verse_id: p.verse_id, bible_link: p.bible_link });
-          setDevotional(p.devotional);
-          setStructuredDevo(p.devotional_structured ?? null);
-          setVerseLoading(false);
-          setDevoLoading(false);
-          Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
-          return;
-        }
-
-        // Phase 1: fast verse fetch (no LLM). Renders verse card immediately.
-        const verseOnly = await api.dailyVerse(today, tz, false);
-        if (cancelled) return;
-        setVerse({
-          verse: verseOnly.verse,
-          reference: verseOnly.reference,
-          verse_id: verseOnly.verse_id,
-          bible_link: verseOnly.bible_link,
-        });
-        setVerseLoading(false);
-        Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
-
-        // Phase 2: devotional fetch. Skeleton stays visible until this returns.
-        const full = await api.dailyVerse(today, tz, true);
-        if (cancelled) return;
-        setDevotional(full.devotional);
-        setStructuredDevo(full.devotional_structured ?? null);
-        setDevoLoading(false);
-        await saveCachedDevotional({ date: today, tz, payload: full });
-
-        if (cached) {
-          // User crossed midnight — show the transitional "new day" pill.
-          setNewDayPill(true);
-          Animated.sequence([
-            Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-            Animated.delay(3500),
-            Animated.timing(newDayOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-          ]).start(() => setNewDayPill(false));
-        }
-      } catch (e) {
-        if (cancelled) return;
-        console.warn("daily verse load failed", e);
-        showToast({
-          variant: "error",
-          title: "Couldn't load today's scripture",
-          message: e instanceof Error ? e.message : "Check your connection and try again.",
-          duration: 5000,
-        });
-        setVerseLoading(false);
-        setDevoLoading(false);
+      // Snapshot whether we had a hit BEFORE loading, so we can decide
+      // whether to show the "new day" pill after a full load completes.
+      const preCached = await loadCachedDevotional();
+      const hadFreshCache = cacheMatchesToday(preCached, tz, today);
+      if (cancelled) return;
+      await loadDailyVerse(false);
+      if (cancelled) return;
+      if (!hadFreshCache && preCached) {
+        // User crossed midnight — the transitional "new day" pill.
+        setNewDayPill(true);
+        Animated.sequence([
+          Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+          Animated.delay(3500),
+          Animated.timing(newDayOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+        ]).start(() => setNewDayPill(false));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [fade, newDayOpacity]);
+  }, [loadDailyVerse, newDayOpacity]);
+
+  /** Pull-to-refresh handler. Wraps loadDailyVerse(true) with the
+   *  RefreshControl spinner state and guards against overlapping calls. */
+  const onPullRefresh = useCallback(async () => {
+    if (refreshing) return; // guard: no duplicate concurrent fetches
+    setRefreshing(true);
+    try {
+      // Reset the devotional skeleton so the fresh copy fades in cleanly.
+      setDevoLoading(true);
+      await loadDailyVerse(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadDailyVerse, refreshing]);
+
+  /** Retry action shown in the inline error card when initial load failed
+   *  AND no cache was available (fresh install + no network). */
+  const onRetryLoad = useCallback(async () => {
+    setVerseLoading(true);
+    setDevoLoading(true);
+    await loadDailyVerse(true);
+  }, [loadDailyVerse]);
+
+  /** Native OS Share sheet for the current verse. Uses formatVerseShareText
+   *  to compose reference + verse text + optional attribution. Falls back
+   *  silently on user-cancel; surfaces a toast only on hard failures. */
+  const onNativeShareVerse = useCallback(async () => {
+    if (!verse) return;
+    try {
+      const message = formatVerseShareText({
+        reference: verse.reference,
+        verse: verse.verse,
+      });
+      await Share.share({ message });
+    } catch (e) {
+      // Share.share() throws when the OS can't present the sheet (rare).
+      // User-cancel does NOT throw on either platform, so no false toasts.
+      console.warn("native share failed", e);
+      showToast({
+        variant: "error",
+        title: "Couldn't open Share",
+        message: "Please try again.",
+        duration: 3000,
+      });
+    }
+  }, [verse]);
 
   // Skeleton shimmer animation — only runs while something is loading.
   useEffect(() => {
@@ -214,6 +347,11 @@ export default function ScriptureScreen() {
         todayReflectionPrompt,
         verse.verse_id,
       );
+      // Mark today active in the persistent streak ledger so the Journal
+      // shows the new streak instantly on next focus, and so a subsequent
+      // deletion of this same reflection cannot lower the earned streak.
+      // Fire-and-forget; ledger errors must not block the save UX.
+      recordActiveDay().catch((e) => console.warn("streak ledger record failed", e));
       setReflectionText("");
       setReflectionEmotion(null);
       const nextCount = reflectionSavedCount + 1;
@@ -299,6 +437,19 @@ export default function ScriptureScreen() {
         keyboardShouldPersistTaps="handled"
         bottomOffset={32}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          // Pull-to-refresh (Build 16). Force-reloads the verse + devotional
+          // even when today's cache is warm. `refreshing` guards against
+          // overlapping fetches inside onPullRefresh().
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={colors.bg}
+            testID="scripture-pull-to-refresh"
+          />
+        }
       >
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Scripture</Text>
@@ -311,8 +462,25 @@ export default function ScriptureScreen() {
           <Text style={styles.bannerText}>{BANNER_QUOTES[bannerIdx]}</Text>
         </Animated.View>
 
-        {/* Verse card — skeleton while loading, real card once Phase 1 returns. */}
-        {verseLoading || !verse ? (
+        {/* Verse card — skeleton while loading, real card once Phase 1 returns.
+            When a load hard-fails AND no cache exists, the reusable
+            EmptyState (variant=error) is shown INSTEAD of the skeleton so
+            the screen never goes blank. Copy audited in unit-empty-states. */}
+        {loadError && !verse ? (
+          <EmptyState
+            variant="error"
+            icon="cloud-offline-outline"
+            title={DAILY_VERSE_ERROR.title}
+            body={DAILY_VERSE_ERROR.body}
+            action={{
+              label: DAILY_VERSE_ERROR.cta,
+              onPress: onRetryLoad,
+              loading: verseLoading,
+              testID: "verse-retry-button",
+            }}
+            testID="verse-error-card"
+          />
+        ) : verseLoading || !verse ? (
           <Animated.View style={[styles.verseCard, styles.verseSkeleton, { opacity: skeletonOpacity }]} testID="verse-skeleton">
             <View style={[styles.skeletonBar, { width: "40%", height: 11 }]} />
             <View style={{ gap: 10 }}>
@@ -328,6 +496,16 @@ export default function ScriptureScreen() {
               <View style={styles.metaActions}>
                 <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
                   <Ionicons name="open-outline" size={16} color={colors.accent} />
+                </Pressable>
+                <Pressable
+                  onPress={onNativeShareVerse}
+                  testID="share-scripture-native-button"
+                  hitSlop={8}
+                  style={styles.metaIconBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share verse"
+                >
+                  <Ionicons name="paper-plane-outline" size={16} color={colors.accent} />
                 </Pressable>
                 <Pressable
                   onPress={() => openShare({ kind: "verse" })}

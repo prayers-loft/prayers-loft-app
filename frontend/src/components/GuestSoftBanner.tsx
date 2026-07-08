@@ -1,5 +1,26 @@
-// Dismissible soft banner for Guest users, surfaced at the top of the Prayer
-// home screen. Quiet, non-blocking, one-tap dismissal that sticks for 14d.
+// -----------------------------------------------------------------------------
+// GuestSoftBanner — the quiet "Save your spiritual journey" nudge shown at
+// the top of the Prayer home screen ONLY for anonymous / local-only users.
+//
+// VISIBILITY CONTRACT (Build 16 fix)
+// ----------------------------------
+// The banner used to be storage-driven only (14-day dismiss window), which
+// meant signed-in Google users still saw the "Keep My Journey Safe" upsell
+// on every cold launch — confusing UX because their journey IS already
+// saved. This component now also gates on auth state:
+//
+//   • ready === false (initial auth restore in flight) → render NOTHING.
+//     Prevents the banner from flashing for a signed-in user during the
+//     ~200ms it takes readPersisted() to hydrate.
+//   • ready === true AND user != null (signed in) → render NOTHING.
+//     No upsell for users who've already opted in.
+//   • ready === true AND user == null (confirmed anonymous) → render
+//     the banner IF the 14-day dismiss window has not fired.
+//
+// The auth gate is intentionally UNIT-testable via the exported
+// shouldRenderGuestSoftBanner() helper so a copy or condition regression
+// gets caught in CI. See tests/tests/unit-guest-soft-banner.spec.ts.
+// -----------------------------------------------------------------------------
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,36 +28,59 @@ import { storage } from "@/src/utils/storage";
 import { colors, fonts } from "@/src/theme/theme";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { track } from "@/src/lib/analytics";
+import { useAuthState } from "@/src/hooks/use-auth-state";
+import { shouldRenderGuestSoftBanner } from "@/src/lib/guest-soft-banner-visibility";
+
+// Re-export the pure predicate so callers that already import from this
+// module (and tests, in principle) keep working. New tests should import
+// directly from src/lib/guest-soft-banner-visibility to stay Node-safe.
+export { shouldRenderGuestSoftBanner };
 
 const KEY = "prayersloft_softbanner_dismissed_at";
-const SUPPRESS_FOR_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+/** Pure predicate — decides whether the banner should render given the
+ *  three inputs. Lives in src/lib/guest-soft-banner-visibility.ts so it
+ *  is Node-safe for unit tests. Re-exported above for convenience. */
 
 export function GuestSoftBanner() {
-  const [show, setShow] = useState(false);
+  const auth = useAuthState();
+  // The dismissed-at ISO string once we've read it from storage. Empty
+  // string means "never dismissed"; `null` means "we haven't read yet".
+  // Kept nullable so we don't render the banner in the split-second
+  // before storage returns, even for confirmed anonymous users.
+  const [dismissedAt, setDismissedAt] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const raw = await storage.getItem(KEY, "");
-      if (!raw) {
-        setShow(true);
-        return;
-      }
-      const at = new Date(String(raw)).getTime();
-      if (Number.isFinite(at) && Date.now() - at > SUPPRESS_FOR_MS) setShow(true);
+      if (!cancelled) setDismissedAt(String(raw ?? ""));
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const dismiss = async () => {
     track("upgrade_prompt_dismissed", { trigger_source: "guest_soft_banner" });
-    await storage.setItem(KEY, new Date().toISOString());
-    setShow(false);
+    const iso = new Date().toISOString();
+    await storage.setItem(KEY, iso);
+    setDismissedAt(iso);
   };
 
   const tap = () => {
     forceUpgradePrompt("guest_soft_banner");
   };
 
-  if (!show) return null;
+  // Full render gate. All three signals must line up before we show.
+  // Storage read pending → also hide (prevents a brief flash before
+  // dismissedAt resolves for anonymous users who dismissed recently).
+  const signedIn = !!auth.user;
+  const storageReady = dismissedAt !== null;
+  if (!storageReady) return null;
+  if (!shouldRenderGuestSoftBanner(auth.ready, signedIn, dismissedAt)) {
+    return null;
+  }
 
   return (
     <View style={styles.wrap} testID="guest-soft-banner">

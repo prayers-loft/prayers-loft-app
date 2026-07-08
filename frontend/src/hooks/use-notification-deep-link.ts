@@ -5,22 +5,26 @@
 // available). The hook handles three launch paths:
 //
 //   1. Cold launch — app was killed and the user tapped the reminder to
-//      start it. We read Notifications.getLastNotificationResponseAsync()
-//      exactly once (guarded by a module-level flag) and route.
-//   2. Warm background — app was suspended and the user tapped the
-//      reminder to bring it forward. addNotificationResponseReceivedListener
-//      fires; we route on that event.
-//   3. Foreground — reminder banner drops down while the app is open;
-//      the same listener fires when the user taps the banner.
+//      start it.
+//   2. Warm background — app suspended and reminder tapped.
+//   3. Foreground — banner drops while the app is open.
 //
-// Normal launches (app icon tap, deep link, share extension, etc.) are
-// unaffected because the guard checks for our own `kind: 'daily-reminder'`
-// payload — anything else is left alone.
+// EXPO-GO COMPATIBILITY
+// ---------------------
+// All expo-notifications access goes through src/lib/notification-module.ts's
+// `getNotificationModule()`, which returns `null` when running in Expo Go.
+// In that case this hook silently no-ops and the app continues to work with
+// deep-linking simply disabled. See notification-module.ts for the full
+// story on why lazy `import()` alone was NOT enough to prevent the
+// PushNotificationIOS crash on cold start.
 // -----------------------------------------------------------------------------
 import { useEffect } from "react";
-import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import { routeFromResponse } from "@/src/lib/reminders";
+import {
+  getNotificationModule,
+  isNotificationRuntimeUnavailable,
+} from "@/src/lib/notification-module";
 
 let coldLaunchHandled = false;
 
@@ -28,40 +32,63 @@ export function useNotificationDeepLink(): void {
   const router = useRouter();
 
   useEffect(() => {
-    // ---- Cold-launch path -------------------------------------------------
-    // getLastNotificationResponseAsync() returns the response that launched
-    // the app, or null if the app was launched normally. We resolve it once
-    // per session; the module-level guard prevents re-triggering across
-    // hot reloads (which would re-route the user mid-session).
-    if (!coldLaunchHandled) {
-      coldLaunchHandled = true;
-      Notifications.getLastNotificationResponseAsync()
-        .then((response) => {
+    // Early exit: if we're on a runtime that can't load expo-notifications
+    // (Expo Go on SDK 53+), never even attempt the dynamic import.
+    // Metro's `importAll` on `expo-notifications` transitively touches
+    // RN's lazy `PushNotificationIOS` getter and crashes with an
+    // invariant. See notification-module.ts.
+    if (isNotificationRuntimeUnavailable()) return;
+
+    let cancelled = false;
+    let sub: { remove: () => void } | null = null;
+
+    (async () => {
+      const Notifications = await getNotificationModule();
+      if (!Notifications || cancelled) return;
+
+      // Cold-launch path — read the response that launched the app.
+      if (!coldLaunchHandled) {
+        coldLaunchHandled = true;
+        try {
+          const response =
+            await Notifications.getLastNotificationResponseAsync();
+          if (cancelled) return;
           const route = routeFromResponse(response);
           if (route) {
-            // Use replace() so the initial "/" screen doesn't sit under
-            // Scripture in the back-stack — the tab bar remains
-            // navigable but the back button won't leave a phantom stop.
             router.replace(route as never);
           }
-        })
-        .catch((err) => {
-          // Non-fatal — cold-launch payload retrieval is a best-effort
-          // read on iOS. Log for TestFlight triage but never throw into
-          // the render tree.
+        } catch (err) {
           console.warn("[reminders] cold-launch response failed", err);
-        });
-    }
-
-    // ---- Warm / foreground path ------------------------------------------
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const route = routeFromResponse(response);
-      if (route) {
-        router.replace(route as never);
+        }
       }
-    });
+
+      // Warm / foreground path — subscribe to future taps.
+      try {
+        sub = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            const route = routeFromResponse(response);
+            if (route) {
+              router.replace(route as never);
+            }
+          },
+        );
+      } catch (err) {
+        console.warn(
+          "[reminders] addNotificationResponseReceivedListener failed",
+          err,
+        );
+      }
+    })();
+
     return () => {
-      sub.remove();
+      cancelled = true;
+      if (sub) {
+        try {
+          sub.remove();
+        } catch {
+          // ignore — teardown must never throw
+        }
+      }
     };
   }, [router]);
 }

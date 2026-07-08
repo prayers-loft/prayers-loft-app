@@ -30,13 +30,15 @@ import { logout, deleteAccount } from "@/src/lib/auth-api";
 import { replayOnboarding } from "@/src/lib/onboarding";
 import { showToast } from "@/src/components/Toast";
 import {
-  cancelDailyReminder,
+  cancelAllDailyReminders,
   ensureAndroidChannel,
   ensurePermission,
   formatTime,
+  getPermissionStatus,
   parseTime,
   scheduleDailyReminder,
 } from "@/src/lib/reminders";
+import { NotificationPrimerSheet } from "@/src/components/NotificationPrimerSheet";
 
 function shortJoinedDate(iso: string): string {
   try {
@@ -58,6 +60,10 @@ export default function SettingsScreen() {
   // so we don't blast the OS with schedule calls on every state flicker.
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [reminderBusy, setReminderBusy] = useState(false);
+  // Pre-permission primer sheet — shown before the OS notification prompt
+  // so the user opts INTO the OS dialog with intent (Build 16 polish).
+  // See src/components/NotificationPrimerSheet.tsx for product rationale.
+  const [primerOpen, setPrimerOpen] = useState(false);
   const auth = useAuthState();
   const isAuthed = !!auth.user;
 
@@ -102,59 +108,99 @@ export default function SettingsScreen() {
   // -------------------------------------------------------------------------
   const handleReminderToggle = async (nextEnabled: boolean) => {
     if (reminderBusy) return;
+    if (nextEnabled) {
+      // Only show the primer sheet when we would actually invoke the OS
+      // prompt — if the user has already granted permission (returning
+      // user re-enabling), skip the sheet and go straight to scheduling
+      // so the toggle feels responsive.
+      const status = await getPermissionStatus();
+      if (status.granted) {
+        void completeEnableReminders();
+      } else {
+        setPrimerOpen(true);
+      }
+      return;
+    }
+    // Disable path: unchanged.
     setReminderBusy(true);
     try {
-      if (nextEnabled) {
-        const granted = await ensurePermission();
-        if (!granted) {
+      await cancelAllDailyReminders();
+      await onTogglePref("notificationsEnabled", false);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  // Actual permission-request + schedule flow, invoked after the user taps
+  // "Continue" on the primer sheet OR when permission is already granted.
+  const completeEnableReminders = async () => {
+    setReminderBusy(true);
+    try {
+      const granted = await ensurePermission();
+      if (!granted) {
+        showToast({
+          variant: "error",
+          title: "Notifications are turned off.",
+          message: "Enable them in Settings to receive reminders.",
+          duration: 4500,
+        });
+        return;
+      }
+      await ensureAndroidChannel();
+      const result = await scheduleDailyReminder(prefs.notificationsDailyTime);
+      if (!result.ok) {
+        // Two distinct paths: permission race (rare — user revoked
+        // between our ensurePermission call and the schedule call) vs a
+        // native scheduling error. Surface both clearly so we never fall
+        // back on a generic 'try again' toast that hides the real bug.
+        if (result.reason === "permission") {
           showToast({
             variant: "error",
             title: "Notifications are turned off.",
             message: "Enable them in Settings to receive reminders.",
             duration: 4500,
           });
-          return;
+        } else {
+          console.error("[settings] schedule reminder error:", result.error);
+          const detail =
+            result.error instanceof Error
+              ? result.error.message
+              : String(result.error);
+          showToast({
+            variant: "error",
+            title: "Couldn't set reminder",
+            message: detail.slice(0, 140) || "Please try again.",
+            duration: 5500,
+          });
         }
-        await ensureAndroidChannel();
-        const result = await scheduleDailyReminder(prefs.notificationsDailyTime);
-        if (!result.ok) {
-          // Two distinct paths: permission race (rare — user revoked between
-          // our ensurePermission call and the schedule call) vs a native
-          // scheduling error. Surface both clearly so we never fall back
-          // on the generic 'try again' toast that hid the real bug.
-          if (result.reason === "permission") {
-            showToast({
-              variant: "error",
-              title: "Notifications are turned off.",
-              message: "Enable them in Settings to receive reminders.",
-              duration: 4500,
-            });
-          } else {
-            console.error("[settings] schedule reminder error:", result.error);
-            const detail = result.error instanceof Error ? result.error.message : String(result.error);
-            showToast({
-              variant: "error",
-              title: "Couldn't set reminder",
-              message: detail.slice(0, 140) || "Please try again.",
-              duration: 5500,
-            });
-          }
-          return;
-        }
-        await onTogglePref("notificationsEnabled", true);
-        showToast({
-          variant: "success",
-          title: "Daily reminders enabled.",
-          message: `You'll get a gentle nudge at ${formatTime(prefs.notificationsDailyTime)}.`,
-          duration: 3000,
-        });
-      } else {
-        await cancelDailyReminder();
-        await onTogglePref("notificationsEnabled", false);
+        return;
       }
+      await onTogglePref("notificationsEnabled", true);
+      showToast({
+        variant: "success",
+        title: "Daily reminders enabled.",
+        message: `You'll get a gentle nudge at ${formatTime(prefs.notificationsDailyTime)}.`,
+        duration: 3000,
+      });
     } finally {
       setReminderBusy(false);
     }
+  };
+
+  const handlePrimerContinue = () => {
+    setPrimerOpen(false);
+    // Give iOS a beat to finish the modal dismiss animation before
+    // presenting the system permission dialog on top. Not required on
+    // Android but harmless.
+    setTimeout(() => {
+      void completeEnableReminders();
+    }, 200);
+  };
+
+  const handlePrimerCancel = () => {
+    setPrimerOpen(false);
+    // No OS prompt fired. The toggle stays OFF. User can re-enable any
+    // time by tapping the toggle again — no trip to Settings.app needed.
   };
 
   const handleReminderRowPress = () => {
@@ -553,6 +599,15 @@ export default function SettingsScreen() {
           testID="time-picker"
         />
       )}
+
+      {/* Pre-permission primer sheet (Build 16). Explains the benefit
+          before the OS notification prompt appears, so users opt in with
+          intent rather than reflexively dismissing. */}
+      <NotificationPrimerSheet
+        visible={primerOpen}
+        onContinue={handlePrimerContinue}
+        onCancel={handlePrimerCancel}
+      />
     </ScreenBackground>
   );
 }

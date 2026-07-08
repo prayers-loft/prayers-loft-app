@@ -28,6 +28,11 @@ import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { showToast } from "@/src/components/Toast";
 import { StructuredDevotional } from "@/src/components/StructuredDevotional";
+import { EmptyState } from "@/src/components/EmptyState";
+import {
+  BIBLE_ASSISTANT_EMPTY,
+  BIBLE_ASSISTANT_ERROR,
+} from "@/src/lib/empty-state-copy";
 import type { StructuredDevotional as StructuredDevotionalType } from "@/src/lib/daily-devotional";
 
 type Style = "Devotional" | "Theologian";
@@ -38,6 +43,7 @@ export default function BibleAssistantScreen() {
   const [lastAskedQuestion, setLastAskedQuestion] = useState<string>("");
   const [style, setStyle] = useState<Style>("Devotional");
   const [qaLoading, setQaLoading] = useState(false);
+  const [qaError, setQaError] = useState(false);
   const [qaResponses, setQaResponses] = useState<Record<Style, string>>({ Devotional: "", Theologian: "" });
   // Structured devotional payload — only ever populated for Devotional style
   // (mode=devotional on the backend). Null for Theologian (Bible Questions).
@@ -53,6 +59,7 @@ export default function BibleAssistantScreen() {
     async (q: string, s: Style) => {
       if (!q.trim()) return;
       setQaLoading(true);
+      setQaError(false);
       try {
         // mode=question → Bible Q&A (plain text); mode=devotional → structured JSON.
         const mode: "question" | "devotional" = s === "Theologian" ? "question" : "devotional";
@@ -68,6 +75,7 @@ export default function BibleAssistantScreen() {
         Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
       } catch (e) {
         console.warn("bible assistant failed", e);
+        setQaError(true);
         showToast({
           variant: "error",
           title: s === "Theologian" ? "Couldn't answer your question" : "Couldn't generate devotional",
@@ -86,6 +94,7 @@ export default function BibleAssistantScreen() {
     const q = question.trim();
     setLastAskedQuestion(q);
     setQaResponses({ Devotional: "", Theologian: "" });
+    setQaError(false);
     await runQA(q, style);
   };
 
@@ -244,12 +253,13 @@ export default function BibleAssistantScreen() {
               )}
             </Animated.View>
           ) : (
-            <View style={styles.emptyHintCard} testID="bible-assistant-empty">
-              <Ionicons name="school-outline" size={22} color={colors.textTertiary} />
-              <Text style={styles.emptyHintText}>
-                Pose a question or enter a topic above — your study companion will respond.
-              </Text>
-            </View>
+            <EmptyState
+              icon={qaError ? "cloud-offline-outline" : "school-outline"}
+              variant={qaError ? "error" : "info"}
+              title={qaError ? BIBLE_ASSISTANT_ERROR.title : BIBLE_ASSISTANT_EMPTY.title}
+              body={qaError ? BIBLE_ASSISTANT_ERROR.body : BIBLE_ASSISTANT_EMPTY.body}
+              testID={qaError ? "bible-assistant-error" : "bible-assistant-empty"}
+            />
           )}
         </View>
       </KeyboardAwareScrollView>
@@ -350,12 +360,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   qaResponseText: { fontFamily: fonts.serif, color: colors.text, fontSize: 16, lineHeight: 25 },
-  emptyHintCard: {
-    backgroundColor: colors.surface1,
-    borderRadius: 18,
-    padding: 22,
-    alignItems: "center",
-    gap: 12,
-  },
-  emptyHintText: { fontFamily: fonts.serif, color: colors.textSecondary, fontSize: 14, textAlign: "center", lineHeight: 22 },
 });
