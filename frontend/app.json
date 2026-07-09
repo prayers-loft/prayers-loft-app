@@ -7,11 +7,10 @@
     "icon": "./assets/images/icon.png",
     "scheme": "prayersloft",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.prayersloft.app",
-      "buildNumber": "18",
+      "buildNumber": "20",
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Save your prayer cards to share later",
         "ITSAppUsesNonExemptEncryption": false
@@ -25,7 +24,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0a0e1a"
       },
-      "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -72,7 +70,9 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-image",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
