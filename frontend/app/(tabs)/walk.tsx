@@ -121,11 +121,22 @@ export default function WalkScreen() {
             style={styles.beginBtn}
             testID="walk-begin-checkin"
             accessibilityRole="button"
+            accessibilityLabel={
+              landing?.is_first_ever === false
+                ? "Continue your walk"
+                : "Begin your walk"
+            }
           >
-            <Text style={styles.beginText}>
+            <Text
+              style={styles.beginText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.9}
+              allowFontScaling={false}
+            >
               {landing?.is_first_ever === false
-                ? "Continue the conversation"
-                : "Begin check-in"}
+                ? "Continue your walk"
+                : "Begin your walk"}
             </Text>
             <Ionicons name="arrow-forward" size={16} color={colors.bg} />
           </Pressable>
@@ -263,7 +274,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 14,
+    // Reduced ~20% (was 14) so the CTA feels lighter and stays on a single
+    // line even on narrow devices. Horizontal padding keeps the shape
+    // proportional and gives the text room to breathe.
+    paddingVertical: 11,
+    paddingHorizontal: spacing.lg,
+    minHeight: 44, // preserves the iOS-recommended tap target
     borderRadius: radii.pill,
     backgroundColor: colors.accent,
   },

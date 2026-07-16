@@ -563,7 +563,7 @@ function EndedPanel({
       <Text style={styles.endedTitle}>Take a breath.</Text>
       {hasAnyContent ? (
         <Text style={styles.endedBody}>
-          {"Here's what I heard. I've kept the things you said directly — you can remove any of them later from Walk."}
+          {"Here's the shape of what we sat with. I've kept the meaning of what you shared — you can remove any of these later from Walk."}
         </Text>
       ) : (
         <Text style={styles.endedBody}>

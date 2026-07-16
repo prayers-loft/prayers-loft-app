@@ -131,9 +131,9 @@ Watch for signs of growth across sessions. Not every conversation shows movement
 
   "You handled that differently than a month ago."
   "I've noticed you're becoming quicker to confess instead of hiding."
-  "Three conversations ago this felt impossible. Today you said you had victory."
+  "Three conversations ago this felt impossible. Today, that same fear has less power over you."
   "I think God may be growing perseverance in you."
-  "You used to phrase this as failure. Today you called it dependence."
+  "The way you're describing this has shifted — where you once heard failure, you're now naming dependence."
 
 Rules for growth observations:
   1. They must be grounded in what the user has actually said, not projected onto them. If you're inferring, say so tentatively.
@@ -149,7 +149,25 @@ Ordinary memory referencing (not growth observations) still applies — referenc
 
 ===
 HOW TO REFLECT (WITHOUT SOUNDING LIKE AN ASSISTANT)
-Do NOT begin with "You said..." That phrasing exposes the mechanics. Respond the way a friend would — as if you have been listening and are answering the person, not summarizing them.
+NEVER quote the person back to themselves. The following phrasings are BANNED — they expose the mechanics and turn you into a chat log:
+
+  "You said…"
+  "You mentioned…"
+  "You told me…"
+  "Earlier you shared…"
+  "Last time you said…"
+  "Previously you told me…"
+  Any verbatim reproduction of the person's own wording wrapped in quotes.
+
+Instead, reference the MEANING or the pattern — never the transcript. Good shapes:
+
+  "Last time, we sat with…"
+  "You were working through…"
+  "A theme that keeps returning is…"
+  "We left off with…"
+  "Something you've been carrying is…"
+
+Or simply respond to what they've said without labeling it at all. A friend who was truly listening does not narrate the person back to themselves.
 
 Bad: "You said you've been struggling with anxiety about your new job."
 Better: "That sounds really difficult, especially while you're still trying to settle in."
@@ -235,15 +253,24 @@ Return ONLY the JSON object. No preamble. No trailing commentary.
 # lightweight context in future sessions so the companion can grow with
 # the person ("this reminds me of what you shared a few weeks ago").
 # =============================================================================
-SUMMARY_PROMPT = """You are helping a discipleship companion remember the shape of a past conversation. Given the completed conversation below, write ONE sentence (no more than 30 words) that captures the pastoral heart of what happened — what the person carried, wrestled with, or moved toward. Write it in the third person, present-tense, warm and specific.
+SUMMARY_PROMPT = """You are helping a discipleship companion remember the shape of a past conversation. Given the completed conversation below, write ONE sentence (no more than 30 words) that captures the pastoral heart of what happened — what the person carried, wrestled with, or moved toward. Write it in the third person (implied subject "they"), present-tense, warm and specific.
+
+STRICT rules:
+- Never quote the person's own words. Paraphrase the MEANING, not the transcript.
+- Never begin with "The user…", "You…", "They said…", "You said…", "You mentioned…", "You told me…", "Earlier you shared…", "Last time you said…", or any label that reads like a chat log.
+- Start with a present-participle verb or a present-tense verb naming the movement of heart (e.g. "Wrestling with…", "Grieving…", "Considering…", "Turning toward…", "Sitting with…", "Coming to peace with…").
+- Do not repeat words or phrases (no "wrestling with wrestling with"). Read the sentence back to yourself — if it stumbles, rewrite it.
+- Use plain sentences. No headers, no bullets, no quotation marks, no markdown.
 
 Good examples:
 - "Wrestling with dryness in prayer and quietly wondering if God still notices them."
 - "Grieving the death of a father three weeks ago; feeling numb rather than angry."
 - "Considering a hard conversation with a spouse after admitting a small lie."
+- "Coming to peace with an unanswered prayer while still hoping."
 
 Bad examples:
 - "The user talked about their job." (too vague)
+- "You said you've been struggling with anxiety." (transcript-style — banned)
 - "You reflected on anxiety and I offered Philippians 4:6-7 with a commitment to read it tomorrow morning." (too mechanical)
 
 Return ONLY the sentence. No preamble.
@@ -413,11 +440,18 @@ def _compose_landing_hint(
     taps anything. Rule: we surface the *meaning* of the last conversation,
     never the transcript. If we don't have a pastoral session summary yet,
     we return None and let the landing show its quieter greeting — that's
-    more faithful than a 'You said…' recall of raw memory content."""
-    # Only surface a hint when we have a real pastoral summary.
+    more faithful than a 'You said…' recall of raw memory content.
+
+    The summary passes through _sanitize_summary a second time here as a
+    belt-and-braces safeguard for any legacy sessions that were stored
+    before the sanitizer existed."""
     if last_summary:
-        # Present-tense summaries flow after "Last time,"
-        return f"Last time, {_lowercase_first(last_summary)}"
+        cleaned = _sanitize_summary(last_summary)
+        if not cleaned:
+            return None
+        # Present-tense summaries flow after "Last time," — this is the ONE
+        # sanctioned recall preamble. It references meaning, not wording.
+        return f"Last time, {_lowercase_first(cleaned)}"
     # Older data (memory items but no summary yet) → no callback line.
     # The frontend still shows the greeting + active memory cards below.
     return None
@@ -434,6 +468,113 @@ def _lowercase_first(s: str) -> str:
 
 # Backwards-compat alias — _mention_phrase and older callers use this name.
 _lower_first = _lowercase_first
+
+
+# -----------------------------------------------------------------------------
+# Summary sanitizer — every LLM-produced summary passes through this before
+# being persisted or rendered. The goal is to catch two failure modes cheaply:
+#   1. Transcript-style callbacks slipping past the prompt ("You said…",
+#      "You mentioned…", "The user…", quoted user wording).
+#   2. Malformed prose — duplicated consecutive words/phrases, dangling
+#      punctuation, wrapped quotes, or preamble labels.
+# The rule: if the summary can be repaired, repair it. If it cannot, drop
+# it. Silence is more faithful than a broken sentence.
+# -----------------------------------------------------------------------------
+
+# Openers that expose the mechanics. Regex is anchored to sentence start,
+# case-insensitive, and tolerates a leading quote or dash.
+_BANNED_OPENERS = re.compile(
+    r"""^\s*['"\u201c\u2018\-\u2014\u2013]*\s*(?:
+        the\s+user
+      | the\s+person
+      | you\s+said
+      | you\s+mentioned
+      | you\s+told\s+me
+      | earlier\s+you\s+(?:said|shared|mentioned|told)
+      | last\s+time\s+you\s+(?:said|shared|mentioned|told)
+      | previously\s+you
+      | you\s+shared
+      | you\s+expressed
+    )\b[:,\s\-]*""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Preamble labels the model sometimes prepends.
+_PREAMBLE_LABELS = (
+    "summary:",
+    "sentence:",
+    "session summary:",
+    "one-sentence summary:",
+    "pastoral summary:",
+    "response:",
+)
+
+
+def _sanitize_summary(text: Optional[str]) -> Optional[str]:
+    """Clean an LLM-produced session summary.
+
+    Returns None when the summary is unsalvageable (transcript callback that
+    can't be repaired, empty, too long, or all-quoted transcript). Otherwise
+    returns a trimmed, sanitized sentence safe to persist and render.
+    """
+    if not text:
+        return None
+    s = text.strip()
+    # Strip wrapping quotes (straight and curly).
+    for open_q, close_q in (('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019")):
+        if s.startswith(open_q) and s.endswith(close_q):
+            s = s[1:-1].strip()
+            break
+    # Strip preamble labels ("Summary: ...").
+    lowered = s.lower()
+    for pre in _PREAMBLE_LABELS:
+        if lowered.startswith(pre):
+            s = s[len(pre):].strip()
+            lowered = s.lower()
+            break
+    if not s:
+        return None
+    # Length gate — pastoral summaries should be a single sentence.
+    if len(s) > 400:
+        return None
+    # Remove any banned transcript-style opener. If, after removal, the
+    # remaining text still looks like a chat-log quote (e.g. starts with a
+    # quoted user sentence), drop it.
+    stripped_opener = _BANNED_OPENERS.sub("", s, count=1).strip()
+    if stripped_opener != s:
+        s = stripped_opener
+        if not s:
+            return None
+        # Re-capitalize first letter after opener removal.
+        s = s[0].upper() + s[1:] if s[0].islower() else s
+    # Reject if the summary is essentially a single wrapped quote of the
+    # user's own words (fails the "meaning, not transcript" rule).
+    if s.count('"') >= 2 and s.strip('"').count('"') == 0:
+        # Whole thing is quoted; unsalvageable as a paraphrase.
+        return None
+    # De-duplicate consecutive repeated words ("wrestling with wrestling with").
+    s = re.sub(r"\b(\w+(?:\s+\w+){0,2})\s+\1\b", r"\1", s, flags=re.IGNORECASE)
+    # Collapse any accidental double-space produced by the removals above.
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    # Drop trailing stray punctuation clusters (",.", ". .", ";." etc.).
+    s = re.sub(r"[\s,;:]+([.!?])$", r"\1", s)
+    # Belt-and-braces: after cleaning, if the summary still addresses the
+    # user in the second person ("you were…", "you have…", "you're…") or
+    # opens with a bare conjunction fragment ("That…", "And…"), it failed
+    # the "third-person, meaning-based" rule. Refuse rather than render a
+    # broken pastoral line — silence is more faithful than a chat-log echo.
+    lowered_after = s.lower().lstrip("\"'\u201c\u2018 ")
+    if re.match(r"^you\s+(?:were|have|had|are|were|will|used|kept|shared|said|mentioned|told|feel|felt|thought)\b", lowered_after):
+        return None
+    if re.match(r"^(?:that|and|but|so|because|which|who)\b", lowered_after):
+        return None
+    # Ensure the sentence terminates with a single ending punctuation mark.
+    if s and s[-1] not in ".!?":
+        s = s + "."
+    # Final sanity: reject if what remains is too short to carry meaning.
+    if len(s) < 8:
+        return None
+    return s
 
 
 # =============================================================================
@@ -1104,4 +1245,7 @@ async def _extract_session_summary(messages: List[dict]) -> Optional[str]:
     for pre in ("Summary:", "Sentence:", "Session summary:"):
         if text.lower().startswith(pre.lower()):
             text = text[len(pre) :].strip()
-    return text or None
+    # Final sanitization: kill any transcript-style openers, dedupe
+    # repeated phrases, and reject malformed output. Silence is more
+    # faithful than a broken sentence.
+    return _sanitize_summary(text)

@@ -28,10 +28,11 @@ const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocus
 export default function TabsLayout() {
   return (
     <Tabs
-      // initialRouteName is intentionally "prayer" so existing users retain
-      // their landing behavior even after the Walk tab is added. New users
-      // are routed to /walk by the onboarding completion flow (added later).
-      initialRouteName="prayer"
+      // Walk is the product's primary home (Build 17+). Every cold start
+      // lands here; Prayer / Scripture / Study are supporting tabs. The
+      // previously-selected tab is preserved naturally during an in-app
+      // session by expo-router — this only sets the fresh-launch default.
+      initialRouteName="walk"
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
