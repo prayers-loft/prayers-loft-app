@@ -127,16 +127,8 @@ export default function WalkScreen() {
                 : "Begin your walk"
             }
           >
-            <Text
-              style={styles.beginText}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.9}
-              allowFontScaling={false}
-            >
-              {landing?.is_first_ever === false
-                ? "Continue your walk"
-                : "Begin your walk"}
+            <Text style={styles.beginText} allowFontScaling={false}>
+              {landing?.is_first_ever === false ? "Continue" : "Begin"}
             </Text>
             <Ionicons name="arrow-forward" size={16} color={colors.bg} />
           </Pressable>
@@ -270,16 +262,19 @@ const styles = StyleSheet.create({
   },
   beginBtn: {
     marginTop: spacing.sm,
+    // Pill hugs its intrinsic content so the text can never be constrained
+    // by a parent-row layout. This eliminates the ellipsis class of bug
+    // entirely — there is no flex context on the label.
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    // Reduced ~20% (was 14) so the CTA feels lighter and stays on a single
-    // line even on narrow devices. Horizontal padding keeps the shape
-    // proportional and gives the text room to breathe.
+    // Fixed, comfortable label ↔ arrow gap.
+    gap: 10,
+    // Reduced ~20% from the previous 14 so the CTA feels lighter but the
+    // 44pt iOS tap target is preserved via minHeight.
     paddingVertical: 11,
-    paddingHorizontal: spacing.lg,
-    minHeight: 44, // preserves the iOS-recommended tap target
+    paddingHorizontal: 22,
+    minHeight: 44,
     borderRadius: radii.pill,
     backgroundColor: colors.accent,
   },
@@ -288,6 +283,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.bg,
     letterSpacing: 0.3,
+    // Never allow the text to shrink or wrap — the button already hugs
+    // its content so this is the belt to alignSelf's braces.
+    flexShrink: 0,
+    includeFontPadding: false,
   },
   loadingCard: {
     marginTop: spacing.xl,
