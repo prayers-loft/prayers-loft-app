@@ -101,6 +101,20 @@ export type SessionEndResponse = {
   candidates_pending: MemoryCandidate[];
 };
 
+export async function getWalkLanding(): Promise<{
+  is_first_ever: boolean;
+  session_count: number;
+  last_session_summary: string | null;
+  callback_hint: string | null;
+  active_commitment: string | null;
+  active_struggle: string | null;
+  active_prayer: string | null;
+}> {
+  const res = await _walkFetch("/api/walk/landing", { method: "GET" });
+  if (!res.ok) throw new Error(`landing_failed:${res.status}`);
+  return res.json();
+}
+
 // ---------- Non-streaming endpoints ----------
 export async function startWalkSession(): Promise<SessionStartResponse> {
   const res = await _walkFetch("/api/walk/session/start", { method: "POST" });

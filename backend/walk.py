@@ -246,6 +246,19 @@ ConfirmationSourceLiteral = Literal[
 ]
 
 
+class WalkLandingResponse(BaseModel):
+    """Everything the Walk-tab hero needs in one call so the landing card
+    can demonstrate memory *before* the user taps anything."""
+
+    is_first_ever: bool
+    session_count: int
+    last_session_summary: Optional[str] = None
+    callback_hint: Optional[str] = None
+    active_commitment: Optional[str] = None
+    active_struggle: Optional[str] = None
+    active_prayer: Optional[str] = None
+
+
 class SessionStartResponse(BaseModel):
     id: str
     opening_message: str
@@ -466,16 +479,47 @@ def _shift_person(s: str) -> str:
     return out
 
 
-def _lower_first(s: str) -> str:
+def _compose_landing_hint(
+    last_summary: Optional[str],
+    commitments: List[dict],
+    struggles: List[dict],
+    prayers: List[dict],
+) -> Optional[str]:
+    """Compose the contextual line the Walk tab shows *before* the user
+    taps anything. The goal is to demonstrate memory — the user should
+    know the app remembers them from the moment they open the tab."""
+    # 1. Prefer the last session's pastoral summary — it's the highest-signal
+    #    representation of what happened last time.
+    if last_summary:
+        # Present-tense summaries need a gentle framing.
+        return f"Last time, {_lowercase_first(last_summary)}"
+    # 2. Otherwise reach for the most durable active memory item.
+    if commitments:
+        c = commitments[0]
+        phrase = _mention_phrase(c["content"])
+        return f"You said you'd {phrase}."
+    if struggles:
+        s = struggles[0]
+        phrase = _mention_phrase(s["content"])
+        return f"You've been sitting with {phrase}."
+    if prayers:
+        p = prayers[0]
+        phrase = _mention_phrase(p["content"])
+        return f"You've been praying {phrase}."
+    return None
+
+
+def _lowercase_first(s: str) -> str:
     s = s.strip()
     if not s:
         return s
-    # Preserve acronyms and proper nouns that begin with an uppercase letter
-    # followed by another uppercase (e.g. "NYC"). Otherwise lowercase-first
-    # so the sentence flows.
     if len(s) >= 2 and s[0].isupper() and s[1].isupper():
         return s
     return s[0].lower() + s[1:]
+
+
+# Backwards-compat alias — _mention_phrase and older callers use this name.
+_lower_first = _lowercase_first
 
 
 # =============================================================================
@@ -564,6 +608,48 @@ def build_walk_router(
                        to either {"user_id": ...} or {"guest_id": ...}.
     """
     router = APIRouter(prefix="/walk", tags=["walk"])
+
+    # --------------------------- Landing (pre-tap context) ---------------------------
+    @router.get("/landing", response_model=WalkLandingResponse)
+    async def get_landing(owner: dict = Depends(get_owner_dep)):
+        """Return the context needed to render the Walk tab landing hero.
+        Composes a callback_hint the client can render verbatim — no per-item
+        formatting work needed on the front-end."""
+        db = get_db_fn()
+        owner_key = _owner_key(owner)
+        session_count = await db.walk_sessions.count_documents(
+            {"owner_key": owner_key, "ended_at": {"$ne": None}}
+        )
+        last_ended = await db.walk_sessions.find_one(
+            {"owner_key": owner_key, "ended_at": {"$ne": None}},
+            {"_id": 0, "session_summary": 1, "ended_at": 1},
+            sort=[("ended_at", -1)],
+        )
+        last_summary = last_ended.get("session_summary") if last_ended else None
+        # Grab a couple of active memory items to power the "you mentioned…"
+        # option in case there's no summary yet (older sessions).
+        active_memory = (
+            await db.walk_memory.find(
+                {"owner_key": owner_key, "status": "active"},
+                {"_id": 0},
+            )
+            .sort("updated_at", -1)
+            .to_list(length=20)
+        )
+        commitments = [m for m in active_memory if m["kind"] == "commitment"]
+        struggles = [m for m in active_memory if m["kind"] == "struggle"]
+        prayers = [m for m in active_memory if m["kind"] == "prayer"]
+        is_first_ever = session_count == 0 and not active_memory
+        hint = _compose_landing_hint(last_summary, commitments, struggles, prayers)
+        return WalkLandingResponse(
+            is_first_ever=is_first_ever,
+            session_count=session_count,
+            last_session_summary=last_summary,
+            callback_hint=hint,
+            active_commitment=commitments[0]["content"] if commitments else None,
+            active_struggle=struggles[0]["content"] if struggles else None,
+            active_prayer=prayers[0]["content"] if prayers else None,
+        )
 
     # --------------------------- Session start ---------------------------
     @router.post("/session/start", response_model=SessionStartResponse)

@@ -9,11 +9,20 @@ import { colors, fonts } from "@/src/theme/theme";
 
 type TabKey = "walk" | "prayer" | "scripture" | "bible-assistant";
 
+// Product philosophy (June 2026): Prayers Loft is one discipleship experience
+// supported by four capabilities. Walk is the heart; Prayer, Scripture, and
+// Study support it.
+//   Walk       — ongoing discipleship (how am I growing?)
+//   Prayer     — talking to God
+//   Scripture  — receiving God's Word
+//   Study      — deeper study & questions (the old "Bible Assistant" label
+//                exposed the AI mechanics; "Study" is what the user is
+//                actually doing)
 const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap; label: string }> = {
   walk: { icon: "compass-outline", iconFocused: "compass", label: "Walk" },
   prayer: { icon: "leaf-outline", iconFocused: "leaf", label: "Prayer" },
   scripture: { icon: "book-outline", iconFocused: "book", label: "Scripture" },
-  "bible-assistant": { icon: "school-outline", iconFocused: "school", label: "Bible Assistant" },
+  "bible-assistant": { icon: "school-outline", iconFocused: "school", label: "Study" },
 };
 
 export default function TabsLayout() {

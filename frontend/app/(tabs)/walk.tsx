@@ -23,19 +23,37 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, fonts, spacing, radii } from "@/src/theme/theme";
-import { listMemory, MemoryItem } from "@/src/lib/walk-api";
+import { listMemory, MemoryItem, getWalkLanding } from "@/src/lib/walk-api";
+
+type LandingInfo = {
+  is_first_ever: boolean;
+  session_count: number;
+  last_session_summary: string | null;
+  callback_hint: string | null;
+};
 
 export default function WalkScreen() {
   const router = useRouter();
   const [memory, setMemory] = useState<MemoryItem[] | null>(null);
+  const [landing, setLanding] = useState<LandingInfo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const res = await listMemory({ status: "active" });
-      setMemory(res.items);
+      const [mem, land] = await Promise.all([
+        listMemory({ status: "active" }),
+        getWalkLanding(),
+      ]);
+      setMemory(mem.items);
+      setLanding({
+        is_first_ever: land.is_first_ever,
+        session_count: land.session_count,
+        last_session_summary: land.last_session_summary,
+        callback_hint: land.callback_hint,
+      });
     } catch {
       setMemory([]);
+      setLanding(null);
     }
   }, []);
 
@@ -63,7 +81,6 @@ export default function WalkScreen() {
     memory?.filter((m) => m.kind === "struggle" && m.status === "active") ?? [];
   const activePrayers =
     memory?.filter((m) => m.kind === "prayer" && m.status === "active") ?? [];
-  const isReturning = (memory?.length ?? 0) > 0;
 
   return (
     <ScreenBackground>
@@ -81,16 +98,22 @@ export default function WalkScreen() {
       >
         <View style={styles.hero} testID="walk-hero">
           <Text style={styles.heroEyebrow}>
-            {isReturning ? "Welcome back" : "Welcome"}
+            {landing?.is_first_ever === false ? "Welcome back" : "Welcome"}
           </Text>
           <Text style={styles.heroTitle}>
-            {isReturning
-              ? "Ready to check in?"
+            {landing?.is_first_ever === false
+              ? "How are you doing today?"
               : "How is your walk with God?"}
           </Text>
+          {landing?.callback_hint ? (
+            <Text style={styles.heroCallback} testID="walk-callback-hint">
+              {landing.callback_hint.trim().replace(/[.!?]?$/, ".")}
+            </Text>
+          ) : null}
           <Text style={styles.heroBody}>
-            Take your time. There is nothing to prove here — just a conversation
-            you can have when you want it.
+            {landing?.is_first_ever === false
+              ? "I've been thinking about you. Take your time — start wherever feels honest."
+              : "Take your time. There is nothing to prove here — just a conversation you can have when you want it."}
           </Text>
           <Pressable
             onPress={() => router.push("/walk-conversation" as any)}
@@ -98,7 +121,11 @@ export default function WalkScreen() {
             testID="walk-begin-checkin"
             accessibilityRole="button"
           >
-            <Text style={styles.beginText}>Begin check-in</Text>
+            <Text style={styles.beginText}>
+              {landing?.is_first_ever === false
+                ? "Continue the conversation"
+                : "Begin check-in"}
+            </Text>
             <Ionicons name="arrow-forward" size={16} color={colors.bg} />
           </Pressable>
         </View>
@@ -209,6 +236,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: colors.textSecondary,
+  },
+  heroCallback: {
+    fontFamily: fonts.serif,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.textPrimary,
+    fontStyle: "italic",
+    marginTop: 4,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.accent,
   },
   beginBtn: {
     marginTop: spacing.sm,

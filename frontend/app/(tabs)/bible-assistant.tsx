@@ -138,7 +138,7 @@ export default function BibleAssistantScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Text style={styles.eyebrow}>Bible Assistant</Text>
+          <Text style={styles.eyebrow}>Study</Text>
           <Text style={styles.title}>Study with care.</Text>
           <Text style={styles.subtitle}>
             Ask any Bible or theology question, or generate a devotional on a topic that's on your heart.
