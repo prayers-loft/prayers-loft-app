@@ -7,9 +7,10 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "@/src/theme/theme";
 
-type TabKey = "prayer" | "scripture" | "bible-assistant";
+type TabKey = "walk" | "prayer" | "scripture" | "bible-assistant";
 
 const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocused: keyof typeof Ionicons.glyphMap; label: string }> = {
+  walk: { icon: "compass-outline", iconFocused: "compass", label: "Walk" },
   prayer: { icon: "leaf-outline", iconFocused: "leaf", label: "Prayer" },
   scripture: { icon: "book-outline", iconFocused: "book", label: "Scripture" },
   "bible-assistant": { icon: "school-outline", iconFocused: "school", label: "Bible Assistant" },
@@ -18,9 +19,14 @@ const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocus
 export default function TabsLayout() {
   return (
     <Tabs
+      // initialRouteName is intentionally "prayer" so existing users retain
+      // their landing behavior even after the Walk tab is added. New users
+      // are routed to /walk by the onboarding completion flow (added later).
+      initialRouteName="prayer"
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
+      <Tabs.Screen name="walk" />
       <Tabs.Screen name="prayer" />
       <Tabs.Screen name="scripture" />
       <Tabs.Screen name="bible-assistant" />
