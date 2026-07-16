@@ -113,7 +113,7 @@ export default function WalkScreen() {
           ) : null}
           <Text style={styles.heroBody}>
             {landing?.is_first_ever === false
-              ? "I've been thinking about you. Take your time — start wherever feels honest."
+              ? "It's good to continue where we left off. Whenever you're ready."
               : "Take your time. There is nothing to prove here — just a conversation you can have when you want it."}
           </Text>
           <Pressable
@@ -139,7 +139,7 @@ export default function WalkScreen() {
           <>
             {activeCommitments.length > 0 && (
               <Section
-                title="You said you'd…"
+                title="Carrying forward"
                 items={activeCommitments}
                 emptyText=""
                 testID="walk-active-commitments"

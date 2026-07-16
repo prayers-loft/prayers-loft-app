@@ -373,153 +373,53 @@ FIRST_SESSION_OPENER = (
     "or just something you've been carrying?"
 )
 
-RETURNING_NO_MEMORY_OPENER = (
-    "I'm glad you're back. How have you been?"
+RETURNING_NO_MEMORY_OPENER = "It's good to see you again. Whenever you're ready."
+
+# When we do have a summary from the last session, the opener stays quiet
+# and lets the model make the pastoral recall from context. We deliberately
+# do NOT construct a "you mentioned…" callback here — the goal is that the
+# companion remembers the *meaning* of what happened, not the transcript.
+RETURNING_WITH_MEMORY_OPENER = (
+    "It's good to continue where we left off. Whenever you're ready."
 )
 
 
 def _returning_opener_with_memory(memory: List[dict]) -> str:
-    """Pick a natural callback from active memory. Prefer commitments, then
-    active struggles, then active prayers. We phrase it like a friend who's
-    been thinking about the person — not a report from a database."""
-    commitments = [
-        m for m in memory if m["kind"] == "commitment" and m["status"] == "active"
-    ]
-    if commitments:
-        c = commitments[0]
-        phrase = _mention_phrase(c["content"])
-        return (
-            "I'm glad you're back. I've been thinking about our last "
-            f"conversation — you mentioned {phrase}. How did that go?"
-        )
-    struggles = [
-        m for m in memory if m["kind"] == "struggle" and m["status"] == "active"
-    ]
-    if struggles:
-        s = struggles[0]
-        phrase = _mention_phrase(s["content"])
-        return (
-            "I'm glad you're back. I've been thinking about what you shared "
-            f"last time — {phrase}. How is that today?"
-        )
-    prayers = [m for m in memory if m["kind"] == "prayer" and m["status"] == "active"]
-    if prayers:
-        p = prayers[0]
-        phrase = _mention_phrase(p["content"])
-        return (
-            "I'm glad you're back. I've been thinking about our last "
-            f"conversation — you were praying about {phrase}. "
-            "How has that been sitting with you?"
-        )
+    """Return a quiet greeting for a returning session. Any pastoral callback
+    comes from the model in its first response — driven by the session
+    summary + memory ledger we inject into the system context. We never
+    build a transcript-style 'you said / you mentioned' opener from the
+    ledger; the point of this app is meaning, not chat history."""
+    if memory:
+        return RETURNING_WITH_MEMORY_OPENER
     return RETURNING_NO_MEMORY_OPENER
 
 
-# Prefixes we can safely strip so the mention flows as prose. Order matters —
-# longer prefixes first. When none match we fall back to the lowered-first
-# original, which reads fine after "you mentioned ___".
-_MENTION_STRIP_PREFIXES = (
-    "i want to commit to ",
-    "i'm going to ",
-    "i am going to ",
-    "i commit to ",
-    "i've been ",
-    "i have been ",
-    "i'm praying for ",
-    "i'm praying that ",
-    "i am praying for ",
-    "i am praying that ",
-    "i'm struggling with ",
-    "i am struggling with ",
-    "i want to ",
-    "i'm ",
-    "i am ",
-    "i will ",
-    "i'll ",
-)
-
-
-def _mention_phrase(content: str) -> str:
-    """Turn a first-person memory sentence into something that flows after
-    'you mentioned ___'. Strips leading first-person verbs and shifts
-    remaining first-person pronouns to second-person so the sentence reads
-    from the companion's perspective."""
-    stripped = content.strip().rstrip(".").rstrip("!").rstrip("?")
-    lower = stripped.lower()
-    remainder = stripped
-    for pre in _MENTION_STRIP_PREFIXES:
-        if lower.startswith(pre):
-            remainder = stripped[len(pre) :]
-            break
-    else:
-        remainder = stripped
-    return _shift_person(_lower_first(remainder))
-
-
-# First-person → second-person pronoun shifts applied when referring back
-# to a saved memory in a returning-session opener. We do this on a
-# whole-word basis (case-insensitive, preserving original case) so we
-# don't accidentally rewrite words like "myth" or "meant".
-_PRONOUN_SHIFTS: List[tuple[str, str]] = [
-    ("myself", "yourself"),
-    ("my", "your"),
-    ("mine", "yours"),
-    ("me", "you"),
-    ("i'm", "you're"),
-    ("i've", "you've"),
-    ("i'll", "you'll"),
-    ("i'd", "you'd"),
-    ("i am", "you are"),
-    ("i have", "you have"),
-    ("i will", "you will"),
-    ("i would", "you would"),
-    ("i", "you"),
-]
-
-
-def _shift_person(s: str) -> str:
-    def repl_factory(a: str, b: str):
-        def _r(m: re.Match) -> str:
-            src = m.group(0)
-            # Preserve capitalisation of the first character.
-            if src[:1].isupper():
-                return b[:1].upper() + b[1:]
-            return b
-        return _r
-
-    out = s
-    for a, b in _PRONOUN_SHIFTS:
-        pattern = r"\b" + re.escape(a) + r"\b"
-        out = re.sub(pattern, repl_factory(a, b), out, flags=re.IGNORECASE)
-    return out
+# NOTE: transcript-style helpers (_mention_phrase, _shift_person, and
+# their prefix/pronoun tables) were removed intentionally. Prayers Loft
+# callbacks reference the *meaning* of a conversation, not the
+# transcript. Pastoral recall comes from the model using the session
+# summaries we inject into the system context — not from client-side
+# pronoun-shifting of raw memory content.
 
 
 def _compose_landing_hint(
     last_summary: Optional[str],
     commitments: List[dict],
     struggles: List[dict],
-    prayers: List[dict],
+    prayers: List[dict],  # noqa: ARG001 — accepted for symmetry with caller
 ) -> Optional[str]:
     """Compose the contextual line the Walk tab shows *before* the user
-    taps anything. The goal is to demonstrate memory — the user should
-    know the app remembers them from the moment they open the tab."""
-    # 1. Prefer the last session's pastoral summary — it's the highest-signal
-    #    representation of what happened last time.
+    taps anything. Rule: we surface the *meaning* of the last conversation,
+    never the transcript. If we don't have a pastoral session summary yet,
+    we return None and let the landing show its quieter greeting — that's
+    more faithful than a 'You said…' recall of raw memory content."""
+    # Only surface a hint when we have a real pastoral summary.
     if last_summary:
-        # Present-tense summaries need a gentle framing.
+        # Present-tense summaries flow after "Last time,"
         return f"Last time, {_lowercase_first(last_summary)}"
-    # 2. Otherwise reach for the most durable active memory item.
-    if commitments:
-        c = commitments[0]
-        phrase = _mention_phrase(c["content"])
-        return f"You said you'd {phrase}."
-    if struggles:
-        s = struggles[0]
-        phrase = _mention_phrase(s["content"])
-        return f"You've been sitting with {phrase}."
-    if prayers:
-        p = prayers[0]
-        phrase = _mention_phrase(p["content"])
-        return f"You've been praying {phrase}."
+    # Older data (memory items but no summary yet) → no callback line.
+    # The frontend still shows the greeting + active memory cards below.
     return None
 
 
