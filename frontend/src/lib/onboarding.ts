@@ -22,18 +22,18 @@ export const ONBOARDING_REPLAY_EVENT = "prayersloft:replay-onboarding";
 
 /**
  * The route the app pushes the user toward after they finish onboarding.
+/**
+ * Post-onboarding landing route.
  *
- * Product decision (Build 16 spec): the strongest single first action is
- * "Read today's verse" — it delivers value instantly, needs no input from
- * the user, works for signed-out guests, and demonstrates the core loop
- * (scripture → devotional → reflection) in one glance. Save-a-reflection
- * requires typing; generate-a-prayer needs a prompt; today's verse is
- * always there.
+ * Product decision: Prayer is the app's default landing tab (both cold
+ * start and post-onboarding). Walk is available as a tab but does NOT
+ * replace Prayer as the default destination. The Walk-first experiment
+ * that briefly set this to "/(tabs)/walk" was reverted on 2026-07-16.
  *
  * Centralized here as a pure constant so the CTA route and the tests
  * stay in lock-step.
  */
-export const FIRST_ACTION_ROUTE = "/(tabs)/walk" as const;
+export const FIRST_ACTION_ROUTE = "/(tabs)/prayer" as const;
 
 export function getFirstActionRoute(): typeof FIRST_ACTION_ROUTE {
   return FIRST_ACTION_ROUTE;

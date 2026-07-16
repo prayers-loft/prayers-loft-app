@@ -10,10 +10,11 @@ import { colors, fonts } from "@/src/theme/theme";
 type TabKey = "walk" | "prayer" | "scripture" | "bible-assistant";
 
 // Product philosophy (June 2026): Prayers Loft is one discipleship experience
-// supported by four capabilities. Walk is the heart; Prayer, Scripture, and
-// Study support it.
-//   Walk       — ongoing discipleship (how am I growing?)
-//   Prayer     — talking to God
+// supported by four capabilities. Prayer is the default landing tab; Walk,
+// Scripture, and Study are peers. Each supports the same goal — helping the
+// user walk with Christ.
+//   Prayer     — talking to God (default landing)
+//   Walk       — ongoing discipleship conversation
 //   Scripture  — receiving God's Word
 //   Study      — deeper study & questions (the old "Bible Assistant" label
 //                exposed the AI mechanics; "Study" is what the user is
@@ -28,11 +29,14 @@ const TAB_META: Record<TabKey, { icon: keyof typeof Ionicons.glyphMap; iconFocus
 export default function TabsLayout() {
   return (
     <Tabs
-      // Walk is the product's primary home (Build 17+). Every cold start
-      // lands here; Prayer / Scripture / Study are supporting tabs. The
-      // previously-selected tab is preserved naturally during an in-app
-      // session by expo-router — this only sets the fresh-launch default.
-      initialRouteName="walk"
+      // initialRouteName is intentionally "prayer" — Prayer remains the
+      // product's default landing tab. Walk is available as a tab but
+      // does NOT replace Prayer as the cold-launch destination. The
+      // Walk-first experiment was reverted on 2026-07-16 per product
+      // direction. The previously-selected tab is preserved naturally
+      // during an in-app session by expo-router; this only sets the
+      // fresh-launch default.
+      initialRouteName="prayer"
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
