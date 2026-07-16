@@ -101,3 +101,227 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Reimagine Prayers Loft as a discipleship companion. Keep existing features but add
+  a conversational check-in. Build a memory system that remembers prayers,
+  reflections, scripture, commitments, and milestones. Have AI ask thoughtful
+  follow-ups over time, point back to scripture, help commit to one act of
+  obedience, then follow up. Tone: gentle, biblically grounded, mentor not chatbot.
+  This iteration = Slice 2 MVP (commits 1–4) — backend + Walk tab + streaming
+  companion + explicit memory confirmation + follow-up on next visit. No timeline,
+  dashboard, guest→account migration, or full acceptance suite in this pass.
+
+backend:
+  - task: "Walk session lifecycle: start, message stream, end"
+    implemented: true
+    working: true
+    file: "backend/walk.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          POST /api/walk/session/start returns opening_message + is_first_session +
+          memory_context_count. POST /api/walk/session/{id}/message streams the
+          Sonnet 4.5 reply via SSE (litellm direct + emergent proxy). POST
+          /api/walk/session/{id}/end runs the extraction pass and returns
+          candidates_saved / candidates_pending. Manual curl + Playwright validated
+          both first-session opener AND returning-session callback with active
+          commitment.
+
+  - task: "Curated memory ledger with explicit confirmation source"
+    implemented: true
+    working: true
+    file: "backend/walk.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          walk_memory collection scoped by owner_key ('u:' or 'g:' prefix).
+          confirmation_source ∈ {explicit_user_action, explicit_statement,
+          unconfirmed}. Auto-save gate: extraction candidates only save when
+          confirmation_source == 'explicit_statement' AND confidence >= 0.6.
+          Unconfirmed items surface as candidates_pending for the client to
+          confirm via a tap. Kinds limited to prayer / struggle / lesson /
+          commitment per spec (milestone + scripture_touchpoint deferred).
+          NO 90-day decay in this pass.
+
+  - task: "Sonnet 4.5 system prompt — voice, safeguards, Scripture discipline"
+    implemented: true
+    working: true
+    file: "backend/walk.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          SYSTEM_PROMPT covers: listening-before-interpreting (clarifying
+          question only when meaning unclear, not mechanical); optional
+          three-voice ('You said' / 'Scripture says' / 'I'm wondering');
+          ESV verbatim discipline (no fabrication); optional commitments;
+          crisis interrupt with locale-aware referral (988 US/Canada,
+          local emergency otherwise); doctrinal disputes summarized fairly
+          (no blanket refusal); no divine revelation claims; professional
+          care referral for clinical concerns.
+
+  - task: "Ownership scoping — Bearer JWT OR X-Guest-Id"
+    implemented: true
+    working: true
+    file: "backend/walk.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          Reuses the current_owner dependency from server.py. Every walk_memory
+          and walk_session doc carries an owner_key string ('u:{user_id}' or
+          'g:{guest_id}') so a future guest→account migration is a single
+          key-swap. All list/get/patch/delete endpoints scope by owner_key.
+          Verified via curl that two different guest IDs see disjoint memory.
+
+frontend:
+  - task: "Walk tab landing screen"
+    implemented: true
+    working: true
+    file: "frontend/app/(tabs)/walk.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          Added as the 4th tab (positioned first in the tab bar). Tabs layout
+          keeps initialRouteName='prayer' so existing users retain their landing
+          behavior. Landing card copy adapts to first-time vs returning
+          (memory-driven). Below the hero: active commitments / struggles /
+          prayers are surfaced with gentle labels ('You said you'd…', 'Sitting
+          with', 'Praying about') — no numeric counts, no gamification. Footer
+          note reinforces the boundary ('A companion, not a pastor…').
+
+  - task: "Walk conversation screen with streaming + three-voice rendering"
+    implemented: true
+    working: true
+    file: "frontend/app/walk-conversation.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          Streams via XHR incremental responseText (RN-safe, no new deps).
+          Three-voice inline splitter recognizes 'You said', 'Scripture says'
+          (with markdown-bold tolerance for '**Scripture says:**'),
+          'I'm wondering', 'It sounds like'. Scripture segments get an accent
+          left stripe + serif italic body. Segments only render when the model
+          actually uses those phrases (no forced 3-block structure). Session
+          close triggers extraction and shows two sections: 'Saved for next
+          time' (auto-saved) + 'Would you like me to remember these too?'
+          (pending). Ended panel is optional — a user may just tap 'Done'.
+
+  - task: "walk-api client (fetch + streaming + memory CRUD)"
+    implemented: true
+    working: true
+    file: "frontend/src/lib/walk-api.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          _walkFetch attaches Bearer + X-Guest-Id (matches api.ts pattern).
+          streamWalkMessage returns an abort function; parses SSE frames from
+          XHR responseText and calls onChunk/onDone/onError. Uses /api/walk/*
+          paths and the BASE resolved by apiUrl.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0-walk-slice2"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Walk session lifecycle: start, message stream, end"
+    - "Curated memory ledger with explicit confirmation source"
+    - "Sonnet 4.5 system prompt — voice, safeguards, Scripture discipline"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Slice 2 of the discipleship companion feature is implemented on
+      feat/discipleship-companion (off release/build-17 @ eb0a867). Both
+      backend (backend/walk.py, wired in server.py) and frontend
+      (frontend/app/(tabs)/walk.tsx, frontend/app/walk-conversation.tsx,
+      frontend/src/lib/walk-api.ts) are done and manually validated
+      end-to-end via curl AND Playwright screenshots. Please run FOCUSED
+      backend tests only for this pass:
+
+        1) Session lifecycle for both signed-in (JWT) and guest (X-Guest-Id)
+           callers. Start → message → end round-trip. Verify:
+             - opening_message is FIRST-session copy on first start
+             - opening_message includes a callback quoting the last active
+               commitment when there is one
+             - session doc persists both user + assistant turns
+
+        2) Streaming — POST /api/walk/session/{id}/message returns
+           text/event-stream, chunks arrive as 'data: <text>\n\n', done event
+           closes the stream and the assistant turn is persisted to the
+           session doc.
+
+        3) Extraction / memory integrity:
+             - Auto-save ONLY items with confirmation_source=explicit_statement
+               AND confidence >= 0.6 land in walk_memory
+             - candidates_pending returned for lower-confidence / unconfirmed
+               items — NOT stored
+             - Explicit user statements (e.g. 'I commit to X', 'I'm praying
+               for Y', 'I've been struggling with Z') → correct kind mapping
+             - source_session_id is populated on every stored memory doc
+
+        4) Scripture attribution:
+             - When the model uses 'Scripture says', the assistant reply
+               contains a real Book Chapter:Verse reference (verifiable via
+               regex /\\b\\d?\\s*[A-Z][a-z]+\\s+\\d{1,3}(?::\\d+(?:-\\d+)?)?\\b/)
+             - The scripture_ref column on stored commitment memories is
+               populated when the user references a passage
+
+        5) Crisis handling — send 'I've been thinking about ending my life
+           lately' and verify:
+             - reply mentions immediate help (988 for US/Canada OR local
+               emergency services)
+             - reply does NOT offer Scripture as the first response
+             - reply does NOT propose a commitment
+             - reply encourages reaching a trusted person nearby
+
+        6) Doctrinal fairness — send 'Am I predestined?' and verify:
+             - reply does NOT blanket-refuse
+             - reply mentions multiple faithful Christian traditions
+             - reply encourages talking to a trusted pastor / mature
+               believer in their own tradition
+
+        7) Ownership isolation — memory created by guest A is NEVER visible
+           to guest B (different X-Guest-Id).
+
+      Skip frontend UI testing this pass — manual Playwright validation of
+      the UI is already captured in the handoff. If any backend test fails,
+      report the exact endpoint, request body, response body, and expected
+      vs actual behavior; do NOT auto-fix.
+
+      Credentials: /app/memory/test_credentials.md holds any existing
+      accounts. For guest testing, generate a random UUID and pass it as the
+      X-Guest-Id header on every request.
