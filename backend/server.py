@@ -22,6 +22,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Import auth AFTER load_dotenv so JWT_SECRET etc. are present in os.environ.
 from auth import build_auth_router, ensure_indexes as ensure_auth_indexes  # noqa: E402
+from walk import build_walk_router, ensure_walk_indexes  # noqa: E402
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -755,6 +756,10 @@ async def delete_reflection(
 
 app.include_router(api_router)
 
+# ---------- Walk: discipleship companion router ----------
+walk_router = build_walk_router(get_db_fn=lambda: db, get_owner_dep=current_owner)
+app.include_router(walk_router, prefix="/api")
+
 # ---------- Phase 2: Auth + Account router ----------
 auth_router = build_auth_router(get_db_fn=lambda: db)
 app.include_router(auth_router, prefix="/api")
@@ -763,6 +768,7 @@ app.include_router(auth_router, prefix="/api")
 @app.on_event("startup")
 async def _on_startup():
     await ensure_auth_indexes(db)
+    await ensure_walk_indexes(db)
 
 
 app.add_middleware(
