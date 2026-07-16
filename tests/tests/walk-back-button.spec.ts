@@ -1,15 +1,15 @@
 /**
- * Automated regression test for the Walk back-button bug.
+ * Automated regression test for the Walk back-button.
  *
- * Previously the back button in walk-conversation.tsx called
- * closeAndExtract, which awaited a 3–8 second extraction LLM round-trip
- * before navigating. Users perceived it as broken.
+ * Design principle: Back represents user intent. It should leave immediately
+ * unless leaving would interrupt something the user is actively watching
+ * (i.e. the assistant is currently streaming). This test asserts:
  *
- * This test drives the web preview via Playwright and verifies the back
- * button works in three states:
  *   1. idle           — session just opened, only the assistant opener
- *   2. streaming      — assistant reply arriving mid-stream
- *   3. ended panel    — extraction review UI visible
+ *   2. after messages — user has sent turns; assistant is idle
+ *   3. streaming      — assistant reply arriving mid-stream (native shows a
+ *                       confirmation dialog; web skips it and navigates)
+ *   4. ended panel    — extraction review UI visible
  *
  * Each case asserts the user is back on the Walk landing (walk-hero
  * visible) within 3 seconds of pressing the back control.
@@ -71,6 +71,40 @@ test.describe("Walk back button", () => {
     await page.getByTestId("walk-close").click();
     // On web the confirm dialog is skipped so we should be on the landing
     // page essentially immediately.
+    await page.getByTestId("walk-hero").waitFor({ timeout: NAV_DEADLINE_MS });
+    const dt = Date.now() - t0;
+    expect(dt).toBeLessThan(NAV_DEADLINE_MS);
+  });
+
+  test("after messages, idle: back leaves without a confirmation dialog", async ({
+    page,
+  }) => {
+    // The user has sent turns but the assistant is idle — new spec says
+    // this must navigate immediately, no dialog. Only actively streaming
+    // should ever prompt the user.
+    await goToWalk(page);
+    await page.getByTestId("walk-begin-checkin").click();
+    await page.getByTestId("walk-input").waitFor({ timeout: 20000 });
+    await page.getByTestId("walk-input").fill("I'm grateful today.");
+    await page.getByTestId("walk-send").click();
+    // Wait for the send button to re-enable (stream complete → assistant idle).
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '[data-testid="walk-send"]',
+        ) as HTMLElement | null;
+        if (!el) return false;
+        const disabled =
+          el.getAttribute("aria-disabled") === "true" ||
+          (el as HTMLButtonElement).disabled === true;
+        return !disabled;
+      },
+      null,
+      { timeout: 30000 },
+    );
+    await page.waitForTimeout(500);
+    const t0 = Date.now();
+    await page.getByTestId("walk-close").click();
     await page.getByTestId("walk-hero").waitFor({ timeout: NAV_DEADLINE_MS });
     const dt = Date.now() - t0;
     expect(dt).toBeLessThan(NAV_DEADLINE_MS);

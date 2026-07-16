@@ -205,58 +205,52 @@ export default function WalkConversationScreen() {
   }, [sessionId]);
 
   // Decide what to do when the header back button OR Android hardware back
-  // is pressed. Rules:
-  //   • phase "loading" or "ended" → navigate immediately
-  //   • only the opener message so far → navigate immediately
-  //   • real conversation (or streaming) → confirm leave; extraction fires
-  //     in the background on Leave
+  // is pressed. Design principle: the Back button represents the user's
+  // intent — leave immediately unless leaving would interrupt something
+  // they are actively watching.
+  //
+  //   • phase === "streaming"  → confirm ("Stay" / "Leave"); on Leave abort
+  //                              the stream, fire /end in background, and
+  //                              navigate.
+  //   • everything else        → navigate immediately. If a session exists,
+  //                              /end is fired in the background so
+  //                              extraction still runs.
   const handleBackPress = useCallback((): boolean => {
+    // No session yet — just leave.
     if (!sessionId) {
       router.back();
       return true;
     }
-    if (phase === "ended" || phase === "loading") {
-      router.back();
-      return true;
-    }
-    // Only the opener assistant message → nothing to save.
-    const hasUserMessages = messages.some((m) => m.role === "user");
-    if (!hasUserMessages && phase === "ready") {
-      router.back();
-      return true;
-    }
-    // Real conversation: confirm on native; navigate immediately on web.
-    // (RN Web's Alert.alert has no multi-button UI, so a native-style
-    // confirmation would be a dead-end there. On web we optimize for
-    // reliability — always let the user leave when they tap back.)
-    if (Platform.OS === "web") {
-      fireEndInBackground();
-      router.back();
-      return true;
-    }
-    Alert.alert(
-      "Leave this conversation?",
-      phase === "streaming"
-        ? "Your companion is still finishing a thought. You can leave — anything you shared will still be saved."
-        : "Anything you shared will still be saved. You can continue this conversation or leave it here.",
-      [
-        {
-          text: "Continue conversation",
-          style: "cancel",
-        },
-        {
-          text: "Leave conversation",
-          style: "destructive",
-          onPress: () => {
-            fireEndInBackground();
-            router.back();
+
+    // Actively streaming a reply is the only case where leaving loses
+    // something the user is watching. Confirm on native; on web fall
+    // through (RN Web's Alert has no multi-button UI).
+    if (phase === "streaming" && Platform.OS !== "web") {
+      Alert.alert(
+        "The companion is still responding",
+        "If you leave now, I'll finish processing this conversation in the background, but you won't see the rest of this reply.",
+        [
+          { text: "Stay", style: "cancel" },
+          {
+            text: "Leave",
+            style: "destructive",
+            onPress: () => {
+              fireEndInBackground();
+              router.back();
+            },
           },
-        },
-      ],
-      { cancelable: true },
-    );
+        ],
+        { cancelable: true },
+      );
+      return true;
+    }
+
+    // Every other case: leave immediately. Extraction runs server-side
+    // whether the user waits or not.
+    fireEndInBackground();
+    router.back();
     return true;
-  }, [sessionId, phase, messages, router, fireEndInBackground]);
+  }, [sessionId, phase, router, fireEndInBackground]);
 
   // Wire Android hardware back to the same handler.
   useEffect(() => {
