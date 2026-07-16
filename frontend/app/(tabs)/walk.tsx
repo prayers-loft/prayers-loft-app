@@ -11,11 +11,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -24,6 +27,16 @@ import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { colors, fonts, spacing, radii } from "@/src/theme/theme";
 import { listMemory, MemoryItem, getWalkLanding } from "@/src/lib/walk-api";
+
+// Android needs an explicit opt-in for LayoutAnimation. iOS + Web work
+// out of the box. Doing this once at module load is safe — the flag is
+// idempotent.
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type LandingInfo = {
   is_first_ever: boolean;
@@ -180,6 +193,11 @@ export default function WalkScreen() {
   );
 }
 
+// Show at most this many items when a Section is collapsed. Anything
+// beyond this is hidden behind a real Pressable that expands the list
+// with a smooth layout animation — never a dead "+N more" affordance.
+const COLLAPSED_ITEM_LIMIT = 3;
+
 function Section({
   title,
   items,
@@ -190,10 +208,27 @@ function Section({
   emptyText: string;
   testID: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const hidden = Math.max(0, items.length - COLLAPSED_ITEM_LIMIT);
+  const visibleItems = expanded ? items : items.slice(0, COLLAPSED_ITEM_LIMIT);
+  const canExpand = hidden > 0;
+
+  const toggle = useCallback(() => {
+    // Keep the animation short and gentle so the section doesn't feel
+    // jumpy — this is a memory ledger, not a UI toy.
+    LayoutAnimation.configureNext({
+      duration: 220,
+      create: { type: "easeInEaseOut", property: "opacity" },
+      update: { type: "easeInEaseOut" },
+      delete: { type: "easeInEaseOut", property: "opacity" },
+    });
+    setExpanded((prev) => !prev);
+  }, []);
+
   return (
     <View style={styles.section} testID={testID}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      {items.slice(0, 3).map((m) => (
+      {visibleItems.map((m) => (
         <View key={m.id} style={styles.memoryCard}>
           <Text style={styles.memoryText}>{m.content}</Text>
           {m.scripture_ref ? (
@@ -201,8 +236,34 @@ function Section({
           ) : null}
         </View>
       ))}
-      {items.length > 3 ? (
-        <Text style={styles.moreHint}>+{items.length - 3} more</Text>
+      {canExpand ? (
+        <Pressable
+          onPress={toggle}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.expandBtn,
+            pressed && styles.expandBtnPressed,
+          ]}
+          testID={`${testID}-toggle`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={
+            expanded
+              ? `Show fewer ${title.toLowerCase()} entries`
+              : `View ${hidden} more ${title.toLowerCase()} ${
+                  hidden === 1 ? "entry" : "entries"
+                }`
+          }
+        >
+          <Text style={styles.expandBtnText}>
+            {expanded ? "Show fewer" : `View ${hidden} more`}
+          </Text>
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={colors.textSecondary}
+          />
+        </Pressable>
       ) : null}
     </View>
   );
@@ -325,12 +386,33 @@ const styles = StyleSheet.create({
     color: colors.accent,
     letterSpacing: 0.5,
   },
-  moreHint: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.textTertiary,
-    marginTop: 4,
-    textAlign: "center",
+  expandBtn: {
+    // Section-scoped expand/collapse control. Sits below the last
+    // visible memory card as a quiet, self-explanatory pill. Keeps a
+    // 44pt tap target via minHeight + generous hitSlop, matches the
+    // muted "Sitting with"/"Carrying forward" section aesthetic, and
+    // never blocks a card behind an obscure "+N more" hint again.
+    marginTop: 6,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 36,
+    borderRadius: radii.pill,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  expandBtnPressed: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  expandBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.2,
   },
   footerNote: {
     marginTop: spacing.xl,
