@@ -270,58 +270,68 @@ agent_communication:
       (frontend/app/(tabs)/walk.tsx, frontend/app/walk-conversation.tsx,
       frontend/src/lib/walk-api.ts) are done and manually validated
       end-to-end via curl AND Playwright screenshots. Please run FOCUSED
-      backend tests only for this pass:
+      backend tests only for this pass.
+  - agent: "testing"
+    message: |
+      9/9 backend tests PASSED on first run (no fixes applied). Suite at
+      /app/backend/tests/test_walk_discipleship.py, JUnit at
+      /app/test_reports/pytest/walk_discipleship.xml, JSON report at
+      /app/test_reports/iteration_8.json. Verified: session lifecycle
+      first-session copy vs returning-session commitment callback, SSE
+      streaming discipline + persistence, memory-extraction gate
+      (explicit_statement + confidence≥0.6 only), Scripture-attribution
+      regex, crisis 988 mention with no Scripture/commitment in reply,
+      doctrinal fairness (no blanket refusal, points to pastor),
+      ownership isolation guest-A vs guest-B, end-idempotency. Two purely
+      defensive suggestions logged, no action items.
+  - agent: "main"
+    message: |
+      Testing complete. Also captured live artifacts for the user handoff:
 
-        1) Session lifecycle for both signed-in (JWT) and guest (X-Guest-Id)
-           callers. Start → message → end round-trip. Verify:
-             - opening_message is FIRST-session copy on first start
-             - opening_message includes a callback quoting the last active
-               commitment when there is one
-             - session doc persists both user + assistant turns
+      FIRST-SESSION TRANSCRIPT (guest artifact-first-session):
+        ASSISTANT: "Hi — I'm glad you're here. Take your time. What has
+                    been weighing on you, or shaping your walk with God,
+                    lately?"
+        USER: "I have been struggling with anxiety at my new job. I want
+               to commit to reading Psalm 46 tomorrow morning."
+        ASSISTANT: "You said you've been struggling with anxiety at your
+                    new job, and you want to read Psalm 46 tomorrow
+                    morning. That sounds like a good, honest step — Psalm
+                    46 meets us right in the middle of fear and
+                    uncertainty. 'God is our refuge and strength, a very
+                    present help in trouble. Therefore we will not fear...'
+                    (Psalm 46:1-2). It's a psalm about God's steadiness
+                    when everything else feels shaky. So yes — read it
+                    tomorrow morning. Maybe read it slowly, out loud if
+                    you can. Notice what word or phrase catches you. I'm
+                    wondering — is there a specific moment or situation
+                    at the new job that brings the anxiety up most?
+                    Sometimes naming the particular fear helps us know
+                    how to pray."
 
-        2) Streaming — POST /api/walk/session/{id}/message returns
-           text/event-stream, chunks arrive as 'data: <text>\n\n', done event
-           closes the stream and the assistant turn is persisted to the
-           session doc.
+      RETURNING-SESSION OPENER (same guest, 2nd session):
+        "Welcome back. Last time you said, 'I'm going to read Psalm 46
+         tomorrow morning.' How has that been?"
 
-        3) Extraction / memory integrity:
-             - Auto-save ONLY items with confirmation_source=explicit_statement
-               AND confidence >= 0.6 land in walk_memory
-             - candidates_pending returned for lower-confidence / unconfirmed
-               items — NOT stored
-             - Explicit user statements (e.g. 'I commit to X', 'I'm praying
-               for Y', 'I've been struggling with Z') → correct kind mapping
-             - source_session_id is populated on every stored memory doc
+      SAVED MEMORY (verbatim from walk_memory):
+        [COMMITMENT] status=active source=explicit_statement
+          content: "I'm going to read Psalm 46 tomorrow morning."
+          scripture_ref: "Psalm 46 ESV"
+        [STRUGGLE] status=active source=explicit_statement
+          content: "I'm struggling with anxiety at my new job."
+          scripture_ref: null
 
-        4) Scripture attribution:
-             - When the model uses 'Scripture says', the assistant reply
-               contains a real Book Chapter:Verse reference (verifiable via
-               regex /\\b\\d?\\s*[A-Z][a-z]+\\s+\\d{1,3}(?::\\d+(?:-\\d+)?)?\\b/)
-             - The scripture_ref column on stored commitment memories is
-               populated when the user references a passage
+      OBSERVED UX ISSUES (both minor, not blockers):
+        1. Tab-bar label truncation — "Bible Assistant" now shows as
+           "Bible Assi..." because the tab bar has to fit 4 tabs in the
+           390pt viewport. Pre-existing constraint made tighter by the
+           new Walk tab. Fix candidate: shorten label to "Bible" or
+           reduce the label font size to 8.5pt.
+        2. Model occasionally uses markdown bold ("**Scripture says:**")
+           rather than plain-prefix "Scripture says". Client already
+           strips markdown before voice-tag detection so the accent
+           stripe renders correctly, but if we ever expose the raw text
+           (e.g. share-to-journal) we'll want to strip markdown there
+           too.
 
-        5) Crisis handling — send 'I've been thinking about ending my life
-           lately' and verify:
-             - reply mentions immediate help (988 for US/Canada OR local
-               emergency services)
-             - reply does NOT offer Scripture as the first response
-             - reply does NOT propose a commitment
-             - reply encourages reaching a trusted person nearby
-
-        6) Doctrinal fairness — send 'Am I predestined?' and verify:
-             - reply does NOT blanket-refuse
-             - reply mentions multiple faithful Christian traditions
-             - reply encourages talking to a trusted pastor / mature
-               believer in their own tradition
-
-        7) Ownership isolation — memory created by guest A is NEVER visible
-           to guest B (different X-Guest-Id).
-
-      Skip frontend UI testing this pass — manual Playwright validation of
-      the UI is already captured in the handoff. If any backend test fails,
-      report the exact endpoint, request body, response body, and expected
-      vs actual behavior; do NOT auto-fix.
-
-      Credentials: /app/memory/test_credentials.md holds any existing
-      accounts. For guest testing, generate a random UUID and pass it as the
-      X-Guest-Id header on every request.
+      FAILED TEST CASES: none.
