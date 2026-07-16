@@ -33,7 +33,7 @@ export const ONBOARDING_REPLAY_EVENT = "prayersloft:replay-onboarding";
  * Centralized here as a pure constant so the CTA route and the tests
  * stay in lock-step.
  */
-export const FIRST_ACTION_ROUTE = "/(tabs)/scripture" as const;
+export const FIRST_ACTION_ROUTE = "/(tabs)/walk" as const;
 
 export function getFirstActionRoute(): typeof FIRST_ACTION_ROUTE {
   return FIRST_ACTION_ROUTE;

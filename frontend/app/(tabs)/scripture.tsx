@@ -86,6 +86,7 @@ export default function ScriptureScreen() {
   const [verse, setVerse] = useState<VerseMeta | null>(null);
   const [devotional, setDevotional] = useState<string>(""); // flat text — used for share + fallback
   const [structuredDevo, setStructuredDevo] = useState<StructuredDevotionalType | null>(null);
+  const [devoExpanded, setDevoExpanded] = useState<boolean>(false); // collapsed by default — verse breathes first
   const [verseLoading, setVerseLoading] = useState(true);
   const [devoLoading, setDevoLoading] = useState(true);
   const [bannerIdx, setBannerIdx] = useState(0);
@@ -453,7 +454,8 @@ export default function ScriptureScreen() {
       >
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Scripture</Text>
-          <Text style={styles.title}>Today's verse</Text>
+          <Text style={styles.purpose}>{"Receive today's Word."}</Text>
+          <Text style={styles.title}>{"Today's verse"}</Text>
           <Text style={styles.dateLine}>{todayLabel()}</Text>
         </View>
 
@@ -491,62 +493,80 @@ export default function ScriptureScreen() {
           </Animated.View>
         ) : (
           <Animated.View style={[styles.verseCard, { opacity: fade }]} testID="verse-card">
-            <View style={styles.metaRow}>
-              <Text style={styles.metaText}>NLT · {verse.reference}</Text>
-              <View style={styles.metaActions}>
-                <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.metaIconBtn}>
-                  <Ionicons name="open-outline" size={16} color={colors.accent} />
-                </Pressable>
-                <Pressable
-                  onPress={onNativeShareVerse}
-                  testID="share-scripture-native-button"
-                  hitSlop={8}
-                  style={styles.metaIconBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share verse"
-                >
-                  <Ionicons name="paper-plane-outline" size={16} color={colors.accent} />
-                </Pressable>
-                <Pressable
-                  onPress={() => openShare({ kind: "verse" })}
-                  testID="share-scripture-button"
-                  hitSlop={8}
-                  style={styles.metaIconBtn}
-                >
-                  {sharePreparing && shareSource?.kind === "verse" ? (
-                    <ActivityIndicator size="small" color={colors.accent} />
-                  ) : (
-                    <Ionicons name="share-outline" size={16} color={colors.accent} />
-                  )}
-                </Pressable>
-              </View>
+            <Text style={styles.verseText}>&ldquo;{verse.verse}&rdquo;</Text>
+            <Text style={styles.verseReference}>{verse.reference}</Text>
+            <View style={styles.verseActions}>
+              <Pressable onPress={openVerse} testID="verse-bible-link" hitSlop={8} style={styles.verseActionBtn}>
+                <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
+              </Pressable>
+              <Pressable
+                onPress={onNativeShareVerse}
+                testID="share-scripture-native-button"
+                hitSlop={8}
+                style={styles.verseActionBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Share verse"
+              >
+                <Ionicons name="paper-plane-outline" size={16} color={colors.textTertiary} />
+              </Pressable>
+              <Pressable
+                onPress={() => openShare({ kind: "verse" })}
+                testID="share-scripture-button"
+                hitSlop={8}
+                style={styles.verseActionBtn}
+              >
+                {sharePreparing && shareSource?.kind === "verse" ? (
+                  <ActivityIndicator size="small" color={colors.textTertiary} />
+                ) : (
+                  <Ionicons name="share-outline" size={16} color={colors.textTertiary} />
+                )}
+              </Pressable>
             </View>
-            <Text style={styles.verseText}>"{verse.verse}"</Text>
           </Animated.View>
         )}
 
-        {/* Devotional — skeleton until Phase 2 resolves. */}
+        {/* Devotional — collapsed by default so the verse breathes.
+            User taps 'Reflect on this passage' to expand. */}
         <View>
-          <View style={styles.devoHeader}>
-            <Text style={styles.sectionLabel}>Devotional</Text>
-            {!devoLoading && !!devotional && verse && (
-              <Pressable
-                onPress={() => openShare({ kind: "devotional" })}
-                hitSlop={8}
-                style={styles.devoShareBtn}
-                testID="share-devotional-button"
-                accessibilityRole="button"
-                accessibilityLabel="Share devotional"
-              >
-                {sharePreparing && shareSource?.kind === "devotional" ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
-                ) : (
-                  <Ionicons name="share-outline" size={14} color={colors.accent} />
-                )}
-              </Pressable>
-            )}
-          </View>
-          {devoLoading || !devotional ? (
+          <Pressable
+            onPress={() => setDevoExpanded((v) => !v)}
+            hitSlop={8}
+            style={styles.devoToggle}
+            testID="devotional-toggle"
+            accessibilityRole="button"
+            accessibilityLabel={devoExpanded ? "Hide reflection" : "Reflect on this passage"}
+          >
+            <Text style={styles.devoToggleText}>
+              {devoExpanded ? "Hide reflection" : "Reflect on this passage"}
+            </Text>
+            <Ionicons
+              name={devoExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textTertiary}
+            />
+          </Pressable>
+          {devoExpanded && (
+            <View style={styles.devoHeader}>
+              <Text style={styles.sectionLabel}>Devotional</Text>
+              {!devoLoading && !!devotional && verse && (
+                <Pressable
+                  onPress={() => openShare({ kind: "devotional" })}
+                  hitSlop={8}
+                  style={styles.devoShareBtn}
+                  testID="share-devotional-button"
+                  accessibilityRole="button"
+                  accessibilityLabel="Share devotional"
+                >
+                  {sharePreparing && shareSource?.kind === "devotional" ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Ionicons name="share-outline" size={14} color={colors.accent} />
+                  )}
+                </Pressable>
+              )}
+            </View>
+          )}
+          {devoExpanded && (devoLoading || !devotional ? (
             <Animated.View style={[styles.devotionalCard, { opacity: skeletonOpacity, gap: 10 }]} testID="devotional-skeleton">
               <View style={[styles.skeletonBar, { width: "98%", height: 13 }]} />
               <View style={[styles.skeletonBar, { width: "94%", height: 13 }]} />
@@ -568,7 +588,7 @@ export default function ScriptureScreen() {
             <View style={styles.devotionalCard} testID="devotional-card">
               <Text style={styles.devotionalText}>{devotional}</Text>
             </View>
-          )}
+          ))}
         </View>
 
         {/* Reflection — inline, scoped to today's verse. Only shown once we have a verse. */}
@@ -651,7 +671,8 @@ export default function ScriptureScreen() {
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
   hero: { marginTop: 18, marginBottom: 6 },
-  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 6 },
+  purpose: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, letterSpacing: 0.4, marginBottom: 12 },
   title: { fontFamily: fonts.sansSemibold, fontSize: 24, color: colors.text, letterSpacing: -0.4, lineHeight: 30 },
   dateLine: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 10 },
   banner: { paddingVertical: 10, alignItems: "center" },
@@ -679,6 +700,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verseText: { fontFamily: fonts.serif, fontSize: 24, color: colors.text, lineHeight: 36, letterSpacing: 0.1 },
+  verseReference: { fontFamily: fonts.sansMedium, fontSize: 12, color: colors.accent, letterSpacing: 1.8, textTransform: "uppercase", marginTop: 18 },
+  verseActions: { flexDirection: "row", gap: 4, marginTop: 12, marginLeft: -8 },
+  verseActionBtn: { padding: 8, borderRadius: 20 },
+  devoToggle: {
+    marginTop: 4,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 12,
+  },
+  devoToggleText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.3,
+  },
   sectionLabel: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,

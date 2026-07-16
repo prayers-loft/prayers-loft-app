@@ -139,6 +139,7 @@ export default function BibleAssistantScreen() {
       >
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Study</Text>
+          <Text style={styles.purpose}>Explore Scripture with care.</Text>
           <Text style={styles.title}>Study with care.</Text>
           <Text style={styles.subtitle}>
             Ask any Bible or theology question, or generate a devotional on a topic that's on your heart.
@@ -278,7 +279,8 @@ export default function BibleAssistantScreen() {
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 140, gap: 16 },
   hero: { marginTop: 18, marginBottom: 6 },
-  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 6 },
+  purpose: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, letterSpacing: 0.4, marginBottom: 12 },
   title: { fontFamily: fonts.sansSemibold, fontSize: 24, color: colors.text, letterSpacing: -0.4, lineHeight: 30 },
   subtitle: { fontFamily: fonts.serif, fontSize: 15, color: colors.textSecondary, marginTop: 10, lineHeight: 22 },
   qaWrap: { gap: 12, marginTop: 8 },

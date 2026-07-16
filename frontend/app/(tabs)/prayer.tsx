@@ -267,6 +267,7 @@ export default function PrayerScreen() {
           {/* Hero */}
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>Prayer</Text>
+            <Text style={styles.purpose}>Bring your heart before God.</Text>
             <Text style={styles.title}>Take a breath.</Text>
             <Text style={styles.subtitle}>You don't need perfect words.</Text>
           </View>
@@ -407,7 +408,8 @@ function IconAction({ icon, label, onPress, disabled, testID }: { icon: keyof ty
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 160, gap: 22 },
   hero: { marginTop: 18, marginBottom: 22 },
-  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 16 },
+  eyebrow: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.accent, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 6 },
+  purpose: { fontFamily: fonts.sans, fontSize: 13, color: colors.textSecondary, letterSpacing: 0.4, marginBottom: 12 },
   title: { fontFamily: fonts.sansSemibold, fontSize: 26, color: colors.text, letterSpacing: -0.5, lineHeight: 32 },
   subtitle: { fontFamily: fonts.sans, fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 21 },
   inputWrap: {

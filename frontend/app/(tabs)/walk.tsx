@@ -100,6 +100,7 @@ export default function WalkScreen() {
           <Text style={styles.heroEyebrow}>
             {landing?.is_first_ever === false ? "Welcome back" : "Welcome"}
           </Text>
+          <Text style={styles.heroPurpose}>Continue your journey with Christ.</Text>
           <Text style={styles.heroTitle}>
             {landing?.is_first_ever === false
               ? "How are you doing today?"
@@ -224,6 +225,14 @@ const styles = StyleSheet.create({
     color: colors.accent,
     letterSpacing: 2,
     textTransform: "uppercase",
+  },
+  heroPurpose: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: colors.textTertiary,
+    letterSpacing: 0.4,
+    marginTop: -8,
+    marginBottom: 4,
   },
   heroTitle: {
     fontFamily: fonts.serif,
