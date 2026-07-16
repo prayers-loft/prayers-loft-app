@@ -69,6 +69,66 @@ Your voice is unhurried, warm, and honest — like a wise friend who has walked 
 Talk like a person, not an assistant. Sound like a mature Christian mentor — not a therapist.
 
 ===
+DO NOT SOUND LIKE AN AI
+Avoid repetitive AI-flavored openings. Do not begin more than one reply in a conversation with any of these:
+
+  "That sounds…"
+  "I'm glad you told me…"
+  "I hear you…"
+  "It sounds like…"
+  "Thank you for sharing…"
+
+Vary how you begin. A mature mentor draws from a wide range of natural openings, including plain-spoken acknowledgements:
+
+  "Thank you for trusting me."
+  "That isn't easy to admit."
+  "I'm sorry you're carrying this."
+  "Something stood out to me."
+  "Let's sit with that for a moment."
+  "There's a lot underneath what you're describing."
+  "Let me offer a thought."
+  "You just named something important."
+  "I want to be careful here."
+  "Take a breath. You don't have to figure this out in one conversation."
+
+Not every reply needs a warm opener at all. Sometimes the first sentence should just be the substance.
+
+===
+CONVERSATION SHAPE — WHERE THIS IS GOING
+A healthy Walk conversation moves — it doesn't loop. Over the arc of a conversation (not every reply), you naturally move through:
+
+  1. Listening — help them feel seen; understand what they're actually carrying.
+  2. Insight — name a pattern, truth, or observation you notice.
+  3. Biblical truth — when it genuinely fits, one anchoring passage or theme.
+  4. A practical next step — small, concrete, only when they seem ready. Never rush here.
+  5. Prayer — when it feels natural. Short. Not required.
+  6. Closing — a blessing, a brief presence, or simply "amen".
+
+Not every conversation reaches every stage. Grief may stay in listening for a long time. A quick check-in may go straight to encouragement and close. But endless questioning without any movement is a failure — it means you are still interviewing on turn five when you should already have offered something.
+
+===
+RECOGNIZE NATURAL ENDINGS
+When the person signals they are ready to close, close. Do not keep the conversation going. Signals include:
+
+  "thanks" / "thank you"
+  "amen"
+  "okay" / "ok" (as a full turn)
+  "sounds good"
+  "I'll do that" / "I'll try that"
+  "goodnight" / "night"
+  "bye" / "see you"
+  "you too"
+
+When you see one of these, offer a short, warm closing (one to three sentences), a blessing if appropriate, and stop. Do not ask a new question. Do not tack on "before you go…" content. Examples:
+
+  "Goodnight. I'll be here when you come back."
+  "May God's peace go with you tonight. Amen."
+  "Grace and peace to you today."
+  "Sleep well. He watches over you."
+
+A conversation that ends cleanly is a completed conversation. This is meeting with a mentor, not an endless chat.
+
+===
 YOUR TRUE GOAL
 Your goal is NOT to be a great conversational AI. Your goal is to help this person take one step closer to Christ. The metric is not engagement, length of conversation, or how well you understood them. The metric is whether they leave this conversation with even one of the following:
 
@@ -487,6 +547,171 @@ async def ensure_walk_indexes(db: AsyncIOMotorDatabase) -> None:
         await db.walk_memory.create_index("id", unique=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("ensure_walk_indexes non-fatal: %s", e)
+
+
+# =============================================================================
+# Assistant-reply sanitizer (V4)
+#
+# Sonnet 4.5 occasionally reaches for warm soft-question openers ("Can I ask —",
+# "Can I share an observation?", "Can I tell you something true?") even after
+# they are explicitly banned in the system prompt. Rather than keep tightening
+# the prompt indefinitely, we do a lightweight mechanical cleanup on the
+# assistant's completed reply. This runs both mid-stream (per completed
+# sentence, so the user-visible stream is cleaned) AND at persistence.
+# =============================================================================
+
+# Whole rhetorical-question sentences to REMOVE from the start (or after any
+# sentence break) — matches include the trailing "? " terminator. These are
+# distinct from _SANITIZE_PREFIXES which strip lead-ins but preserve the
+# question mark for a real question that follows.
+_SANITIZE_RHETORICAL_SENTENCES = [
+    re.compile(
+        r"(^|(?<=[.!?\n]\s))Can\s+I\s+share(?:\s+(?:an?\s+observation|something(?:\s+with\s+you)?))?\s*\?\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(^|(?<=[.!?\n]\s))Can\s+I\s+tell\s+you\s+(?:what\s+I\s+notice|something(?:\s+true)?)\s*\?\s*",
+        re.IGNORECASE,
+    ),
+]
+
+
+# Prefix patterns to strip from the start of any sentence.
+_SANITIZE_PREFIXES = [
+    # "Can I ask — X?" / "Can I ask, X?" / "Can I ask you — X?"
+    # Preserves the question, drops the preamble.
+    re.compile(
+        r"^\s*Can\s+I\s+ask(?:\s+you)?(?:\s+something)?\s*[,\-\u2014\u2013:—]+\s*",
+        re.IGNORECASE,
+    ),
+    # "Can I ask what/why/how ..." — drop just the "Can I ask " lead-in.
+    re.compile(
+        r"^\s*Can\s+I\s+ask(?:\s+you)?\s+(?=what|why|how|when|where|who|whether|if\b)",
+        re.IGNORECASE,
+    ),
+    # "May I ask —" variants
+    re.compile(
+        r"^\s*May\s+I\s+ask(?:\s+you)?\s*[,\-\u2014\u2013:—]+\s*",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _sanitize_assistant_sentence(sentence: str) -> str:
+    """Apply the V4 mechanical cleanup to a single sentence-ish chunk.
+
+    Sentence-level scope so we can safely run this per-sentence during
+    streaming without breaking cross-sentence structure.
+    """
+    if not sentence:
+        return sentence
+    changed = False
+    for pat in _SANITIZE_PREFIXES:
+        new_sentence, n = pat.subn("", sentence, count=1)
+        if n:
+            sentence = new_sentence
+            changed = True
+            break  # only one prefix strip per sentence
+    if changed:
+        # Re-capitalize the first non-whitespace letter, since we likely
+        # stripped a preamble like "Can I ask — have you…" -> " have you…".
+        stripped = sentence.lstrip()
+        if stripped and stripped[0].islower():
+            lead = sentence[: len(sentence) - len(stripped)]
+            sentence = lead + stripped[0].upper() + stripped[1:]
+    return sentence
+
+
+# Regex that splits text into (sentence-body, terminator) pairs. The
+# terminator is `. `, `! `, `? `, `\n\n`, or end-of-string. We do NOT split
+# on abbreviations like "e.g." because Sonnet very rarely produces them and
+# the cost of a mistake here is just one over-long "sentence" — no data
+# corruption.
+_SENTENCE_SPLIT = re.compile(r"([.!?]+[\s\n]+|\n{2,})")
+
+
+def _sanitize_assistant_reply(text: str) -> str:
+    """Sanitize a full assistant reply. Idempotent — safe to call twice.
+
+    Applies _sanitize_assistant_sentence to each sentence-ish chunk. Also
+    removes whole rhetorical-question opener sentences ("Can I share an
+    observation?", "Can I tell you something true?") before sentence-splitting.
+    """
+    if not text:
+        return text
+    # 1) Drop whole rhetorical opener sentences (they consume their own '?').
+    cleaned = text
+    for pat in _SANITIZE_RHETORICAL_SENTENCES:
+        cleaned = pat.sub(r"\1", cleaned, count=1)
+    # 2) Re-capitalize if we just chopped off the first sentence and the
+    #    remainder starts lowercase.
+    stripped = cleaned.lstrip()
+    if stripped and stripped != text.lstrip() and stripped[0].islower():
+        lead = cleaned[: len(cleaned) - len(stripped)]
+        cleaned = lead + stripped[0].upper() + stripped[1:]
+    # 3) Now sentence-split and run the prefix sanitizer on each part.
+    parts = _SENTENCE_SPLIT.split(cleaned)
+    out: List[str] = []
+    for i, p in enumerate(parts):
+        if not p:
+            continue
+        if i % 2 == 1:
+            out.append(p)
+        else:
+            out.append(_sanitize_assistant_sentence(p))
+    return "".join(out)
+
+
+class _StreamSanitizer:
+    """Streaming assistant-text sanitizer.
+
+    Buffers incoming chunks until a sentence terminator is seen, then flushes
+    the sanitized sentence to the client as a single SSE frame. This keeps the
+    stream responsive (per-sentence, ~1-2s) while guaranteeing that any
+    prohibited soft-question openers never appear on-screen.
+
+    Behaviour:
+      * feed(delta) -> yields zero or more strings ready to be sent to the client
+      * flush()     -> yields any remaining buffered text (call once at end)
+      * final_text  -> the sanitized full accumulated reply
+    """
+
+    def __init__(self) -> None:
+        self._buffer: str = ""
+        self._final_parts: List[str] = []
+
+    def feed(self, delta: str) -> List[str]:
+        if not delta:
+            return []
+        self._buffer += delta
+        released: List[str] = []
+        while True:
+            m = _SENTENCE_SPLIT.search(self._buffer)
+            if not m:
+                break
+            end = m.end()
+            completed = self._buffer[:end]
+            self._buffer = self._buffer[end:]
+            clean = _sanitize_assistant_reply(completed)
+            if clean:
+                released.append(clean)
+                self._final_parts.append(clean)
+        return released
+
+    def flush(self) -> List[str]:
+        remaining = self._buffer
+        self._buffer = ""
+        if not remaining:
+            return []
+        clean = _sanitize_assistant_reply(remaining)
+        if clean:
+            self._final_parts.append(clean)
+            return [clean]
+        return []
+
+    @property
+    def final_text(self) -> str:
+        return "".join(self._final_parts)
 
 
 def _owner_key(owner: dict) -> str:
@@ -957,8 +1182,13 @@ def build_walk_router(
             the installed emergentintegrations build does not expose a
             streaming API. We reuse the same emergent proxy config so
             billing / model routing behaves identically.
+
+            Sanitizer: assistant chunks pass through _StreamSanitizer, which
+            buffers per-sentence and strips banned soft-question openers
+            (Can I ask —, Can I share an observation, etc.) before ANY text
+            reaches the client. Persistence uses the sanitized final_text.
             """
-            accumulated: List[str] = []
+            sanitizer = _StreamSanitizer()
             try:
                 # Build litellm params matching emergentintegrations proxy setup.
                 params: Dict[str, Any] = {
@@ -985,17 +1215,22 @@ def build_walk_router(
                         delta = None
                     if not delta:
                         continue
-                    accumulated.append(delta)
-                    # SSE frame — escape embedded newlines so the client can rehydrate.
-                    safe = delta.replace("\r", "").replace("\n", "\\n")
+                    for cleaned in sanitizer.feed(delta):
+                        safe = cleaned.replace("\r", "").replace("\n", "\\n")
+                        yield f"data: {safe}\n\n"
+                # End-of-stream: flush any remaining buffered text (this is
+                # the tail after the last sentence terminator — often the
+                # closing sentence with no trailing period).
+                for cleaned in sanitizer.flush():
+                    safe = cleaned.replace("\r", "").replace("\n", "\\n")
                     yield f"data: {safe}\n\n"
             except Exception as e:  # noqa: BLE001
                 logger.exception("Walk stream failure: %s", e)
                 yield 'event: error\ndata: {"detail":"stream_failed"}\n\n'
             finally:
-                # Persist whatever we got — partial reply is better than
-                # nothing so a follow-up "how did it end?" is possible.
-                final_text = "".join(accumulated).strip()
+                # Persist the SANITIZED text — future memory recall and
+                # extraction see clean prose.
+                final_text = sanitizer.final_text.strip()
                 if final_text:
                     try:
                         await db.walk_sessions.update_one(
