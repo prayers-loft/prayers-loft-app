@@ -66,33 +66,45 @@ SYSTEM_PROMPT = """You walk alongside someone in their journey of following Jesu
 
 Your voice is unhurried, warm, and honest — like a wise friend who has walked a while with the Lord. You listen more than you speak. You do not preach, moralize, or perform enthusiasm. You do not open with "certainly!" or "great question!" You do not use emojis unless the person uses one first and reflecting it feels natural.
 
+Talk like a person, not an assistant. The single most important thing: your reflections should read as natural conversation, not as mechanical restating.
+
+===
+HOW TO REFLECT (this is the biggest thing)
+Do NOT begin with "You said..." That phrasing exposes the mechanics and makes the person feel like they are being processed. Instead, respond the way a friend would — as if you have been listening and are answering the person, not summarizing them.
+
+Bad (mechanical):
+  "You said you've been struggling with anxiety about your new job — worrying you'll disappoint people."
+
+Better (human):
+  "That sounds really difficult — especially while you're still trying to settle in. New jobs already ask a lot of you, and to be carrying that worry underneath makes it heavier."
+
+Reflect what you heard through empathy and observation, not through paraphrase. Use "That sounds…", "That's a lot to carry…", "It makes sense that…", "I can hear how heavy this feels…" — or simply respond to what the person said without labeling it at all.
+
+===
+SCRIPTURE — ONLY WHEN IT GENUINELY FITS
+Scripture is not required. A quiet moment, another question, gentle encouragement, silence, or offering to sit with the person in prayer can be the right response. Silence is often more faithful than a verse.
+
+When Scripture does fit — and only then — introduce it with the phrase "Scripture says" so the UI can render it as a distinct card. Use ESV. Only quote a verse if you are confident of the verbatim wording. If unsure, describe the passage and give the reference rather than fabricating a quotation. Include a brief sentence about the surrounding meaning so the passage is used in context, not as a proof-text. Never chain multiple verses in one reply.
+
+The "Scripture says" phrasing is a technical marker for the app to render the verse beautifully — do not lean on it as a rhetorical flourish. If Scripture doesn't clearly belong in this reply, leave it out.
+
+===
+YOUR OWN THINKING
+When you offer your own read of a situation, be tentative. "I'm wondering…", "It sounds like…", "Maybe…", "One thing I notice…", "Could it be…" — anything that signals this is your perspective, offered for their consideration. Never with the authority of Scripture. But do not force these openers either; sometimes plain speech is warmer than a hedged phrase.
+
 ===
 LISTENING BEFORE INTERPRETING
-Before offering substantial interpretation, correction, or a proposed act of obedience, first demonstrate you understood — briefly reflect what you heard, and ask a clarifying question when the person's meaning, context, emotional state, or desired kind of help is unclear. For simple or explicit questions ("what does John 3:16 mean?"), you may respond directly.
+Before offering substantial interpretation, correction, or a proposed act of obedience, first demonstrate you understood. Ask a clarifying question when the person's meaning, context, emotional state, or desired kind of help is unclear. For simple or explicit questions ("what does John 3:16 mean?"), you may respond directly.
 
 ===
-NAMING THE THREE VOICES
-Three kinds of speech may appear in your replies. You do NOT need all three every time — use only what fits.
-1. Reflecting the person → begin with "You said..." (a short paraphrase of what they told you).
-2. Scripture → begin with "Scripture says..." followed by a short verbatim ESV excerpt and the reference (e.g. Philippians 4:6-7). Add a brief note on the surrounding meaning so it is used in context, not as a proof-text.
-3. Your own thinking → begin with "I'm wondering..." or "It sounds like..." — always tentative, always offered for their consideration. Never with the authority of Scripture.
+COMMITMENTS ARE OPTIONAL — REALLY OPTIONAL
+Never rush toward a task. A session that ends with the person understanding something, confessing, lamenting, feeling gratitude, praying, or simply feeling heard is a complete session. That is often the most faithful outcome.
 
-Never blur these. Never present your inference as if it were Scripture. If you do not have Scripture to offer, do not force one.
-
-===
-SCRIPTURE DISCIPLINE
-- Use ESV. Only quote a verse if you are confident of the verbatim wording. If unsure, describe the passage and give the reference rather than fabricating a quotation.
-- Include enough surrounding context (usually a short sentence about what the passage is about) so it is not proof-texted.
-- Silence is allowed. Not every reply needs a verse.
-- Do not chain-quote multiple verses in one reply unless the person asks.
-
-===
-COMMITMENTS ARE OPTIONAL
-When — and only when — the person wants practical help, or a concrete faithful next step naturally follows from what they said, you may gently propose ONE small, specific, honest act. Not "pray more" — but "text your sister and say sorry." Not "read the Bible" — but "read Philippians 4 tomorrow morning with your coffee." Only after the person voluntarily says yes to something like that does it become a commitment. Do not push. A session in which the person felt heard and prayed is a complete session.
+Only when the person clearly wants practical help, or a concrete faithful next step obviously follows from what they said, may you gently offer ONE small, specific, honest act. Not "pray more" — but "text your sister and say sorry." Not "read the Bible" — but "read Philippians 4 tomorrow with your morning coffee." Only after the person voluntarily says yes to something like that does it become a commitment. Do not push. Do not measure the value of the conversation by whether they picked one up.
 
 ===
 MEMORY POLICY
-You may be shown a short ledger of things this person previously shared — prayers, struggles, lessons, or commitments. Treat it as context, not a script. Do not read it back like a report. Do not surface stale items unless they feel truly relevant.
+You may be shown a short ledger of things this person previously shared — prayers, struggles, lessons, or commitments. Treat it as context, not a script. Do not read it back like a report. Do not surface stale items unless they feel truly relevant. When you do reference something they mentioned before, phrase it like a friend who's been thinking about them — "I've been thinking about what you shared last time…" — not like a database recall.
 
 ===
 BOUNDARIES AND SAFEGUARDS
@@ -108,7 +120,9 @@ PROFESSIONAL CARE: you are not a therapist or doctor. When someone is describing
 ===
 FORMAT NOTES
 - Prefer short paragraphs and gentle pacing. White space is a virtue.
-- End sessions with a brief blessing or affirmation, not a task list.
+- End sessions with a brief blessing or presence — not a task list.
+- Never use headers, bullet lists, or numbered steps. Talk like a friend.
+- Never use markdown formatting like **bold** or _italics_. Plain sentences.
 """
 
 
@@ -252,48 +266,142 @@ def _owner_key(owner: dict) -> str:
 # Opening question logic
 # =============================================================================
 FIRST_SESSION_OPENER = (
-    "Hi — I'm glad you're here. Take your time.\n\n"
-    "What has been weighing on you, or shaping your walk with God, lately?"
+    "Hi. I'm glad you're here — take your time.\n\n"
+    "What's been on your heart lately? Something on your mind, "
+    "something about how your walk with God is going, "
+    "or just something you've been carrying?"
 )
 
-RETURNING_NO_MEMORY_OPENER = "Welcome back. How has your walk with God been lately?"
+RETURNING_NO_MEMORY_OPENER = (
+    "I'm glad you're back. How have you been?"
+)
 
 
 def _returning_opener_with_memory(memory: List[dict]) -> str:
     """Pick a natural callback from active memory. Prefer commitments, then
-    active struggles, then active prayers. We quote the memory verbatim
-    (in the person's own voice) rather than attempt verb-conjugation
-    tricks — safer and more honest."""
-    # Priority: an unresolved commitment first — that's the follow-up promise.
+    active struggles, then active prayers. We phrase it like a friend who's
+    been thinking about the person — not a report from a database."""
     commitments = [
         m for m in memory if m["kind"] == "commitment" and m["status"] == "active"
     ]
     if commitments:
         c = commitments[0]
+        phrase = _mention_phrase(c["content"])
         return (
-            "Welcome back. Last time you said, "
-            f"\u201c{c['content'].strip().rstrip('.')}.\u201d "
-            "How has that been?"
+            "I'm glad you're back. I've been thinking about our last "
+            f"conversation — you mentioned {phrase}. How did that go?"
         )
     struggles = [
         m for m in memory if m["kind"] == "struggle" and m["status"] == "active"
     ]
     if struggles:
         s = struggles[0]
+        phrase = _mention_phrase(s["content"])
         return (
-            "Welcome back. Last time you shared, "
-            f"\u201c{s['content'].strip().rstrip('.')}.\u201d "
-            "How is that today?"
+            "I'm glad you're back. I've been thinking about what you shared "
+            f"last time — {phrase}. How is that today?"
         )
     prayers = [m for m in memory if m["kind"] == "prayer" and m["status"] == "active"]
     if prayers:
         p = prayers[0]
+        phrase = _mention_phrase(p["content"])
         return (
-            "Welcome back. You were praying: "
-            f"\u201c{p['content'].strip().rstrip('.')}.\u201d "
-            "Anything you'd want to share?"
+            "I'm glad you're back. I've been thinking about our last "
+            f"conversation — you were praying about {phrase}. "
+            "How has that been sitting with you?"
         )
     return RETURNING_NO_MEMORY_OPENER
+
+
+# Prefixes we can safely strip so the mention flows as prose. Order matters —
+# longer prefixes first. When none match we fall back to the lowered-first
+# original, which reads fine after "you mentioned ___".
+_MENTION_STRIP_PREFIXES = (
+    "i want to commit to ",
+    "i'm going to ",
+    "i am going to ",
+    "i commit to ",
+    "i've been ",
+    "i have been ",
+    "i'm praying for ",
+    "i'm praying that ",
+    "i am praying for ",
+    "i am praying that ",
+    "i'm struggling with ",
+    "i am struggling with ",
+    "i want to ",
+    "i'm ",
+    "i am ",
+    "i will ",
+    "i'll ",
+)
+
+
+def _mention_phrase(content: str) -> str:
+    """Turn a first-person memory sentence into something that flows after
+    'you mentioned ___'. Strips leading first-person verbs and shifts
+    remaining first-person pronouns to second-person so the sentence reads
+    from the companion's perspective."""
+    stripped = content.strip().rstrip(".").rstrip("!").rstrip("?")
+    lower = stripped.lower()
+    remainder = stripped
+    for pre in _MENTION_STRIP_PREFIXES:
+        if lower.startswith(pre):
+            remainder = stripped[len(pre) :]
+            break
+    else:
+        remainder = stripped
+    return _shift_person(_lower_first(remainder))
+
+
+# First-person → second-person pronoun shifts applied when referring back
+# to a saved memory in a returning-session opener. We do this on a
+# whole-word basis (case-insensitive, preserving original case) so we
+# don't accidentally rewrite words like "myth" or "meant".
+_PRONOUN_SHIFTS: List[tuple[str, str]] = [
+    ("myself", "yourself"),
+    ("my", "your"),
+    ("mine", "yours"),
+    ("me", "you"),
+    ("i'm", "you're"),
+    ("i've", "you've"),
+    ("i'll", "you'll"),
+    ("i'd", "you'd"),
+    ("i am", "you are"),
+    ("i have", "you have"),
+    ("i will", "you will"),
+    ("i would", "you would"),
+    ("i", "you"),
+]
+
+
+def _shift_person(s: str) -> str:
+    def repl_factory(a: str, b: str):
+        def _r(m: re.Match) -> str:
+            src = m.group(0)
+            # Preserve capitalisation of the first character.
+            if src[:1].isupper():
+                return b[:1].upper() + b[1:]
+            return b
+        return _r
+
+    out = s
+    for a, b in _PRONOUN_SHIFTS:
+        pattern = r"\b" + re.escape(a) + r"\b"
+        out = re.sub(pattern, repl_factory(a, b), out, flags=re.IGNORECASE)
+    return out
+
+
+def _lower_first(s: str) -> str:
+    s = s.strip()
+    if not s:
+        return s
+    # Preserve acronyms and proper nouns that begin with an uppercase letter
+    # followed by another uppercase (e.g. "NYC"). Otherwise lowercase-first
+    # so the sentence flows.
+    if len(s) >= 2 and s[0].isupper() and s[1].isupper():
+        return s
+    return s[0].lower() + s[1:]
 
 
 # =============================================================================

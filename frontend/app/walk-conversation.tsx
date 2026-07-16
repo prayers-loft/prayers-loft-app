@@ -354,92 +354,112 @@ function MessageBubble({
   );
 }
 
-type Voice = "reflect" | "scripture" | "wondering" | "neutral";
-type Segment = { voice: Voice; label: string | null; body: string };
+type Voice = "scripture" | "neutral";
+type Segment = { voice: Voice; body: string; reference: string | null };
 
-// Recognize the phrase-tags used by the prompt:
-//   "You said..."               → reflect
-//   "Scripture says..."         → scripture (accent stripe)
-//   "I'm wondering..."          → wondering
-//   "It sounds like..."         → wondering
-// Anything else → neutral.
-const VOICE_MARKERS: { voice: Voice; regex: RegExp; label: string }[] = [
-  { voice: "reflect", regex: /(^|\n\s*)You said[,\s—-]/i, label: "You said" },
-  { voice: "scripture", regex: /(^|\n\s*)Scripture says[,\s—:-]/i, label: "Scripture says" },
-  { voice: "wondering", regex: /(^|\n\s*)I'?m wondering[,\s—-]/i, label: "I'm wondering" },
-  { voice: "wondering", regex: /(^|\n\s*)It sounds like[,\s—-]/i, label: "It sounds like" },
-];
+// The only voice-tag we honor is "Scripture says" — that's the technical
+// marker the prompt uses so the app can render Scripture as a distinct card.
+// Everything else flows as ordinary prose. No "YOU SAID" or "I'M WONDERING"
+// labels: those would expose the AI mechanics and are exactly what the
+// product wants to avoid.
+const SCRIPTURE_MARKER = /(^|\n\s*)Scripture says[,\s—:-]+/i;
+
+// Try to pull "(Book Chapter[:verse[-verse]])" out of a Scripture body so we
+// can render the reference cleanly below the quotation. Falls back to null.
+const REFERENCE_RE =
+  /\(((?:\d\s*)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+\d{1,3}(?::\d{1,3}(?:[-\u2013]\d{1,3})?)?)\)/;
+
+// Also match a dash-prefixed reference like "— Philippians 4:6-7" or
+// "— Philippians 4:6–7 (ESV)".
+const REFERENCE_DASH_RE =
+  /[\u2014\u2013-]+\s*((?:\d\s*)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+\d{1,3}(?::\d{1,3}(?:[-\u2013]\d{1,3})?)?)\s*(?:\(ESV\))?\s*$/;
 
 function splitAssistantVoices(content: string): Segment[] {
-  // Strip markdown bold/italic wrappers so we can detect "**Scripture says:**"
-  // and "_You said_" the same way as plain-text markers.
+  // Strip markdown wrappers (bold, italic, block-quote `> `, and stray
+  // "Scripture says" bold labels) so the voice detector sees plain prose.
   const cleaned = content
     .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/(?<!_)__(?!_)(.+?)(?<!_)__(?!_)/g, "$1");
-  const hits: { voice: Voice; label: string; start: number; markerEnd: number }[] = [];
-  for (const m of VOICE_MARKERS) {
-    const re = new RegExp(m.regex.source, m.regex.flags.includes("g") ? m.regex.flags : m.regex.flags + "g");
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(cleaned))) {
-      const start = match.index + (match[1]?.length ?? 0);
-      hits.push({
-        voice: m.voice,
-        label: m.label,
-        start,
-        markerEnd: match.index + match[0].length,
-      });
-    }
-  }
-  hits.sort((a, b) => a.start - b.start);
-  if (hits.length === 0) {
-    return [{ voice: "neutral", label: null, body: cleaned.trim() }];
-  }
+    .replace(/(?<!_)__(?!_)(.+?)(?<!_)__(?!_)/g, "$1")
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1")
+    // Strip leading '> ' block-quote markers on any line.
+    .replace(/(^|\n)>\s?/g, "$1");
+
   const segments: Segment[] = [];
-  if (hits[0].start > 0) {
-    const pre = cleaned.slice(0, hits[0].start).trim();
-    if (pre) segments.push({ voice: "neutral", label: null, body: pre });
+  let cursor = 0;
+  const re = new RegExp(SCRIPTURE_MARKER.source, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(cleaned))) {
+    const markerStart = match.index + (match[1]?.length ?? 0);
+    if (markerStart > cursor) {
+      const pre = cleaned.slice(cursor, markerStart).trim();
+      if (pre) segments.push({ voice: "neutral", body: pre, reference: null });
+    }
+    const afterMarker = match.index + match[0].length;
+    const paragraphBreak = cleaned.indexOf("\n\n", afterMarker);
+    const lookahead = new RegExp(SCRIPTURE_MARKER.source, "gi");
+    lookahead.lastIndex = afterMarker;
+    const nextScripture = lookahead.exec(cleaned);
+    let end = cleaned.length;
+    if (paragraphBreak !== -1 && paragraphBreak < end) end = paragraphBreak;
+    if (nextScripture && nextScripture.index < end) end = nextScripture.index;
+    const bodyRaw = cleaned.slice(afterMarker, end).trim();
+    // Extract the reference in several common shapes:
+    //   1) (Book chapter:verse)
+    //   2) — Book chapter:verse
+    //   3) — Book chapter:verse (ESV)
+    // We pick the LAST match (references usually come at the end).
+    let bodyClean = bodyRaw;
+    let reference: string | null = null;
+    const parenMatch = bodyClean.match(REFERENCE_RE);
+    const dashMatch = bodyClean.match(REFERENCE_DASH_RE);
+    if (dashMatch) {
+      reference = dashMatch[1].trim();
+      bodyClean = bodyClean.replace(dashMatch[0], "").trim();
+    } else if (parenMatch) {
+      reference = parenMatch[1].trim();
+      bodyClean = bodyClean.replace(parenMatch[0], "").trim();
+    }
+    // Strip a trailing "(ESV)" / "ESV" note that might be left over.
+    bodyClean = bodyClean.replace(/\s*\(ESV\)\s*$/i, "").trim();
+    // Strip surrounding quotation marks if the entire body is quoted.
+    if (
+      (bodyClean.startsWith('"') && bodyClean.endsWith('"')) ||
+      (bodyClean.startsWith("\u201c") && bodyClean.endsWith("\u201d"))
+    ) {
+      bodyClean = bodyClean.slice(1, -1).trim();
+    }
+    segments.push({
+      voice: "scripture",
+      body: bodyClean,
+      reference,
+    });
+    cursor = end;
+    re.lastIndex = end;
   }
-  for (let i = 0; i < hits.length; i++) {
-    const h = hits[i];
-    const nextStart = i + 1 < hits.length ? hits[i + 1].start : cleaned.length;
-    const body = cleaned.slice(h.markerEnd, nextStart).trim();
-    segments.push({ voice: h.voice, label: h.label, body });
+  if (cursor < cleaned.length) {
+    const tail = cleaned.slice(cursor).trim();
+    if (tail) segments.push({ voice: "neutral", body: tail, reference: null });
+  }
+  if (segments.length === 0) {
+    return [{ voice: "neutral", body: cleaned.trim(), reference: null }];
   }
   return segments;
 }
 
 function VoiceSegment({ segment, last }: { segment: Segment; last: boolean }) {
-  const { voice, label, body } = segment;
+  const { voice, body, reference } = segment;
   if (voice === "scripture") {
     return (
-      <View style={styles.scriptureBlock} testID="walk-voice-scripture">
-        <Text style={styles.voiceLabelScripture}>{label ?? "Scripture says"}</Text>
+      <View style={styles.scriptureCard} testID="walk-voice-scripture">
         <Text style={styles.scriptureBody}>{body}</Text>
-      </View>
-    );
-  }
-  if (voice === "reflect") {
-    return (
-      <View style={styles.voiceBlock} testID="walk-voice-reflect">
-        <Text style={styles.voiceLabelReflect}>{label ?? "You said"}</Text>
-        <Text style={styles.assistantText}>{body}</Text>
-      </View>
-    );
-  }
-  if (voice === "wondering") {
-    return (
-      <View style={styles.voiceBlock} testID="walk-voice-wondering">
-        <Text style={styles.voiceLabelWondering}>{label ?? "I'm wondering"}</Text>
-        <Text style={styles.assistantText}>{body}</Text>
+        {reference ? <Text style={styles.scriptureRef}>{reference}</Text> : null}
       </View>
     );
   }
   return (
-    <View style={styles.voiceBlock}>
-      <Text style={[styles.assistantText, last && styles.assistantTextPulsing]}>
-        {body}
-      </Text>
-    </View>
+    <Text style={[styles.assistantText, last && styles.assistantTextPulsing]}>
+      {body}
+    </Text>
   );
 }
 
@@ -593,38 +613,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   voiceBlock: {},
-  scriptureBlock: {
+  scriptureCard: {
+    backgroundColor: "rgba(200,169,107,0.06)",
+    borderRadius: radii.md,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginVertical: 6,
+    gap: 6,
     borderLeftWidth: 2,
     borderLeftColor: colors.accent,
-    paddingLeft: 12,
-    paddingVertical: 4,
-    marginVertical: 4,
-    gap: 4,
   },
-  voiceLabelReflect: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 11,
-    color: colors.textTertiary,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 2,
-  },
-  voiceLabelScripture: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 11,
+  scriptureRef: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
     color: colors.accent,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 2,
-  },
-  voiceLabelWondering: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 11,
-    color: colors.textTertiary,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 2,
-    fontStyle: "italic",
+    letterSpacing: 1,
+    marginTop: 4,
   },
   assistantText: {
     fontFamily: fonts.sansRegular,
