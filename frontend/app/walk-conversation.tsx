@@ -19,6 +19,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -185,6 +187,87 @@ export default function WalkConversationScreen() {
     }
   }, [sessionId, router]);
 
+  // Fire /end in the background so a "Leave conversation" tap can navigate
+  // instantly while the server still runs extraction. Nothing awaits this.
+  // Errors are swallowed silently — the memory the user already confirmed
+  // (via typed "I commit to..." statements etc.) is captured server-side
+  // during the /end call whether or not the client sticks around.
+  const fireEndInBackground = useCallback(() => {
+    if (!sessionId) return;
+    // Abort any live stream first to avoid a race with /end.
+    try {
+      abortRef.current?.();
+    } catch {}
+    // Fire-and-forget; we do NOT await this.
+    endWalkSession(sessionId).catch(() => {
+      /* extraction is best-effort by design */
+    });
+  }, [sessionId]);
+
+  // Decide what to do when the header back button OR Android hardware back
+  // is pressed. Rules:
+  //   • phase "loading" or "ended" → navigate immediately
+  //   • only the opener message so far → navigate immediately
+  //   • real conversation (or streaming) → confirm leave; extraction fires
+  //     in the background on Leave
+  const handleBackPress = useCallback((): boolean => {
+    if (!sessionId) {
+      router.back();
+      return true;
+    }
+    if (phase === "ended" || phase === "loading") {
+      router.back();
+      return true;
+    }
+    // Only the opener assistant message → nothing to save.
+    const hasUserMessages = messages.some((m) => m.role === "user");
+    if (!hasUserMessages && phase === "ready") {
+      router.back();
+      return true;
+    }
+    // Real conversation: confirm on native; navigate immediately on web.
+    // (RN Web's Alert.alert has no multi-button UI, so a native-style
+    // confirmation would be a dead-end there. On web we optimize for
+    // reliability — always let the user leave when they tap back.)
+    if (Platform.OS === "web") {
+      fireEndInBackground();
+      router.back();
+      return true;
+    }
+    Alert.alert(
+      "Leave this conversation?",
+      phase === "streaming"
+        ? "Your companion is still finishing a thought. You can leave — anything you shared will still be saved."
+        : "Anything you shared will still be saved. You can continue this conversation or leave it here.",
+      [
+        {
+          text: "Continue conversation",
+          style: "cancel",
+        },
+        {
+          text: "Leave conversation",
+          style: "destructive",
+          onPress: () => {
+            fireEndInBackground();
+            router.back();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+    return true;
+  }, [sessionId, phase, messages, router, fireEndInBackground]);
+
+  // Wire Android hardware back to the same handler.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      // Return true = we handled it (don't let RN pop the stack itself).
+      handleBackPress();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleBackPress]);
+
   const savePendingCandidate = useCallback(
     async (idx: number, c: MemoryCandidate) => {
       try {
@@ -208,17 +291,18 @@ export default function WalkConversationScreen() {
       <Stack.Screen
         options={{
           headerShown: false,
-          gestureEnabled: phase !== "streaming",
+          // Swipe-back should always work — never held hostage by streaming.
+          gestureEnabled: true,
         }}
       />
 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable
-          onPress={closeAndExtract}
+          onPress={handleBackPress}
           hitSlop={12}
           testID="walk-close"
           accessibilityRole="button"
-          accessibilityLabel="Close conversation"
+          accessibilityLabel="Back"
         >
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>
