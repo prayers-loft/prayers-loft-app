@@ -208,10 +208,6 @@ export async function getNotificationModule(): Promise<NotificationsModule> {
  *  file free of top-level RN imports makes it fully importable from Node
  *  unit tests. */
 export async function detectPlatformOS(): Promise<string> {
-  try {
-    const RN = await import("react-native");
-    return RN.Platform.OS;
-  } catch {
-    return "web";
-  }
+  const { Platform } = require("react-native");
+  return Platform.OS;
 }
