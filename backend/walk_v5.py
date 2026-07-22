@@ -79,6 +79,7 @@ ClosingShape = Literal[
     "silence",
     "one_line_prayer",
     "plain_goodbye",
+    "plain_human",
     "gratitude",
 ]
 CLOSING_SHAPES: List[ClosingShape] = [
@@ -87,6 +88,7 @@ CLOSING_SHAPES: List[ClosingShape] = [
     "silence",
     "one_line_prayer",
     "plain_goodbye",
+    "plain_human",
     "gratitude",
 ]
 
@@ -236,38 +238,50 @@ _STANCE_GUIDANCE: Dict[str, str] = {
 }
 
 # Closing-shape guidance — what the model should aim for when the pipeline
-# has selected a specific closing shape.
+# has selected a specific closing shape. NO fixed example phrases are given
+# so the model writes fresh wording every time (per user directive: closings
+# must not become templates).
 _CLOSING_SHAPE_GUIDANCE: Dict[str, str] = {
     "blessing": (
         "Close with a short blessing (one to two sentences). A blessing "
-        "names God's presence with them, or God's peace / grace / mercy over "
-        "the situation. Fresh wording — avoid formulas you may have used "
-        "recently."
+        "names God's presence with them, or God's peace / grace / mercy "
+        "over the situation. Use fresh wording — do not reach for phrases "
+        "you have used recently. Do not begin with the same construction as "
+        "your last closing."
     ),
     "scripture": (
         "Close by leaving them with a single line of Scripture (introduce "
         "with 'Scripture says') and one short sentence of pastoral framing. "
-        "No blessing after."
+        "No blessing after. Choose a passage that fits THIS conversation, "
+        "not a default verse."
     ),
     "silence": (
-        "Close with quiet presence — one sentence, no blessing, no verse. "
-        "'Goodnight.' or 'I'll be here when you come back.' or 'Rest well.' "
-        "Something small enough that the weight of the conversation carries "
-        "them, not your closing."
+        "Close with quiet presence — one sentence. No blessing, no verse, "
+        "no prayer, no invitation. Something small enough that the weight "
+        "of the conversation carries them, not your closing. Fresh wording — "
+        "not a phrase you have used recently."
     ),
     "one_line_prayer": (
         "Close with one short prayer — no more than two sentences — offered "
-        "in first person plural or as an intercession. Then stop."
+        "in first-person plural or as an intercession. Match the actual "
+        "content of the conversation. Then stop."
     ),
     "plain_goodbye": (
-        "Close plainly, the way a friend would say goodbye. No blessing, no "
-        "verse. Warm and short. 'Goodnight.' 'Take care.' 'Talk soon.' "
-        "Whatever fits."
+        "Close the way a friend would say goodbye. No blessing, no verse, "
+        "no prayer. Warm and short. Just human — the kind of ending a "
+        "person hears in a hallway or on the phone. Fresh wording."
     ),
     "gratitude": (
-        "Close by naming, briefly, the goodness of what just happened in this "
-        "conversation — that they came, that they told the truth, that God "
-        "was in it. Do not thank them. Do not sound like customer service."
+        "Close by naming, briefly, the goodness of what just happened in "
+        "this conversation — that they came, that they told the truth, that "
+        "God was in it. Do not thank them. Do not sound like customer "
+        "service."
+    ),
+    "plain_human": (
+        "Close as a person would close a real human conversation — no "
+        "blessing, no Scripture, no prayer, no invitation. Not because "
+        "those are wrong, but because a plain human ending fits this "
+        "moment better. Keep it short and unadorned."
     ),
 }
 
@@ -284,6 +298,10 @@ class TurnDirective:
     memory_recap: Optional[str] = None
     closing_shape: Optional[ClosingShape] = None
     variety_hint: Optional[str] = None
+    # Phase 4: opener context — only meaningful when stance == "arrive".
+    # Determines how the arrival should feel (first-ever, returning after
+    # grief, returning after celebration, etc.). None = default arrive.
+    opener_context: Optional[OpenerContext] = None
     # Reserved for Phase 3 (walk_patterns engine). Callers can pass strong
     # pattern permissions when the engine ships; today this is always None.
     growth_permission: Optional[str] = None
@@ -292,6 +310,13 @@ class TurnDirective:
     def render(self) -> str:
         lines: List[str] = ["=== TURN DIRECTIVE ==="]
         lines.append(_STANCE_GUIDANCE[self.stance])
+
+        # Opener context guidance (only for arrive turns).
+        if self.stance == "arrive" and self.opener_context:
+            ctx = _OPENER_CONTEXT_GUIDANCE.get(self.opener_context)
+            if ctx:
+                lines.append("")
+                lines.append(ctx)
 
         # Length target — stated softly as a shape hint, not a hard cap.
         # The real ceiling is enforced via max_tokens on the API call.
@@ -356,14 +381,20 @@ def build_memory_recap(
     """Compose a short narrative paragraph the model can consult like a friend's
     mental model — never a bulleted CRM record.
 
-    Returns None for first-ever sessions (nothing to recap).
+    Returns None when there is no substantive content to describe. Specifically:
+      - First-ever session (no prior sessions).
+      - Returning user with no summaries AND no active memory — a bare
+        tenure line ("you've talked 3 times") is not meaningful context and
+        would encourage fake recall. Silence is more faithful.
 
     This is deliberately hand-composed prose today. Phase 3 will replace or
     augment it with output from the walk_patterns engine (recurring fears,
     victories, growth arcs). The dataclass surface above and this function's
     return type already accommodate that swap — callers only see a string.
     """
-    if session_count == 0 and not recent_summaries and not active_memory:
+    # Nothing to say if there's neither summary nor active memory —
+    # regardless of session_count. A tenure-only line is CRM filler.
+    if not recent_summaries and not active_memory:
         return None
 
     parts: List[str] = []
@@ -907,7 +938,22 @@ def classify_stance(
         return "arrive", signals
 
     # ---- Priority 3: bare closing signals --------------------------------
+    # A "thanks" or "goodnight" does not automatically end the session when
+    # the surrounding context is unresolved (grief, shame, danger,
+    # confusion, or a still-hot crisis). In those cases we downgrade to
+    # witness/listen so the assistant does not send the user away raw.
     if signals["closing"]:
+        gate = should_gate_closing(
+            prior_user_texts=prior_user_texts,
+            stance_history=stance_history,
+            depth_surfaced_before=depth_surfaced_before,
+        )
+        if gate:
+            # If the prior stance was witness, keep witnessing.
+            if stance_history and stance_history[-1] == "witness":
+                return "witness", signals
+            # Otherwise pull them back into presence via listen.
+            return "listen", signals
         return "close", signals
 
     # ---- Priority 4: witness for presence-appropriate moments ------------
@@ -919,7 +965,44 @@ def classify_stance(
     if signals["grief"] or signals["celebration"] or signals["confession"]:
         return "witness", signals
 
-    # ---- Priority 5: correction downgrades one stage --------------------
+    # ---- Priority 5: witness continuation rule --------------------------
+    # If the previous stance was witness (grief/celebration/confession) and
+    # the current turn did not itself re-trigger witness (priority 4 above),
+    # DO NOT rush to interpretation. Presence remains the correct move
+    # unless the user provides enough new information to support one.
+    #
+    # This fires BEFORE correction, subject_change, and advice detection so
+    # a person still emotionally engaged is not routed away from witness by
+    # unrelated signals.
+    #
+    # Advice requests get a narrow exception: a short, standalone advice
+    # question after witness may route to offer (subject to the emotional-
+    # complexity safeguard applied in priority 8 below). We detect that
+    # exception here so it flows through the advice path, not the witness-
+    # continuation return.
+    if stance_history and stance_history[-1] == "witness":
+        # Advice/theology carve-out: process inline (with the same emotional-
+        # complexity safeguards priority 8 would apply) so a false-positive
+        # subject_change signal cannot block a legitimate offer.
+        if signals["advice_request"] or signals["theological_question"]:
+            if signals["emotional_complexity"] and not depth_surfaced_before:
+                return "explore", signals
+            if depth_surfaced_before:
+                return "discern", signals
+            return "offer", signals
+        # Short, unresolved continuation ("yeah…", "still hurts", "i know")
+        # → remain in witness. Presence is the correct move.
+        if signals["very_short"]:
+            return "witness", signals
+        # New depth marker (they revealed a layer we hadn't yet seen)
+        # → discern. Sit with what just came up before naming anything.
+        if signals["depth_surfaced"] and not depth_surfaced_before:
+            return "discern", signals
+        # Substantial new content, no new depth → listen. Hear the next
+        # specific detail rather than jumping to interpretation.
+        return "listen", signals
+
+    # ---- Priority 6: correction downgrades one stage --------------------
     # User pushed back on our interpretation. Downgrade to a listening
     # posture rather than plowing forward.
     if signals["correction"]:
@@ -932,13 +1015,13 @@ def classify_stance(
             return "listen", signals
         return "listen", signals
 
-    # ---- Priority 6: subject change → back to listen --------------------
+    # ---- Priority 7: subject change → back to listen --------------------
     # User opened something new; hear the new thing before doing anything.
     # We only consider this from turn 2 onward (turn 1 has no prior body).
     if signals["subject_change"] and turn_index >= 2:
         return "listen", signals
 
-    # ---- Priority 7: direct advice / theological question ---------------
+    # ---- Priority 8: direct advice / theological question ---------------
     if signals["advice_request"] or signals["theological_question"]:
         # If the situation is emotionally complex and we have NOT yet
         # surfaced depth, do NOT skip straight to teaching. Explore first.
@@ -952,40 +1035,229 @@ def classify_stance(
             return "discern", signals
         return "offer", signals
 
-    # ---- Priority 8: interview avoidance --------------------------------
+    # ---- Priority 9: interview avoidance --------------------------------
     # After 2+ consecutive explores, promote to discern regardless of
     # whether new depth surfaced — chained interrogation is a failure mode.
     consecutive_explores = _consecutive_from_end(stance_history, "explore")
     if consecutive_explores >= 2:
         return "discern", signals
 
-    # ---- Priority 9: depth surfaced THIS turn → discern -----------------
+    # ---- Priority 10: depth surfaced THIS turn → discern ----------------
     if signals["depth_surfaced"] and not depth_surfaced_before:
         return "discern", signals
 
-    # ---- Priority 10: prior stance was discern → understand -------------
+    # ---- Priority 11: prior stance was discern → understand -------------
     if stance_history and stance_history[-1] == "discern":
         return "understand", signals
 
-    # ---- Priority 11: prior stance was understand → offer ---------------
+    # ---- Priority 12: prior stance was understand → offer ---------------
     if stance_history and stance_history[-1] == "understand":
         return "offer", signals
 
-    # ---- Priority 12: turn 1 defaults to listen -------------------------
+    # ---- Priority 13: turn 1 defaults to listen -------------------------
     # First user reply after the opener — reflect, make them feel heard.
     if turn_index == 1:
         return "listen", signals
 
-    # ---- Priority 13: default gathering stance --------------------------
-    # If depth was surfaced but the most recent stance was NOT discern or
-    # understand (e.g. we witnessed and moved on), and no new depth surfaced,
-    # go to understand — the user may be ready for gentle interpretation.
+    # ---- Priority 14: gathering-with-history default --------------------
+    # If depth was surfaced earlier and last stance was listen (not witness
+    # — witness is handled by the witness-continuation rule above), the
+    # user may be ready for gentle interpretation.
     if depth_surfaced_before and stance_history:
         last = stance_history[-1]
-        if last in {"witness", "listen"}:
+        if last == "listen":
             return "understand", signals
 
     return "explore", signals
+
+
+# =============================================================================
+# Phase 4 — Opener context + closing gate
+# =============================================================================
+
+OpenerContext = Literal[
+    "first_ever",              # brand new user
+    "returning_no_memory",     # returning user but no usable summary/memory
+    "returning_after_grief",   # last session was grief-heavy
+    "returning_after_crisis",  # last session touched crisis; re-enter gently
+    "returning_after_celebration",  # last session had genuine breakthrough
+    "returning_with_open_commitment",  # user left with a commitment; may check on it
+    "returning_general",       # returning user; nothing distinctive to lean on
+]
+
+
+# Opener-context guidance — appended to the arrive-stance directive on turn 0.
+# These describe posture, not scripts. The model still writes the opener.
+_OPENER_CONTEXT_GUIDANCE: Dict[str, str] = {
+    "first_ever": (
+        "OPENER CONTEXT — FIRST-EVER SESSION. This is the very first time "
+        "this person has opened Walk. Greet them plainly and warmly. Do not "
+        "over-explain what you are. Invite what is on their heart without "
+        "leading them toward any topic. Do not reference prior sessions "
+        "(there are none). Do not promise what you will do together — just "
+        "meet them."
+    ),
+    "returning_no_memory": (
+        "OPENER CONTEXT — RETURNING WITH NO USABLE MEMORY. This person has "
+        "come back but you do not have a meaningful summary of the last "
+        "conversation. Do NOT invent continuity. Do NOT say 'last time we "
+        "talked about...' — you cannot honestly recall. Just welcome them "
+        "back plainly and invite what they are carrying today."
+    ),
+    "returning_after_grief": (
+        "OPENER CONTEXT — RETURNING AFTER GRIEF. Their last conversation "
+        "carried real grief. Re-enter gently and quietly. You may name that "
+        "they have been in something heavy without narrating their pain "
+        "back to them. Do not force them to update you. Simply be present "
+        "and let them speak first if they want."
+    ),
+    "returning_after_crisis": (
+        "OPENER CONTEXT — RETURNING AFTER CRISIS. Their last conversation "
+        "included crisis language. Open with steady, warm care — no urgency, "
+        "no interrogation. Gently check on how they are today. Do not "
+        "assume they want to revisit the crisis; let them lead."
+    ),
+    "returning_after_celebration": (
+        "OPENER CONTEXT — RETURNING AFTER CELEBRATION. Their last conversation "
+        "had genuine joy. You may greet them with warmth that matches. Do "
+        "not force them back into that topic — but a light acknowledgement "
+        "of the goodness of what happened last time is honest and human."
+    ),
+    "returning_with_open_commitment": (
+        "OPENER CONTEXT — RETURNING WITH AN OPEN COMMITMENT. They left last "
+        "time with a small, specific commitment. You MAY check on it gently "
+        "if it fits. Do not audit them. Do not sound like a task tracker. "
+        "If they do not bring it up naturally, let it stay quiet — the "
+        "conversation is not about the commitment."
+    ),
+    "returning_general": (
+        "OPENER CONTEXT — RETURNING USER. Welcome them back plainly. You "
+        "have some context from earlier conversations in the memory recap "
+        "above — use it as a mental model, not as something to recite. Do "
+        "NOT open with 'last time we...' unless a specific recent theme "
+        "would honestly help them feel remembered."
+    ),
+}
+
+
+# Signals in a session_summary sentence that indicate its emotional
+# weight, so the opener can be tuned accordingly. Kept narrow and lexical.
+_GRIEF_SUMMARY_MARKERS = (
+    "grieving", "grief", "loss", "loss of", "mourning", "the death",
+    "died", "passing", "funeral", "buried", "miscarried",
+)
+_CRISIS_SUMMARY_MARKERS = (
+    "suicidal", "hurting themselves", "harming themselves", "unsafe",
+    "abuse", "abusive", "self-harm",
+)
+_CELEBRATION_SUMMARY_MARKERS = (
+    "rejoicing", "celebrating", "answered prayer", "breakthrough",
+    "coming to peace", "gratitude", "healing", "restoration",
+)
+
+
+def derive_opener_context(
+    session_count: int,
+    last_session_summary: Optional[str],
+    active_memory: Optional[List[dict]] = None,
+) -> OpenerContext:
+    """Choose the opener context for the arrive stance.
+
+    Returns exactly one context label; caller passes it into the turn
+    directive so the model tunes the opener without a hardcoded string.
+
+    We do NOT invent continuity. If session_count > 0 but nothing durable
+    is on file (no summary, no active memory), we return `returning_no_memory`
+    and the guidance explicitly forbids fake recall.
+    """
+    if session_count == 0:
+        return "first_ever"
+
+    lc = (last_session_summary or "").lower()
+    has_summary = bool(lc.strip())
+    active_memory = active_memory or []
+
+    # Crisis wins over grief wins over celebration — safety first.
+    if has_summary and any(k in lc for k in _CRISIS_SUMMARY_MARKERS):
+        return "returning_after_crisis"
+    if has_summary and any(k in lc for k in _GRIEF_SUMMARY_MARKERS):
+        return "returning_after_grief"
+    if has_summary and any(k in lc for k in _CELEBRATION_SUMMARY_MARKERS):
+        return "returning_after_celebration"
+
+    # Open commitment — only surface if we have one AND we have some
+    # summary context. A commitment alone with no summary is not enough
+    # to open with; it becomes memory context inside the arrive turn.
+    if has_summary and any(
+        m.get("kind") == "commitment" and m.get("status", "active") == "active"
+        for m in active_memory
+    ):
+        return "returning_with_open_commitment"
+
+    if has_summary:
+        return "returning_general"
+    # Returning but no usable summary → the honest "no memory" opener.
+    return "returning_no_memory"
+
+
+# ---------------------------------------------------------------------------
+# Closing gate — do NOT force close when the user is still engaged
+# ---------------------------------------------------------------------------
+
+# Signals in recent user text that indicate unresolved emotional weight —
+# short "thanks" from the user does not close the conversation when these
+# are still active.
+_UNRESOLVED_CONTEXT_MARKERS = (
+    # Grief / loss
+    "died", "passing", "funeral", "miscarried", "we lost", "she's gone",
+    "he's gone",
+    # Confession / shame (not yet met with grace)
+    "ashamed", "shame", "hiding", "no one knows", "haven't told",
+    "i cheated", "i lied", "i failed",
+    # Danger / crisis-adjacent
+    "unsafe", "scared", "terrified", "afraid",
+    # Confusion / heaviness
+    "hopeless", "empty", "numb", "trapped", "drowning",
+)
+
+
+def should_gate_closing(
+    prior_user_texts: List[str],
+    stance_history: List[str],
+    depth_surfaced_before: bool,
+) -> bool:
+    """Return True if a short 'thanks' from the user should NOT actually close
+    the session — because the surrounding context indicates unresolved grief,
+    danger, shame, or confusion.
+
+    Rules (any one triggers a gate):
+      1. Any recent turn (last 3) contains an unresolved-context marker AND
+         the assistant has not yet reached `offer` or a resolution stance.
+      2. The last stance was `crisis` and no subsequent turn has moved past
+         crisis-adjacent stances (witness / listen).
+      3. depth_surfaced_before is True but the conversation never reached
+         `discern`, `understand`, or `offer` — user is still open and raw.
+    """
+    recent_user = " ".join(prior_user_texts[-3:]).lower() if prior_user_texts else ""
+    has_unresolved = any(k in recent_user for k in _UNRESOLVED_CONTEXT_MARKERS)
+    resolved_stances = {"offer", "close"}
+    reached_resolution = any(s in resolved_stances for s in stance_history)
+
+    # Rule 1: unresolved context + no resolution stance yet.
+    if has_unresolved and not reached_resolution:
+        return True
+
+    # Rule 2: crisis in recent history and never moved past crisis-adjacent.
+    if "crisis" in stance_history[-3:]:
+        return True
+
+    # Rule 3: depth surfaced but conversation never sat with or interpreted
+    # it — user is still raw.
+    interpretive = {"discern", "understand", "offer"}
+    if depth_surfaced_before and not any(s in interpretive for s in stance_history):
+        return True
+
+    return False
 
 
 # =============================================================================
@@ -1007,6 +1279,9 @@ def build_v5_messages(
     stance_history: Optional[List[str]] = None,
     prior_user_texts: Optional[List[str]] = None,
     depth_surfaced_before: bool = False,
+    # Phase 4 additions.
+    opener_context: Optional[OpenerContext] = None,
+    last_session_summary: Optional[str] = None,
 ) -> Tuple[List[Dict[str, str]], Stance, Optional[ClosingShape], int]:
     """Produce the full messages array for the V5 LLM call and the chosen
     stance / closing_shape / max_tokens.
@@ -1030,6 +1305,15 @@ def build_v5_messages(
     if stance == "close":
         closing_shape = pick_closing_shape(recent_closing_shapes, owner_key)
 
+    # Phase 4: derive opener_context automatically when not provided.
+    # Only meaningful on arrive turns; other stances ignore it.
+    if stance == "arrive" and opener_context is None:
+        opener_context = derive_opener_context(
+            session_count=session_count,
+            last_session_summary=last_session_summary,
+            active_memory=active_memory,
+        )
+
     memory_recap = build_memory_recap(
         session_count=session_count,
         tenure_hint=tenure_hint,
@@ -1045,6 +1329,7 @@ def build_v5_messages(
         memory_recap=memory_recap,
         closing_shape=closing_shape,
         variety_hint=variety_hint,
+        opener_context=opener_context,
     )
 
     system_voice = WALK_VOICE_PROMPT_V5
@@ -1069,3 +1354,61 @@ def build_v5_messages(
 
     max_tokens = STANCE_TOKEN_BUDGET.get(stance, 400)
     return messages, stance, closing_shape, max_tokens
+
+
+# =============================================================================
+# Phase 4 — Opener generation payload
+# =============================================================================
+def build_opener_messages(
+    session_count: int,
+    tenure_hint: Optional[str],
+    last_session_summary: Optional[str],
+    recent_summaries: List[str],
+    active_memory: List[dict],
+    owner_key: str,
+) -> Tuple[List[Dict[str, str]], int, OpenerContext]:
+    """Build the LLM call payload for a session's opening line.
+
+    Returns (messages, max_tokens, opener_context). The caller (session/start
+    endpoint) sends this to Claude, takes the response text, and stores it
+    as the first assistant message on the session.
+
+    This replaces the hardcoded V4 openers on the V5 code path. No opener
+    text is baked in — the model writes it from the arrive directive.
+    """
+    opener_context = derive_opener_context(
+        session_count=session_count,
+        last_session_summary=last_session_summary,
+        active_memory=active_memory,
+    )
+    memory_recap = build_memory_recap(
+        session_count=session_count,
+        tenure_hint=tenure_hint,
+        recent_summaries=recent_summaries,
+        active_memory=active_memory,
+    )
+
+    directive = TurnDirective(
+        stance="arrive",
+        length_hint_tokens=STANCE_TOKEN_BUDGET["arrive"],
+        memory_recap=memory_recap,
+        opener_context=opener_context,
+    )
+
+    # We frame the "user" message as a system-produced initiation stub so
+    # Claude generates a natural opener rather than a reply to anything.
+    # The model's job here is: produce ONLY the opening line, nothing more.
+    initiation = (
+        "The person just opened the app to start a conversation. Write your "
+        "opening message to them now. Follow the arrive-stance directive "
+        "above. Return only the opener text — no preamble, no meta commentary, "
+        "no self-narration. One short paragraph, or one sentence, whichever "
+        "the moment calls for."
+    )
+
+    messages = [
+        {"role": "system", "content": WALK_VOICE_PROMPT_V5},
+        {"role": "system", "content": directive.render()},
+        {"role": "user", "content": initiation},
+    ]
+    return messages, STANCE_TOKEN_BUDGET["arrive"], opener_context

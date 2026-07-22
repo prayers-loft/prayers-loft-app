@@ -65,12 +65,14 @@ if WALK_PROMPT_VERSION not in ("v4", "v5"):
 if WALK_PROMPT_VERSION == "v5":
     from walk_v5 import (  # noqa: F401
         build_v5_messages,
+        build_opener_messages,
         STANCE_TOKEN_BUDGET,
         detect_depth_surfaced as _v5_detect_depth,
     )
     logger.info("Walk prompt architecture: V5 active")
 else:
     build_v5_messages = None  # type: ignore[assignment]
+    build_opener_messages = None  # type: ignore[assignment]
     STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
     _v5_detect_depth = None  # type: ignore[assignment]
     logger.info("Walk prompt architecture: V4 active (default)")
@@ -570,8 +572,51 @@ async def ensure_walk_indexes(db: AsyncIOMotorDatabase) -> None:
             [("owner_key", 1), ("status", 1), ("updated_at", -1)]
         )
         await db.walk_memory.create_index("id", unique=True)
+        # V5 (Phase 4): per-owner state — currently used to persist the
+        # closing-shape rotation across sessions so shapes don't repeat
+        # mechanically for a returning user. Safe to create on V4 too;
+        # nothing reads it there.
+        await db.walk_owner_state.create_index("owner_key", unique=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("ensure_walk_indexes non-fatal: %s", e)
+
+
+# =============================================================================
+# V5 (Phase 4) — per-owner closing shape rotation persisted across sessions
+# =============================================================================
+async def _load_owner_closing_shapes(
+    db: AsyncIOMotorDatabase, owner_key: str
+) -> List[str]:
+    """Load the per-owner closing-shape rotation log. Bounded at ~10 entries.
+    Missing document → empty list (first-time-user rotation start)."""
+    doc = await db.walk_owner_state.find_one(
+        {"owner_key": owner_key},
+        {"_id": 0, "recent_closing_shapes": 1},
+    )
+    if not doc:
+        return []
+    return list(doc.get("recent_closing_shapes") or [])
+
+
+async def _push_owner_closing_shape(
+    db: AsyncIOMotorDatabase, owner_key: str, shape: str
+) -> None:
+    """Append a closing shape to the per-owner rotation log, capped at 10.
+    Upserts so first-time users create their state doc on first close."""
+    try:
+        await db.walk_owner_state.update_one(
+            {"owner_key": owner_key},
+            {
+                "$push": {
+                    "recent_closing_shapes": {"$each": [shape], "$slice": -10}
+                },
+                "$set": {"updated_at": _now_iso()},
+                "$setOnInsert": {"owner_key": owner_key},
+            },
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist per-owner closing shape")
 
 
 # =============================================================================
@@ -1080,12 +1125,84 @@ def build_walk_router(
             {"owner_key": _owner_key(owner)}
         )
         is_first = prior_count == 0
-        if is_first:
-            opener = FIRST_SESSION_OPENER
-        elif active_memory:
-            opener = _returning_opener_with_memory(active_memory)
-        else:
-            opener = RETURNING_NO_MEMORY_OPENER
+
+        # -------- Choose opener path: V4 hardcoded vs V5 model-generated --
+        opener: Optional[str] = None
+        if WALK_PROMPT_VERSION == "v5" and build_opener_messages is not None:
+            # V5: generate the opener via a one-shot LLM call using the
+            # arrive stance directive. No hardcoded strings.
+            try:
+                # Pull the last completed session's summary + tenure so the
+                # opener context detector can pick the right arrival flavor.
+                last_ended = await db.walk_sessions.find_one(
+                    {
+                        "owner_key": _owner_key(owner),
+                        "ended_at": {"$ne": None},
+                        "session_summary": {"$ne": None},
+                    },
+                    {"_id": 0, "session_summary": 1},
+                    sort=[("ended_at", -1)],
+                )
+                last_summary = (
+                    last_ended.get("session_summary") if last_ended else None
+                )
+                # Grab a handful of recent summaries for the memory recap.
+                recent_summaries_list = [
+                    d["session_summary"]
+                    async for d in db.walk_sessions.find(
+                        {
+                            "owner_key": _owner_key(owner),
+                            "ended_at": {"$ne": None},
+                            "session_summary": {"$ne": None},
+                        },
+                        {"_id": 0, "session_summary": 1},
+                    ).sort("ended_at", -1).limit(6)
+                ]
+                first_session_doc = await db.walk_sessions.find_one(
+                    {"owner_key": _owner_key(owner)},
+                    {"_id": 0, "started_at": 1},
+                    sort=[("started_at", 1)],
+                )
+                tenure_hint = _tenure_hint(
+                    first_session_doc["started_at"] if first_session_doc else None
+                )
+                msgs, max_tok, _ctx = build_opener_messages(
+                    session_count=prior_count,
+                    tenure_hint=tenure_hint,
+                    last_session_summary=last_summary,
+                    recent_summaries=recent_summaries_list,
+                    active_memory=active_memory,
+                    owner_key=_owner_key(owner),
+                )
+                params: Dict[str, Any] = {
+                    "model": WALK_MODEL,
+                    "messages": msgs,
+                    "api_key": _EMERGENT_LLM_KEY,
+                    "stream": False,
+                    "temperature": 0.9,
+                    "max_tokens": max_tok,
+                }
+                if _EMERGENT_LLM_KEY.startswith("sk-emergent-"):
+                    proxy_url = get_integration_proxy_url()
+                    params["api_base"] = proxy_url + "/llm"
+                    params["custom_llm_provider"] = "openai"
+                resp = await litellm.acompletion(**params)
+                try:
+                    opener = (resp.choices[0].message.content or "").strip()
+                except Exception:  # noqa: BLE001
+                    opener = None
+            except Exception as e:  # noqa: BLE001
+                logger.exception("V5 opener generation failed, falling back: %s", e)
+                opener = None
+
+        # Fallback path (V4 default, or V5 with LLM failure) — hardcoded openers.
+        if not opener:
+            if is_first:
+                opener = FIRST_SESSION_OPENER
+            elif active_memory:
+                opener = _returning_opener_with_memory(active_memory)
+            else:
+                opener = RETURNING_NO_MEMORY_OPENER
 
         sid = str(uuid.uuid4())
         session_doc = {
@@ -1224,10 +1341,15 @@ def build_walk_router(
                 for m in all_msgs
                 if m.get("role") == "assistant"
             ][-3:]
-            recent_closing_shapes = list(fresh.get("recent_closing_shapes") or [])
+            recent_closing_shapes = await _load_owner_closing_shapes(
+                db, _owner_key(owner)
+            )
             tenure_hint = _tenure_hint(
                 first_session["started_at"] if first_session else None
             )
+            # Last completed-session summary powers the returning-after-X
+            # opener context; None on fresh users.
+            _last_summary = recent_summaries[0] if recent_summaries else None
             v5_messages, v5_stance, v5_closing_shape, v5_max_tokens = build_v5_messages(
                 user_text=payload.text,
                 turn_index=turn_index,
@@ -1243,6 +1365,7 @@ def build_walk_router(
                 stance_history=stance_history,
                 prior_user_texts=prior_user_texts,
                 depth_surfaced_before=depth_surfaced_before,
+                last_session_summary=_last_summary,
             )
             # Determine whether THIS turn surfaced new depth. Persisted on
             # the session so subsequent turns see it as history.
@@ -1346,8 +1469,12 @@ def build_walk_router(
                         if set_ops:
                             update_doc["$set"] = set_ops
                         push_ops = update_doc.setdefault("$push", {})
+                        # Closing shape now persists on the per-owner state
+                        # so rotation works ACROSS sessions (Phase 4).
                         if v5_closing_shape is not None:
-                            push_ops["recent_closing_shapes"] = v5_closing_shape
+                            await _push_owner_closing_shape(
+                                db, _owner_key(owner), v5_closing_shape
+                            )
                         if v5_stance is not None:
                             # Bound stance_history at 40 entries — plenty for
                             # classifier logic without unbounded doc growth.

@@ -640,3 +640,147 @@ class TestRegressions:
         )
         assert s["emotional_complexity"] is True
         assert stance == "explore"
+
+
+# =============================================================================
+# 16. Witness continuation — do not rush from witness to understand
+# =============================================================================
+class TestWitnessContinuation:
+    def test_grief_yeah_remains_witness(self):
+        # After witness (grief), a short "yeah..." must stay in witness.
+        stance, _ = classify_stance(
+            3,
+            "yeah…",
+            prior_user_texts=[
+                "my mom died three weeks ago",
+                "i can't stop crying at random moments",
+            ],
+            stance_history=["listen", "witness"],
+            depth_surfaced_before=False,
+        )
+        assert stance == "witness"
+
+    def test_grief_i_know_remains_witness(self):
+        stance, _ = classify_stance(
+            3, "i know",
+            prior_user_texts=[
+                "my grandmother died last week",
+                "the funeral is tomorrow",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert stance == "witness"
+
+    def test_grief_still_hurts_remains_witness(self):
+        stance, _ = classify_stance(
+            4, "still hurts",
+            prior_user_texts=[
+                "we lost the baby",
+                "i don't know how to face people",
+                "it's been two months",
+            ],
+            stance_history=["listen", "witness", "witness"],
+        )
+        assert stance == "witness"
+
+    def test_grief_i_dont_know_remains_witness(self):
+        stance, _ = classify_stance(
+            3, "i don't know",
+            prior_user_texts=[
+                "my dad passed last month",
+                "everyone says it gets easier",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert stance == "witness"
+
+    def test_grief_new_specific_detail_routes_to_listen(self):
+        # Substantial new content after witness with NO grief keywords in
+        # the current turn → listen (hear it out) via the witness
+        # continuation rule.
+        stance, _ = classify_stance(
+            3,
+            "the hardest part is i keep expecting the phone to ring on sunday mornings and then i just remember",
+            prior_user_texts=[
+                "my mom died three weeks ago",
+                "i just feel numb most of the time",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert stance == "listen"
+
+    def test_confession_short_shame_remains_witness(self):
+        # After confession-witness, a short "yeah i'm ashamed" continues
+        # the same emotional context and stays in witness (very_short rule).
+        stance, _ = classify_stance(
+            3, "yeah",
+            prior_user_texts=[
+                "i cheated on my wife six months ago",
+                "no one knows",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert stance == "witness"
+
+    def test_confession_short_shame_with_depth_marker_goes_to_discern(self):
+        # If a NEW depth marker surfaces after confession witness, discern
+        # (sit with the new layer) — this is the correct escalation, not
+        # a premature understand jump.
+        stance, s = classify_stance(
+            3,
+            "i just feel so ashamed of myself i can barely look in the mirror",
+            prior_user_texts=[
+                "i lied to my wife about the money",
+                "i've been hiding it for months",
+            ],
+            stance_history=["listen", "witness"],
+            depth_surfaced_before=False,
+        )
+        assert s["depth_surfaced"] is True
+        assert stance == "discern"
+
+    def test_celebration_more_positive_detail_remains_witness(self):
+        # User celebrating and adding more good news → witness re-fires via
+        # priority 4 (celebration keywords still present).
+        stance, s = classify_stance(
+            3,
+            "and God did it — the doctor called with the clean results",
+            prior_user_texts=[
+                "praise God — the surgery went well",
+                "we were praying for months",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert s["celebration"] is True
+        assert stance == "witness"
+
+    def test_witness_then_direct_advice_can_route_to_offer(self):
+        # Simple advice ask after witness → offer path (no complexity gate
+        # fires because there's no accumulated complexity marker beyond
+        # the celebration context).
+        stance, _ = classify_stance(
+            3,
+            "should i tell my mom the news tonight or wait till sunday",
+            prior_user_texts=[
+                "praise God — she said yes",
+                "i finally proposed after a year of praying about it",
+            ],
+            stance_history=["listen", "witness"],
+        )
+        assert stance == "offer"
+
+    def test_witness_then_advice_with_complexity_still_gated(self):
+        # Same witness→advice pattern but complexity has accumulated (marital
+        # context) → complexity gate holds even after witness. Must explore.
+        stance, _ = classify_stance(
+            3,
+            "so should i just leave her",
+            prior_user_texts=[
+                "i cheated on my wife",
+                "she found out yesterday",
+            ],
+            stance_history=["listen", "witness"],
+            depth_surfaced_before=False,
+        )
+        # confession + advice + complexity → priority 7 gate holds.
+        assert stance == "explore"
