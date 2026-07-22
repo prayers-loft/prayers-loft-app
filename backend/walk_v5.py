@@ -587,19 +587,42 @@ def build_variety_hint(recent_assistant_messages: List[str]) -> Optional[str]:
 
 
 # =============================================================================
-# Stance classifier — Phase 1 stub. Full classifier ships in Phase 2.
+# Stance classifier — Phase 2. Full discovery-arc classifier.
+#
+# Priority order (evaluated top-down; first match wins):
+#   1. crisis            — safety keywords ALWAYS override
+#   2. arrive            — turn 0
+#   3. close             — bare closing signals
+#   4. witness           — active grief / celebration / confession
+#   5. offer             — direct advice / theological question (unless
+#                          emotionally complex AND depth not yet surfaced)
+#   6. listen            — user changed the subject or opened something new
+#   7. explore→discern   — chained explores promoted to prevent interviewing
+#   8. discern           — depth just surfaced (sit with it)
+#   9. understand        — depth surfaced earlier and last stance was discern
+#  10. offer             — natural progression from understand
+#  11. listen            — turn 1 default (first user response to opener)
+#  12. explore           — default gathering stance
+#
+# Correction of the assistant's prior interpretation triggers a downgrade
+# rather than plowing forward — user pushback is a signal we misread them.
+#
+# Non-linear progression: revealing new emotional content mid-conversation
+# routes back to listen so we can hear the new thing.
+#
+# Non-random by design. Stance decisions are deterministic given (user_text,
+# stance_history, depth_surfaced_before). Variety happens at the response-
+# shape layer (see TurnDirective), never at stance level.
 # =============================================================================
-
-# Detection lexicons — used by the Phase 2 classifier. Kept here so Phase 1
-# reviewers can see the intended surface. Phase 1 classifier only branches on
-# turn_index and closing/crisis signals; it defaults to "listen" for the body
-# of the conversation until Phase 2 lands.
 
 CRISIS_KEYWORDS = (
     "kill myself", "suicide", "suicidal", "end my life", "want to die",
-    "hurt myself", "harm myself", "no reason to live", "abuse me",
-    "he hits me", "she hits me", "beat me", "unsafe at home",
-    "want to disappear",
+    "hurt myself", "harm myself", "hurting myself", "harming myself",
+    "cut myself", "cutting myself", "no reason to live", "abuse me",
+    "he hits me", "she hits me", "he beats me", "she beats me",
+    "unsafe at home", "want to disappear",
+    "not safe here", "he's hurting me", "she's hurting me",
+    "planning to end", "thinking about ending",
 )
 
 CLOSING_KEYWORDS = (
@@ -608,77 +631,361 @@ CLOSING_KEYWORDS = (
     "i'll try that", "i will do that", "you too", "take care",
 )
 
+# Emotional-disclosure keywords. Presence indicates the user is confessing,
+# grieving, celebrating, or otherwise sharing something significant. These
+# route toward WITNESS unless another signal (crisis, close) wins first.
+GRIEF_KEYWORDS = (
+    "died", "passed away", "she's gone", "he's gone", "we lost",
+    "funeral", "miscarried", "miscarriage", "buried", "her funeral",
+    "his funeral", "stillbirth", "found out he died", "found out she died",
+)
+
 CELEBRATION_KEYWORDS = (
     "praise god", "answered", "i finally", "she said yes", "he said yes",
     "so grateful", "thank god", "god did", "got the job", "we're expecting",
-    "i beat it", "i'm free",
+    "i beat it", "i'm free", "i'm clean", "one year sober", "days sober",
+    "he came home", "she came home", "we're pregnant", "gave my life to",
 )
 
-GRIEF_KEYWORDS = (
-    "died", "passed away", "gone", "funeral", "loss", "miscarried",
-    "we lost", "he's gone", "she's gone",
+# Confession markers — user is naming their own sin / failure.
+CONFESSION_KEYWORDS = (
+    "i confess", "i sinned", "i cheated", "i lied", "i've been lying",
+    "i lied to", "i was unfaithful", "i had an affair", "i relapsed",
+    "i fell again", "i failed again", "i acted out", "i'm ashamed",
+    "i'm so ashamed", "i hurt her", "i hurt him", "i yelled at", "i hit",
+    "i drank again", "i used again", "i looked at porn", "i watched porn",
+    "i've been hiding", "i haven't told anyone",
 )
 
+# Direct advice / practical guidance requests.
 DIRECT_ADVICE_KEYWORDS = (
     "what should i do", "what do you think i should", "advice",
-    "help me figure", "what do you recommend", "should i",
+    "help me figure", "what do you recommend", "should i ", "should i,",
+    "should i.", "should i?", "what would you do", "how do i handle",
+    "how should i respond", "how do i respond", "what would you say",
+    "help me decide",
 )
 
+# Theological / doctrinal / interpretive questions directed at the assistant.
+THEOLOGICAL_QUESTION_MARKERS = (
+    "what does the bible say", "what does scripture say", "does god",
+    "why does god", "is it a sin", "is it okay to", "is it wrong",
+    "what do christians believe", "what did jesus mean", "how do i pray",
+    "how do you pray", "predestination", "free will", "spiritual gifts",
+    "baptism", "communion", "end times", "revelation say",
+    "what does it mean when",
+)
 
-def classify_stance_stub(
-    turn_index: int,
-    user_text: str,
-    prior_stance: Optional[Stance] = None,
-) -> Tuple[Stance, Optional[ClosingShape]]:
-    """Phase 1 stub. Branches only on crisis/closing signals + turn index.
-    Everything else defaults to `listen`. Full classifier ships in Phase 2.
+# Correction of the assistant's prior interpretation.
+CORRECTION_KEYWORDS = (
+    "no,", "no.", "no —", "no that's not", "actually,", "actually ",
+    "you're missing", "you're misunderstanding", "that's not what i meant",
+    "that's not it", "not exactly", "not quite", "it's not that",
+    "i didn't mean", "you got it wrong",
+)
 
-    Returns (stance, closing_shape_hint). closing_shape_hint is None unless
-    stance == 'close', in which case the caller should choose a shape via
-    pick_closing_shape().
-    """
-    lc = (user_text or "").lower()
-    if any(k in lc for k in CRISIS_KEYWORDS):
-        return "crisis", None
-    if turn_index == 0:
-        return "arrive", None
-    if _looks_like_closing(lc):
-        return "close", None
-    return "listen", None
+# Depth-surfacing keywords. Presence indicates the user has moved past the
+# behavioral surface into the emotional layer underneath — the sign that
+# EXPLORE should give way to DISCERN.
+DEPTH_MARKERS = (
+    "lonely", "loneliness", "afraid", "scared", "terrified", "fearful",
+    "ashamed", "shame", "guilty", "guilt", "worthless", "empty", "numb",
+    "exhausted", "hopeless", "bitter", "resentful", "abandoned",
+    "invisible", "unloved", "unlovable", "inadequate", "unworthy",
+    "not enough", "never enough", "rejected", "forgotten", "trapped",
+    "suffocating", "drowning", "hollow", "fake", "fraud", "phony",
+    "small", "unseen", "unwanted", "used", "broken",
+)
+
+# Emotional-complexity indicators — presence of any raises the bar for
+# skipping straight to OFFER on an advice request.
+# Note: "wife", "husband", "spouse" are included because any advice request
+# involving an absent partner is inherently emotionally complex and must go
+# through discovery before advice (per the marriage safeguard).
+EMOTIONAL_COMPLEXITY_MARKERS = (
+    "marriage", "marital", "divorce", "affair", "abuse", "trauma", "died",
+    "grief", "depression", "suicidal", "addicted", "addiction", "relapse",
+    "custody", "prodigal", "estranged", "walked away", "left the faith",
+    "left me", "deconstructing", "doubting everything",
+    "my wife", "my husband", "my spouse", "our marriage",
+) + DEPTH_MARKERS
 
 
+# ---------------------------------------------------------------------------
+# Signal detection helpers
+# ---------------------------------------------------------------------------
 def _looks_like_closing(lc: str) -> bool:
-    """Return True if a lowercased user message looks like a closing signal.
-    We check the ENTIRE trimmed message so a message like 'thanks for the
-    story about grace' does not trigger a close."""
+    """Return True if a lowercased user message looks like a bare closing
+    signal — checking the ENTIRE trimmed message so 'thanks for the story
+    about grace' is NOT treated as a close."""
     stripped = lc.strip().rstrip(".!?").strip()
     if not stripped:
         return False
     if stripped in {
-        "thanks",
-        "thank you",
-        "amen",
-        "ok",
-        "okay",
-        "sounds good",
-        "goodnight",
-        "good night",
-        "night",
-        "bye",
-        "see you",
-        "you too",
-        "take care",
+        "thanks", "thank you", "amen", "ok", "okay", "sounds good",
+        "goodnight", "good night", "night", "bye", "see you",
+        "you too", "take care",
     }:
         return True
     if stripped in {"i'll do that", "i will do that", "i'll try that"}:
         return True
-    # Very short closer that starts with "thanks" — treat as close only when
-    # the whole message is <= 4 words and starts with thanks / thank.
+    # Very short closer starting with thanks/thank (<= 4 words).
     if len(stripped.split()) <= 4 and (
         stripped.startswith("thanks") or stripped.startswith("thank")
     ):
         return True
     return False
+
+
+def _has_any(lc: str, needles: Tuple[str, ...]) -> bool:
+    return any(n in lc for n in needles)
+
+
+def _has_grief(lc: str) -> bool:
+    return _has_any(lc, GRIEF_KEYWORDS)
+
+
+def _has_celebration(lc: str) -> bool:
+    # Filter out celebration false-positives: "answered" appearing in
+    # "unanswered" should NOT trigger celebration.
+    if "unanswered" in lc:
+        return any(k in lc for k in CELEBRATION_KEYWORDS if k != "answered")
+    return _has_any(lc, CELEBRATION_KEYWORDS)
+
+
+def _has_confession(lc: str) -> bool:
+    return _has_any(lc, CONFESSION_KEYWORDS)
+
+
+def _has_advice_request(lc: str) -> bool:
+    # "should i" is a strong signal; ensure it's a request, not a rhetorical.
+    return _has_any(lc, DIRECT_ADVICE_KEYWORDS)
+
+
+def _has_theological_question(text: str) -> bool:
+    """A theological question has both (a) a topic marker AND (b) a question
+    mark. This prevents casual mentions ('I don't know if it's a sin') from
+    routing to offer when the user is really venting."""
+    lc = text.lower()
+    has_marker = _has_any(lc, THEOLOGICAL_QUESTION_MARKERS)
+    return has_marker and "?" in text
+
+
+def _has_correction(lc: str, stance_history: List[str]) -> bool:
+    """Correction only counts if the assistant recently attempted an
+    interpretation — otherwise 'no, I don't think so' is just normal
+    conversation, not pushback."""
+    interpretive_stances = {"understand", "offer", "discern"}
+    if not stance_history or stance_history[-1] not in interpretive_stances:
+        return False
+    return _has_any(lc, CORRECTION_KEYWORDS)
+
+
+def _has_depth_marker(lc: str) -> bool:
+    return _has_any(lc, DEPTH_MARKERS)
+
+
+def _has_emotional_complexity(lc: str) -> bool:
+    """Multiple complexity markers OR a single strong one qualify.
+
+    'Strong' includes any spouse mention — because advice requests involving
+    an absent partner are inherently complex under the marriage safeguard,
+    and must move through discovery before advice."""
+    heavy = (
+        "abuse", "affair", "divorce", "died", "suicidal", "addiction",
+        "my wife", "my husband", "my spouse", "our marriage",
+    )
+    if _has_any(lc, heavy):
+        return True
+    hits = sum(1 for k in EMOTIONAL_COMPLEXITY_MARKERS if k in lc)
+    return hits >= 2
+
+
+def _detect_subject_change(
+    user_text: str, prior_user_texts: List[str]
+) -> bool:
+    """Naive subject-change heuristic: user introduces >=2 non-stopword
+    nouns/adjectives that did NOT appear in any of the prior 3 user turns.
+    Only fires when there IS prior context to compare against (turn >= 2)."""
+    if not prior_user_texts:
+        return False
+    prior_blob = " ".join(prior_user_texts[-3:]).lower()
+    if not prior_blob.strip():
+        return False
+    # Tokenize into content words (>3 chars, alphabetic).
+    new_words = {
+        w.strip(".,!?;:'\"").lower()
+        for w in user_text.split()
+        if len(w) > 3 and w.isalpha()
+    }
+    stopwords = {
+        "just", "like", "with", "that", "this", "they", "them", "then",
+        "what", "when", "where", "which", "would", "could", "should",
+        "have", "been", "there", "here", "your", "mine", "yours", "about",
+        "also", "very", "really", "some", "these", "those", "into", "onto",
+        "from", "over", "under", "much", "many", "more", "less", "than",
+        "know", "think", "feel", "want", "need", "keep",
+    }
+    new_words = {w for w in new_words if w and w not in stopwords}
+    if not new_words:
+        return False
+    novel = {w for w in new_words if w not in prior_blob}
+    return len(novel) >= 3
+
+
+def _consecutive_from_end(seq: List[str], value: str) -> int:
+    n = 0
+    for x in reversed(seq or []):
+        if x == value:
+            n += 1
+        else:
+            break
+    return n
+
+
+def detect_depth_surfaced(user_text: str) -> bool:
+    """Public: does this user turn newly surface emotional depth?"""
+    return _has_depth_marker((user_text or "").lower())
+
+
+# ---------------------------------------------------------------------------
+# The classifier
+# ---------------------------------------------------------------------------
+def classify_stance(
+    turn_index: int,
+    user_text: str,
+    prior_user_texts: Optional[List[str]] = None,
+    stance_history: Optional[List[str]] = None,
+    depth_surfaced_before: bool = False,
+) -> Tuple[Stance, Dict[str, bool]]:
+    """Full V5 discovery-arc classifier.
+
+    Args:
+        turn_index: 0-indexed count of user turns in this session so far
+            (0 = first user reply after the opener).
+        user_text: the user's current message.
+        prior_user_texts: earlier user turns in this session, oldest first.
+        stance_history: stances the classifier chose on prior turns of this
+            session, oldest first. Does NOT include the stance for
+            `user_text` — that's what we're returning.
+        depth_surfaced_before: True if any prior turn already surfaced
+            emotional depth (persisted on the session doc).
+
+    Returns:
+        (stance, signals_dict) — signals returned for tests/observability.
+    """
+    prior_user_texts = prior_user_texts or []
+    stance_history = stance_history or []
+
+    lc = (user_text or "").lower()
+    # Emotional complexity is checked against the ACCUMULATED conversation
+    # context — not just the current turn — so a user cannot bypass the
+    # marriage/absent-person safeguard by asking a short advice follow-up.
+    accumulated_lc = " ".join(prior_user_texts + [user_text or ""]).lower()
+
+    signals: Dict[str, bool] = {
+        "crisis": _has_any(lc, CRISIS_KEYWORDS),
+        "closing": _looks_like_closing(lc),
+        "grief": _has_grief(lc),
+        "celebration": _has_celebration(lc),
+        "confession": _has_confession(lc),
+        "advice_request": _has_advice_request(lc),
+        "theological_question": _has_theological_question(user_text or ""),
+        "correction": _has_correction(lc, stance_history),
+        "subject_change": _detect_subject_change(user_text or "", prior_user_texts),
+        "depth_surfaced": _has_depth_marker(lc),
+        "emotional_complexity": _has_emotional_complexity(accumulated_lc),
+        "very_short": len((user_text or "").split()) < 8,
+    }
+
+    # ---- Priority 1: crisis ALWAYS overrides -----------------------------
+    if signals["crisis"]:
+        return "crisis", signals
+
+    # ---- Priority 2: turn 0 is arrive ------------------------------------
+    if turn_index == 0:
+        return "arrive", signals
+
+    # ---- Priority 3: bare closing signals --------------------------------
+    if signals["closing"]:
+        return "close", signals
+
+    # ---- Priority 4: witness for presence-appropriate moments ------------
+    # Grief, celebration, confession, and other emotionally significant
+    # disclosures where presence is more appropriate than teaching. Witness
+    # takes priority over advice requests here — a user confessing needs to
+    # be received, not counseled, on this turn. Subsequent turns (with new
+    # signals) can move to understand/offer.
+    if signals["grief"] or signals["celebration"] or signals["confession"]:
+        return "witness", signals
+
+    # ---- Priority 5: correction downgrades one stage --------------------
+    # User pushed back on our interpretation. Downgrade to a listening
+    # posture rather than plowing forward.
+    if signals["correction"]:
+        last = stance_history[-1] if stance_history else "listen"
+        if last == "offer":
+            return "explore", signals
+        if last == "understand":
+            return "explore", signals
+        if last == "discern":
+            return "listen", signals
+        return "listen", signals
+
+    # ---- Priority 6: subject change → back to listen --------------------
+    # User opened something new; hear the new thing before doing anything.
+    # We only consider this from turn 2 onward (turn 1 has no prior body).
+    if signals["subject_change"] and turn_index >= 2:
+        return "listen", signals
+
+    # ---- Priority 7: direct advice / theological question ---------------
+    if signals["advice_request"] or signals["theological_question"]:
+        # If the situation is emotionally complex and we have NOT yet
+        # surfaced depth, do NOT skip straight to teaching. Explore first.
+        if signals["emotional_complexity"] and not depth_surfaced_before:
+            return "explore", signals
+        # If depth was surfaced but we haven't sat with it yet, DISCERN
+        # gives the user space before we teach.
+        if depth_surfaced_before and stance_history and stance_history[-1] in {
+            "explore", "listen"
+        }:
+            return "discern", signals
+        return "offer", signals
+
+    # ---- Priority 8: interview avoidance --------------------------------
+    # After 2+ consecutive explores, promote to discern regardless of
+    # whether new depth surfaced — chained interrogation is a failure mode.
+    consecutive_explores = _consecutive_from_end(stance_history, "explore")
+    if consecutive_explores >= 2:
+        return "discern", signals
+
+    # ---- Priority 9: depth surfaced THIS turn → discern -----------------
+    if signals["depth_surfaced"] and not depth_surfaced_before:
+        return "discern", signals
+
+    # ---- Priority 10: prior stance was discern → understand -------------
+    if stance_history and stance_history[-1] == "discern":
+        return "understand", signals
+
+    # ---- Priority 11: prior stance was understand → offer ---------------
+    if stance_history and stance_history[-1] == "understand":
+        return "offer", signals
+
+    # ---- Priority 12: turn 1 defaults to listen -------------------------
+    # First user reply after the opener — reflect, make them feel heard.
+    if turn_index == 1:
+        return "listen", signals
+
+    # ---- Priority 13: default gathering stance --------------------------
+    # If depth was surfaced but the most recent stance was NOT discern or
+    # understand (e.g. we witnessed and moved on), and no new depth surfaced,
+    # go to understand — the user may be ready for gentle interpretation.
+    if depth_surfaced_before and stance_history:
+        last = stance_history[-1]
+        if last in {"witness", "listen"}:
+            return "understand", signals
+
+    return "explore", signals
 
 
 # =============================================================================
@@ -696,6 +1003,10 @@ def build_v5_messages(
     recent_assistant_messages: List[str],
     owner_key: str,
     transcript_block: str,
+    # Phase 2 additions — safe defaults so Phase 1 callers keep working.
+    stance_history: Optional[List[str]] = None,
+    prior_user_texts: Optional[List[str]] = None,
+    depth_surfaced_before: bool = False,
 ) -> Tuple[List[Dict[str, str]], Stance, Optional[ClosingShape], int]:
     """Produce the full messages array for the V5 LLM call and the chosen
     stance / closing_shape / max_tokens.
@@ -703,10 +1014,17 @@ def build_v5_messages(
     Returns:
       (messages, stance, closing_shape_or_none, max_tokens)
 
-    Callers are responsible for persisting the stance and closing_shape to
-    the session doc so the next turn can consume them.
+    Callers are responsible for persisting the stance, closing_shape,
+    stance_history, and depth_surfaced flag to the session doc so the next
+    turn can consume them.
     """
-    stance, _ = classify_stance_stub(turn_index, user_text, prior_stance)
+    stance, _signals = classify_stance(
+        turn_index=turn_index,
+        user_text=user_text,
+        prior_user_texts=prior_user_texts or [],
+        stance_history=stance_history or [],
+        depth_surfaced_before=depth_surfaced_before,
+    )
 
     closing_shape: Optional[ClosingShape] = None
     if stance == "close":

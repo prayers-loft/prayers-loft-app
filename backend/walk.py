@@ -63,11 +63,16 @@ if WALK_PROMPT_VERSION not in ("v4", "v5"):
 
 # V5 architecture — imported lazily so V4-only deployments never load it.
 if WALK_PROMPT_VERSION == "v5":
-    from walk_v5 import build_v5_messages, STANCE_TOKEN_BUDGET  # noqa: F401
+    from walk_v5 import (  # noqa: F401
+        build_v5_messages,
+        STANCE_TOKEN_BUDGET,
+        detect_depth_surfaced as _v5_detect_depth,
+    )
     logger.info("Walk prompt architecture: V5 active")
 else:
     build_v5_messages = None  # type: ignore[assignment]
     STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
+    _v5_detect_depth = None  # type: ignore[assignment]
     logger.info("Walk prompt architecture: V4 active (default)")
 
 
@@ -1206,6 +1211,14 @@ def build_walk_router(
             user_turns_so_far = [m for m in all_msgs if m.get("role") == "user"]
             turn_index = max(0, len(user_turns_so_far) - 1)
             prior_stance = fresh.get("current_stance")
+            stance_history = list(fresh.get("stance_history") or [])
+            depth_surfaced_before = bool(fresh.get("depth_surfaced", False))
+            # Prior user texts EXCLUDE the current turn (we just pushed it,
+            # so it's already in messages). Take everything up to but not
+            # including the current user turn.
+            prior_user_texts = [
+                (m.get("content") or "") for m in user_turns_so_far[:-1]
+            ] if user_turns_so_far else []
             recent_assistant_msgs = [
                 (m.get("content") or "")
                 for m in all_msgs
@@ -1227,7 +1240,13 @@ def build_walk_router(
                 recent_assistant_messages=recent_assistant_msgs,
                 owner_key=_owner_key(owner),
                 transcript_block=transcript,
+                stance_history=stance_history,
+                prior_user_texts=prior_user_texts,
+                depth_surfaced_before=depth_surfaced_before,
             )
+            # Determine whether THIS turn surfaced new depth. Persisted on
+            # the session so subsequent turns see it as history.
+            v5_new_depth = _v5_detect_depth(payload.text) if _v5_detect_depth else False
 
         assistant_msg_id = str(uuid.uuid4())
         assistant_at = _now_iso()
@@ -1311,12 +1330,31 @@ def build_walk_router(
                         # V5: record the stance we held for this turn, and
                         # append the closing shape to a per-session rotation
                         # log so pick_closing_shape can avoid recent repeats.
+                        # Also append to stance_history (bounded) and set
+                        # depth_surfaced sticky flag once any turn has
+                        # revealed emotional depth — Phase 2 classifier
+                        # reads both back on the next turn.
+                        set_ops: Dict[str, Any] = {}
                         if v5_stance is not None:
-                            update_doc["$set"] = {"current_stance": v5_stance}
+                            set_ops["current_stance"] = v5_stance
+                        # depth_surfaced is sticky: once True, stays True for
+                        # the rest of the session. Only $set to True, never
+                        # to False (so a subsequent light turn doesn't erase
+                        # what has been revealed).
+                        if v5_new_depth:
+                            set_ops["depth_surfaced"] = True
+                        if set_ops:
+                            update_doc["$set"] = set_ops
+                        push_ops = update_doc.setdefault("$push", {})
                         if v5_closing_shape is not None:
-                            update_doc.setdefault("$push", {})[
-                                "recent_closing_shapes"
-                            ] = v5_closing_shape
+                            push_ops["recent_closing_shapes"] = v5_closing_shape
+                        if v5_stance is not None:
+                            # Bound stance_history at 40 entries — plenty for
+                            # classifier logic without unbounded doc growth.
+                            push_ops["stance_history"] = {
+                                "$each": [v5_stance],
+                                "$slice": -40,
+                            }
                         await db.walk_sessions.update_one(
                             {"id": session_id, "owner_key": _owner_key(owner)},
                             update_doc,
