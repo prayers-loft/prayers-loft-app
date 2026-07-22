@@ -177,6 +177,32 @@ export default function WalkScreen() {
                 testID="walk-active-prayers"
               />
             )}
+
+            {/* Manage Walk Memory — quiet outline pill sits directly under the
+                memory ledger. Only shown when the user actually has at least
+                one saved item, so first-time users aren't offered a Manage
+                screen for an empty list. Screen it opens (walk-memory.tsx)
+                handles its own empty state for the edge case where all items
+                get deleted between renders. */}
+            {(memory ?? []).length > 0 && (
+              <Pressable
+                onPress={() => router.push("/walk-memory" as any)}
+                style={({ pressed }) => [
+                  styles.manageBtn,
+                  pressed && styles.manageBtnPressed,
+                ]}
+                testID="walk-manage-memory-btn"
+                accessibilityRole="button"
+                accessibilityLabel="Manage Walk memory"
+              >
+                <Ionicons
+                  name="settings-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.manageBtnText}>Manage Walk Memory</Text>
+              </Pressable>
+            )}
           </>
         )}
 
@@ -411,6 +437,34 @@ const styles = StyleSheet.create({
   expandBtnText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.2,
+  },
+  // "Manage Walk Memory" outline pill — quiet, secondary action so it
+  // doesn't compete visually with the primary Begin/Continue CTA at the
+  // top of the screen. Sits under the memory sections as the natural
+  // next step when the user is looking at their ledger and thinks
+  // "I want to prune this."
+  manageBtn: {
+    marginTop: spacing.xl,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderRadius: radii.pill,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  manageBtnPressed: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  manageBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
     color: colors.textSecondary,
     letterSpacing: 0.2,
   },
