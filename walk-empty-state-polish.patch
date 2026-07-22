@@ -1,14 +1,11 @@
-From ec6b7609e38149a7cf709fa26b94e45647318c8f Mon Sep 17 00:00:00 2001
+From f7de1b6600000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Emergent Agent <agent@emergent.local>
-Date: Wed, 22 Jul 2026 21:10:34 +0000
+Date: Wed, 22 Jul 2026 21:15:00 +0000
 Subject: [PATCH] style(walk): polish empty conversation state
 
 ---
- frontend/app/walk-conversation.tsx | 128 +++++++++++++++++++++++++----
- 1 file changed, 114 insertions(+), 14 deletions(-)
-
 diff --git a/frontend/app/walk-conversation.tsx b/frontend/app/walk-conversation.tsx
-index 709d398f..9c1f94b0 100644
+index 709d398f..1b3e3322 100644
 --- a/frontend/app/walk-conversation.tsx
 +++ b/frontend/app/walk-conversation.tsx
 @@ -32,6 +32,7 @@ import {
@@ -102,7 +99,7 @@ index 709d398f..9c1f94b0 100644
                placeholderTextColor={colors.textTertiary}
                style={styles.input}
                multiline
-@@ -883,30 +927,86 @@ const styles = StyleSheet.create({
+@@ -883,30 +927,87 @@ const styles = StyleSheet.create({
      paddingBottom: spacing.xl,
      gap: 10,
    },
@@ -164,27 +161,28 @@ index 709d398f..9c1f94b0 100644
 +  },
 +  // Warm mid-screen glow — sits directly behind the greeting to gently
 +  // lift the eye toward it. Very low alpha so it registers as atmosphere,
-+  // not as a visible shape.
++  // not as a visible shape. Sized/tuned so the greeting stays the clear
++  // focal point: ~25% smaller and ~25% less opaque than the first pass.
 +  ambientGlowMid: {
 +    position: "absolute",
-+    top: "34%",
-+    left: "-30%",
-+    right: "-30%",
-+    height: 420,
-+    borderRadius: 420,
-+    backgroundColor: "rgba(200,169,107,0.055)",
++    top: "38%",
++    left: "-22%",
++    right: "-22%",
++    height: 315,
++    borderRadius: 315,
++    backgroundColor: "rgba(200,169,107,0.04)",
 +  },
 +  // Cooler lower glow — a hint of horizon warmth low on the screen. Adds
 +  // vertical rhythm between the header and composer without introducing
-+  // any imagery.
++  // any imagery. Also downsized and dimmed to yield to the greeting.
 +  ambientGlowLower: {
 +    position: "absolute",
-+    bottom: -160,
-+    left: "-20%",
-+    right: "-20%",
-+    height: 360,
-+    borderRadius: 360,
-+    backgroundColor: "rgba(100,120,160,0.04)",
++    bottom: -120,
++    left: "-15%",
++    right: "-15%",
++    height: 270,
++    borderRadius: 270,
++    backgroundColor: "rgba(100,120,160,0.028)",
 +  },
 +  // Whisper of a horizon fade above the composer. Uses the same base bg
 +  // color so it just deepens the lower portion by ~35% — you'd never spot
