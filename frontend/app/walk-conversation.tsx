@@ -980,27 +980,28 @@ const styles = StyleSheet.create({
   },
   // Warm mid-screen glow — sits directly behind the greeting to gently
   // lift the eye toward it. Very low alpha so it registers as atmosphere,
-  // not as a visible shape.
+  // not as a visible shape. Sized/tuned so the greeting stays the clear
+  // focal point: ~25% smaller and ~25% less opaque than the first pass.
   ambientGlowMid: {
     position: "absolute",
-    top: "34%",
-    left: "-30%",
-    right: "-30%",
-    height: 420,
-    borderRadius: 420,
-    backgroundColor: "rgba(200,169,107,0.055)",
+    top: "38%",
+    left: "-22%",
+    right: "-22%",
+    height: 315,
+    borderRadius: 315,
+    backgroundColor: "rgba(200,169,107,0.04)",
   },
   // Cooler lower glow — a hint of horizon warmth low on the screen. Adds
   // vertical rhythm between the header and composer without introducing
-  // any imagery.
+  // any imagery. Also downsized and dimmed to yield to the greeting.
   ambientGlowLower: {
     position: "absolute",
-    bottom: -160,
-    left: "-20%",
-    right: "-20%",
-    height: 360,
-    borderRadius: 360,
-    backgroundColor: "rgba(100,120,160,0.04)",
+    bottom: -120,
+    left: "-15%",
+    right: "-15%",
+    height: 270,
+    borderRadius: 270,
+    backgroundColor: "rgba(100,120,160,0.028)",
   },
   // Whisper of a horizon fade above the composer. Uses the same base bg
   // color so it just deepens the lower portion by ~35% — you'd never spot
