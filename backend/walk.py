@@ -1345,6 +1345,12 @@ def build_walk_router(
         v5_stance: Optional[str] = None
         v5_closing_shape: Optional[str] = None
         v5_max_tokens: Optional[int] = None
+        # v5_new_depth is referenced unconditionally in the persistence
+        # `finally` block below. Initializing here (V4 default) prevents a
+        # silent NameError from breaking assistant-reply persistence on the
+        # V4 code path. Fix is shared by V4 and V5 so both honor the same
+        # persistence contract.
+        v5_new_depth: bool = False
         if WALK_PROMPT_VERSION == "v5" and build_v5_messages is not None:
             all_msgs = fresh.get("messages", []) or []
             user_turns_so_far = [m for m in all_msgs if m.get("role") == "user"]
