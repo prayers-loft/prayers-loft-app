@@ -83,16 +83,25 @@ class TestCrisisPriority:
 # 2. Turn 0 arrive
 # ---------------------------------------------------------------------------
 class TestArrivePriority:
-    def test_first_turn_is_arrive(self):
+    def test_first_turn_neutral_message_is_arrive(self):
         stance, _ = classify_stance(0, "hey")
         assert stance == "arrive"
 
-    def test_first_turn_arrive_even_with_grief(self):
-        # Turn 0 = arrive unless crisis. Grief still gets a gentle opening.
-        # The next turn will route to witness.
+    def test_first_turn_grief_is_witness_not_arrive(self):
+        # Phase 4 revision: witness beats arrive on turn 0. Grief keywords
+        # in the first user message must classify as witness, not arrive.
         stance, _ = classify_stance(0, "my grandmother died last week")
-        # NB: crisis wins over arrive; grief does not (grief != crisis)
-        assert stance == "arrive"
+        assert stance == "witness"
+
+    def test_first_turn_crisis_is_crisis(self):
+        stance, _ = classify_stance(0, "i want to end my life tonight")
+        assert stance == "crisis"
+
+    def test_first_turn_theological_question_is_offer(self):
+        stance, _ = classify_stance(
+            0, "what does scripture say about baptism?"
+        )
+        assert stance == "offer"
 
 
 # ---------------------------------------------------------------------------

@@ -311,8 +311,11 @@ class TurnDirective:
         lines: List[str] = ["=== TURN DIRECTIVE ==="]
         lines.append(_STANCE_GUIDANCE[self.stance])
 
-        # Opener context guidance (only for arrive turns).
-        if self.stance == "arrive" and self.opener_context:
+        # Opener context guidance — renders on ANY turn-0 stance (arrive,
+        # witness, offer, crisis, close) so a first message that opens with
+        # grief/celebration/theology still receives the appropriate arrival
+        # flavor without a separate opener LLM call.
+        if self.opener_context:
             ctx = _OPENER_CONTEXT_GUIDANCE.get(self.opener_context)
             if ctx:
                 lines.append("")
@@ -666,9 +669,10 @@ CLOSING_KEYWORDS = (
 # grieving, celebrating, or otherwise sharing something significant. These
 # route toward WITNESS unless another signal (crisis, close) wins first.
 GRIEF_KEYWORDS = (
-    "died", "passed away", "she's gone", "he's gone", "we lost",
-    "funeral", "miscarried", "miscarriage", "buried", "her funeral",
-    "his funeral", "stillbirth", "found out he died", "found out she died",
+    "died", "passed away", "has passed", "she's gone", "he's gone",
+    "is gone", "are gone", "we lost", "funeral", "miscarried",
+    "miscarriage", "buried", "her funeral", "his funeral", "stillbirth",
+    "found out he died", "found out she died", "loss of a", "loss of my",
 )
 
 CELEBRATION_KEYWORDS = (
@@ -933,9 +937,15 @@ def classify_stance(
     if signals["crisis"]:
         return "crisis", signals
 
-    # ---- Priority 2: turn 0 is arrive ------------------------------------
-    if turn_index == 0:
-        return "arrive", signals
+    # ---- Priority 2: witness for presence-appropriate moments ------------
+    # Grief, celebration, confession, and other emotionally significant
+    # disclosures where presence is more appropriate than teaching. Witness
+    # takes priority over 'arrive' on turn 0 — a first message that opens
+    # with grief must classify as witness, not swallowed by the arrive
+    # default. Subsequent turns (with new signals) can move to
+    # understand/offer.
+    if signals["grief"] or signals["celebration"] or signals["confession"]:
+        return "witness", signals
 
     # ---- Priority 3: bare closing signals --------------------------------
     # A "thanks" or "goodnight" does not automatically end the session when
@@ -955,15 +965,6 @@ def classify_stance(
             # Otherwise pull them back into presence via listen.
             return "listen", signals
         return "close", signals
-
-    # ---- Priority 4: witness for presence-appropriate moments ------------
-    # Grief, celebration, confession, and other emotionally significant
-    # disclosures where presence is more appropriate than teaching. Witness
-    # takes priority over advice requests here — a user confessing needs to
-    # be received, not counseled, on this turn. Subsequent turns (with new
-    # signals) can move to understand/offer.
-    if signals["grief"] or signals["celebration"] or signals["confession"]:
-        return "witness", signals
 
     # ---- Priority 5: witness continuation rule --------------------------
     # If the previous stance was witness (grief/celebration/confession) and
@@ -1054,12 +1055,20 @@ def classify_stance(
     if stance_history and stance_history[-1] == "understand":
         return "offer", signals
 
-    # ---- Priority 13: turn 1 defaults to listen -------------------------
+    # ---- Priority 13: turn 0 fallback → arrive --------------------------
+    # First user message with no stronger signal (no crisis/witness/close/
+    # advice/theology/depth). This is a neutral check-in — greet warmly and
+    # invite what's on their heart. The opener_context passed at directive
+    # time supplies any returning-user flavor.
+    if turn_index == 0:
+        return "arrive", signals
+
+    # ---- Priority 14: turn 1 defaults to listen -------------------------
     # First user reply after the opener — reflect, make them feel heard.
     if turn_index == 1:
         return "listen", signals
 
-    # ---- Priority 14: gathering-with-history default --------------------
+    # ---- Priority 15: gathering-with-history default --------------------
     # If depth was surfaced earlier and last stance was listen (not witness
     # — witness is handled by the witness-continuation rule above), the
     # user may be ready for gentle interpretation.
@@ -1305,9 +1314,11 @@ def build_v5_messages(
     if stance == "close":
         closing_shape = pick_closing_shape(recent_closing_shapes, owner_key)
 
-    # Phase 4: derive opener_context automatically when not provided.
-    # Only meaningful on arrive turns; other stances ignore it.
-    if stance == "arrive" and opener_context is None:
+    # Phase 4 (revised): derive opener_context on ANY turn-0 response so a
+    # first message that opens with grief/celebration/theology still gets
+    # the appropriate arrival flavor as directive metadata. This is a pure
+    # local computation — no additional LLM call.
+    if turn_index == 0 and opener_context is None:
         opener_context = derive_opener_context(
             session_count=session_count,
             last_session_summary=last_session_summary,
@@ -1356,59 +1367,11 @@ def build_v5_messages(
     return messages, stance, closing_shape, max_tokens
 
 
-# =============================================================================
-# Phase 4 — Opener generation payload
-# =============================================================================
-def build_opener_messages(
-    session_count: int,
-    tenure_hint: Optional[str],
-    last_session_summary: Optional[str],
-    recent_summaries: List[str],
-    active_memory: List[dict],
-    owner_key: str,
-) -> Tuple[List[Dict[str, str]], int, OpenerContext]:
-    """Build the LLM call payload for a session's opening line.
-
-    Returns (messages, max_tokens, opener_context). The caller (session/start
-    endpoint) sends this to Claude, takes the response text, and stores it
-    as the first assistant message on the session.
-
-    This replaces the hardcoded V4 openers on the V5 code path. No opener
-    text is baked in — the model writes it from the arrive directive.
-    """
-    opener_context = derive_opener_context(
-        session_count=session_count,
-        last_session_summary=last_session_summary,
-        active_memory=active_memory,
-    )
-    memory_recap = build_memory_recap(
-        session_count=session_count,
-        tenure_hint=tenure_hint,
-        recent_summaries=recent_summaries,
-        active_memory=active_memory,
-    )
-
-    directive = TurnDirective(
-        stance="arrive",
-        length_hint_tokens=STANCE_TOKEN_BUDGET["arrive"],
-        memory_recap=memory_recap,
-        opener_context=opener_context,
-    )
-
-    # We frame the "user" message as a system-produced initiation stub so
-    # Claude generates a natural opener rather than a reply to anything.
-    # The model's job here is: produce ONLY the opening line, nothing more.
-    initiation = (
-        "The person just opened the app to start a conversation. Write your "
-        "opening message to them now. Follow the arrive-stance directive "
-        "above. Return only the opener text — no preamble, no meta commentary, "
-        "no self-narration. One short paragraph, or one sentence, whichever "
-        "the moment calls for."
-    )
-
-    messages = [
-        {"role": "system", "content": WALK_VOICE_PROMPT_V5},
-        {"role": "system", "content": directive.render()},
-        {"role": "user", "content": initiation},
-    ]
-    return messages, STANCE_TOKEN_BUDGET["arrive"], opener_context
+# Note: The dedicated opener LLM call (build_opener_messages) that once lived
+# here has been intentionally REMOVED (Phase 4 revision). session/start no
+# longer generates an assistant opener via Claude — the frontend renders a
+# static invitation and the first Claude call happens only after the user
+# submits their first message. The opener_context computed by
+# derive_opener_context() flows into the first send_message directive as
+# metadata, so the first assistant response naturally combines arrival
+# flavor with the correct stance (crisis / witness / offer / arrive / etc.).

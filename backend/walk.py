@@ -65,14 +65,12 @@ if WALK_PROMPT_VERSION not in ("v4", "v5"):
 if WALK_PROMPT_VERSION == "v5":
     from walk_v5 import (  # noqa: F401
         build_v5_messages,
-        build_opener_messages,
         STANCE_TOKEN_BUDGET,
         detect_depth_surfaced as _v5_detect_depth,
     )
     logger.info("Walk prompt architecture: V5 active")
 else:
     build_v5_messages = None  # type: ignore[assignment]
-    build_opener_messages = None  # type: ignore[assignment]
     STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
     _v5_detect_depth = None  # type: ignore[assignment]
     logger.info("Walk prompt architecture: V4 active (default)")
@@ -498,6 +496,9 @@ class SessionStartResponse(BaseModel):
     opening_message: str
     memory_context_count: int
     is_first_session: bool
+    # V5 (Phase 4 revision): opener context label so the frontend can show
+    # the correct static invitation copy. None for V4 sessions.
+    opener_context: Optional[str] = None
 
 
 class UserMessageRequest(BaseModel):
@@ -1126,77 +1127,45 @@ def build_walk_router(
         )
         is_first = prior_count == 0
 
-        # -------- Choose opener path: V4 hardcoded vs V5 model-generated --
-        opener: Optional[str] = None
-        if WALK_PROMPT_VERSION == "v5" and build_opener_messages is not None:
-            # V5: generate the opener via a one-shot LLM call using the
-            # arrive stance directive. No hardcoded strings.
+        # -------------------------------------------------------------------
+        # V5 (Phase 4 revision): session/start performs ZERO LLM calls.
+        # No assistant opener is stored in the transcript. The frontend
+        # renders a static invitation and the first Claude call happens only
+        # after the user submits their first message. The first-message
+        # classifier will then choose the right stance (crisis / witness /
+        # offer / arrive) and the opener_context is passed as metadata so
+        # the model can add a natural arrival flavor without a separate call.
+        # -------------------------------------------------------------------
+        opener_context_label: Optional[str] = None
+        opener: str = ""
+        if WALK_PROMPT_VERSION == "v5":
+            # Compute opener context label for the frontend (a hint for its
+            # static invitation copy) and for the first-turn directive.
+            last_ended = await db.walk_sessions.find_one(
+                {
+                    "owner_key": _owner_key(owner),
+                    "ended_at": {"$ne": None},
+                    "session_summary": {"$ne": None},
+                },
+                {"_id": 0, "session_summary": 1},
+                sort=[("ended_at", -1)],
+            )
+            last_summary = (
+                last_ended.get("session_summary") if last_ended else None
+            )
             try:
-                # Pull the last completed session's summary + tenure so the
-                # opener context detector can pick the right arrival flavor.
-                last_ended = await db.walk_sessions.find_one(
-                    {
-                        "owner_key": _owner_key(owner),
-                        "ended_at": {"$ne": None},
-                        "session_summary": {"$ne": None},
-                    },
-                    {"_id": 0, "session_summary": 1},
-                    sort=[("ended_at", -1)],
-                )
-                last_summary = (
-                    last_ended.get("session_summary") if last_ended else None
-                )
-                # Grab a handful of recent summaries for the memory recap.
-                recent_summaries_list = [
-                    d["session_summary"]
-                    async for d in db.walk_sessions.find(
-                        {
-                            "owner_key": _owner_key(owner),
-                            "ended_at": {"$ne": None},
-                            "session_summary": {"$ne": None},
-                        },
-                        {"_id": 0, "session_summary": 1},
-                    ).sort("ended_at", -1).limit(6)
-                ]
-                first_session_doc = await db.walk_sessions.find_one(
-                    {"owner_key": _owner_key(owner)},
-                    {"_id": 0, "started_at": 1},
-                    sort=[("started_at", 1)],
-                )
-                tenure_hint = _tenure_hint(
-                    first_session_doc["started_at"] if first_session_doc else None
-                )
-                msgs, max_tok, _ctx = build_opener_messages(
+                from walk_v5 import derive_opener_context as _derive_ctx
+                opener_context_label = _derive_ctx(
                     session_count=prior_count,
-                    tenure_hint=tenure_hint,
                     last_session_summary=last_summary,
-                    recent_summaries=recent_summaries_list,
                     active_memory=active_memory,
-                    owner_key=_owner_key(owner),
                 )
-                params: Dict[str, Any] = {
-                    "model": WALK_MODEL,
-                    "messages": msgs,
-                    "api_key": _EMERGENT_LLM_KEY,
-                    "stream": False,
-                    "temperature": 0.9,
-                    "max_tokens": max_tok,
-                }
-                if _EMERGENT_LLM_KEY.startswith("sk-emergent-"):
-                    proxy_url = get_integration_proxy_url()
-                    params["api_base"] = proxy_url + "/llm"
-                    params["custom_llm_provider"] = "openai"
-                resp = await litellm.acompletion(**params)
-                try:
-                    opener = (resp.choices[0].message.content or "").strip()
-                except Exception:  # noqa: BLE001
-                    opener = None
-            except Exception as e:  # noqa: BLE001
-                logger.exception("V5 opener generation failed, falling back: %s", e)
-                opener = None
-
-        # Fallback path (V4 default, or V5 with LLM failure) — hardcoded openers.
-        if not opener:
+            except Exception:  # noqa: BLE001
+                logger.exception("derive_opener_context failed (non-fatal)")
+                opener_context_label = None
+        else:
+            # V4 fallback path unchanged — hardcoded openers, stored as
+            # first assistant message on the session.
             if is_first:
                 opener = FIRST_SESSION_OPENER
             elif active_memory:
@@ -1205,30 +1174,40 @@ def build_walk_router(
                 opener = RETURNING_NO_MEMORY_OPENER
 
         sid = str(uuid.uuid4())
-        session_doc = {
+        session_doc: Dict[str, Any] = {
             "id": sid,
             "owner_key": _owner_key(owner),
             **_owner_fields(owner),
             "started_at": _now_iso(),
             "ended_at": None,
-            # Persist the opener as the first assistant message so the client
-            # can render it and history stays honest.
-            "messages": [
+            "messages": [],
+            "session_summary": None,
+        }
+        # V4: persist the hardcoded opener as the first assistant message so
+        # the client renders it and history stays honest.
+        # V5: transcript stays EMPTY until the user speaks.
+        if WALK_PROMPT_VERSION != "v5" and opener:
+            session_doc["messages"] = [
                 {
                     "id": str(uuid.uuid4()),
                     "role": "assistant",
                     "content": opener,
                     "at": _now_iso(),
                 }
-            ],
-            "session_summary": None,
-        }
+            ]
+        # V5: persist the opener context label on the session so the first
+        # send_message call can use it as directive metadata.
+        if WALK_PROMPT_VERSION == "v5" and opener_context_label:
+            session_doc["opener_context"] = opener_context_label
+
         await db.walk_sessions.insert_one(session_doc)
+
         return SessionStartResponse(
             id=sid,
-            opening_message=opener,
+            opening_message=opener,  # empty string for V5
             memory_context_count=len(active_memory),
             is_first_session=is_first,
+            opener_context=opener_context_label,
         )
 
     # --------------------------- Send message (SSE) ---------------------------

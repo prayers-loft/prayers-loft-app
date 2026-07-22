@@ -25,13 +25,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from walk_v5 import (  # noqa: E402
     derive_opener_context,
-    build_opener_messages,
     should_gate_closing,
     classify_stance,
     pick_closing_shape,
     CLOSING_SHAPES,
     WALK_VOICE_PROMPT_V5,
     _OPENER_CONTEXT_GUIDANCE,
+    build_v5_messages,
+    TurnDirective,
 )
 
 
@@ -104,81 +105,150 @@ class TestOpenerContext:
 
 
 # =============================================================================
-# 2. Opener directive rendering — no hardcoded phrases leak
+# 2. Turn-0 directive rendering — first-message-as-witness/offer, no LLM
+#    opener call, no assistant message stored before user speaks
 # =============================================================================
-class TestOpenerDirectiveRendering:
-    def test_first_ever_directive_forbids_prior_reference(self):
-        msgs, _, ctx = build_opener_messages(
-            session_count=0, tenure_hint=None,
-            last_session_summary=None, recent_summaries=[],
-            active_memory=[], owner_key="u:test",
+class TestTurnZeroDirective:
+    def _build(self, user_text, **kwargs):
+        """Helper — build messages/stance for a first-turn user message."""
+        defaults = dict(
+            session_count=kwargs.pop("session_count", 0),
+            tenure_hint=kwargs.pop("tenure_hint", None),
+            recent_summaries=kwargs.pop("recent_summaries", []),
+            active_memory=kwargs.pop("active_memory", []),
+            recent_closing_shapes=[],
+            recent_assistant_messages=[],
+            owner_key="u:t0-test",
+            transcript_block="",
+            stance_history=[],
+            prior_user_texts=[],
+            depth_surfaced_before=False,
+            last_session_summary=kwargs.pop("last_session_summary", None),
+            prior_stance=None,
         )
-        directive = msgs[1]["content"]
-        assert ctx == "first_ever"
-        assert "FIRST-EVER" in directive
-        # First-ever directive must forbid inventing prior sessions.
-        assert "no prior sessions" in directive.lower() or \
-               "there are none" in directive.lower()
+        defaults.update(kwargs)
+        return build_v5_messages(user_text=user_text, turn_index=0, **defaults)
+
+    def test_first_ever_grief_classifies_as_witness(self):
+        msgs, stance, _, _ = self._build("my mom died last month")
+        assert stance == "witness"
+        assert "OPENER CONTEXT — FIRST-EVER SESSION" in msgs[1]["content"]
+
+    def test_first_ever_confession_classifies_as_witness(self):
+        msgs, stance, _, _ = self._build(
+            "i cheated on my wife and no one knows"
+        )
+        assert stance == "witness"
+
+    def test_first_ever_celebration_classifies_as_witness(self):
+        msgs, stance, _, _ = self._build(
+            "praise God — i finally got the job i was praying for"
+        )
+        assert stance == "witness"
+
+    def test_first_ever_crisis_classifies_as_crisis(self):
+        msgs, stance, _, _ = self._build(
+            "i've been thinking about ending my life"
+        )
+        assert stance == "crisis"
+
+    def test_first_ever_theological_question_offers_direct_answer(self):
+        msgs, stance, _, _ = self._build(
+            "what does scripture say about baptism — is it required for salvation?"
+        )
+        assert stance == "offer"
+
+    def test_first_ever_normal_checkin_arrives(self):
+        msgs, stance, _, _ = self._build("hey — just thought i'd check in")
+        assert stance == "arrive"
+
+    def test_returning_grief_still_witness_with_grief_context(self):
+        # Returning user opens with grief. Stance = witness, opener_context
+        # = returning_after_grief.
+        msgs, stance, _, _ = self._build(
+            "my dad is gone",
+            session_count=2,
+            recent_summaries=["Grieving the death of a father three weeks ago."],
+            last_session_summary="Grieving the death of a father three weeks ago.",
+        )
+        assert stance == "witness"
+        assert "RETURNING AFTER GRIEF" in msgs[1]["content"]
+
+    def test_returning_neutral_first_message_arrives_with_returning_context(self):
+        msgs, stance, _, _ = self._build(
+            "hey — just checking in today",
+            session_count=3,
+            recent_summaries=["Wrestling with a decision about a job change."],
+            last_session_summary="Wrestling with a decision about a job change.",
+        )
+        assert stance == "arrive"
+        # Returning-general context should be surfaced.
+        content = msgs[1]["content"].upper()
+        assert "RETURNING" in content
+
+    def test_returning_no_memory_directive_forbids_fake_recall(self):
+        # Returning user with prior sessions but no summary → no_memory context.
+        msgs, stance, _, _ = self._build(
+            "hey",
+            session_count=3,
+            recent_summaries=[],
+            last_session_summary=None,
+        )
+        assert stance == "arrive"
+        content = msgs[1]["content"].lower()
+        assert "returning with no usable memory" in content
+        assert "do not invent" in content or "cannot honestly" in content
+        # Must not contain a memory recap section (nothing substantive).
+        assert "WHAT YOU KNOW ABOUT THIS PERSON" not in msgs[1]["content"]
+
+    def test_opener_context_renders_on_witness_stance(self):
+        # Turn 0 grief → witness stance BUT opener_context still fires.
+        msgs, stance, _, _ = self._build(
+            "my mom died",
+            session_count=1,
+            recent_summaries=["Grieving the loss of a mother; feeling numb."],
+            last_session_summary="Grieving the loss of a mother; feeling numb.",
+        )
+        assert stance == "witness"
+        # Opener context guidance must appear even though stance != arrive.
+        assert "RETURNING AFTER GRIEF" in msgs[1]["content"]
+
+
+# =============================================================================
+# 3. Opener directive rendering — check guidance content
+# =============================================================================
+class TestOpenerDirectiveContent:
+    def test_first_ever_directive_forbids_prior_reference(self):
+        directive_content = _OPENER_CONTEXT_GUIDANCE["first_ever"]
+        # First-ever must forbid inventing prior sessions.
+        assert "no prior sessions" in directive_content.lower() or \
+               "there are none" in directive_content.lower()
 
     def test_no_memory_directive_forbids_fake_recall(self):
-        msgs, _, ctx = build_opener_messages(
-            session_count=3, tenure_hint="the past few weeks",
-            last_session_summary=None, recent_summaries=[],
-            active_memory=[], owner_key="u:test",
-        )
-        directive = msgs[1]["content"]
-        assert ctx == "returning_no_memory"
+        directive_content = _OPENER_CONTEXT_GUIDANCE["returning_no_memory"]
         # Must explicitly warn against inventing continuity.
-        assert "do not invent" in directive.lower() or \
-               "cannot honestly" in directive.lower()
-        # Must NOT contain a bulleted memory recap (nothing to recap).
-        assert "WHAT YOU KNOW ABOUT THIS PERSON" not in directive
+        assert "do not invent" in directive_content.lower() or \
+               "cannot honestly" in directive_content.lower()
 
     def test_grief_return_directive_is_gentle(self):
-        msgs, _, ctx = build_opener_messages(
-            session_count=2, tenure_hint="the past few weeks",
-            last_session_summary="Grieving the loss of a father three weeks ago.",
-            recent_summaries=["Grieving the loss of a father three weeks ago."],
-            active_memory=[], owner_key="u:test",
-        )
-        directive = msgs[1]["content"]
-        assert ctx == "returning_after_grief"
-        assert "gently" in directive.lower() or "quiet" in directive.lower()
-        # Must forbid forcing them to update.
-        assert "not force" in directive.lower() or \
-               "let them speak first" in directive.lower()
+        directive_content = _OPENER_CONTEXT_GUIDANCE["returning_after_grief"]
+        assert "gently" in directive_content.lower() or \
+               "quiet" in directive_content.lower()
+        assert "not force" in directive_content.lower() or \
+               "let them speak first" in directive_content.lower()
 
     def test_celebration_return_directive_matches_warmth(self):
-        msgs, _, ctx = build_opener_messages(
-            session_count=3, tenure_hint="about a month",
-            last_session_summary="Rejoicing over answered prayer.",
-            recent_summaries=["Rejoicing over answered prayer."],
-            active_memory=[], owner_key="u:test",
-        )
-        directive = msgs[1]["content"]
-        assert ctx == "returning_after_celebration"
-        # Must NOT force them back into topic.
-        assert "not force" in directive.lower() or \
-               "if it fits" in directive.lower() or \
-               "light acknowledgement" in directive.lower()
+        directive_content = _OPENER_CONTEXT_GUIDANCE["returning_after_celebration"]
+        assert "not force" in directive_content.lower() or \
+               "if it fits" in directive_content.lower() or \
+               "light acknowledgement" in directive_content.lower()
 
     def test_open_commitment_directive_forbids_auditing(self):
-        msgs, _, ctx = build_opener_messages(
-            session_count=4, tenure_hint="a while now",
-            last_session_summary="Choosing to bring anxiety to God instead of white-knuckling it.",
-            recent_summaries=["Choosing to bring anxiety to God instead of white-knuckling it."],
-            active_memory=[
-                {"kind": "commitment", "content": "read Philippians 4 tomorrow morning", "status": "active"},
-            ],
-            owner_key="u:test",
-        )
-        directive = msgs[1]["content"]
-        assert ctx == "returning_with_open_commitment"
-        assert "audit" in directive.lower()  # explicitly warns against auditing
+        directive_content = _OPENER_CONTEXT_GUIDANCE["returning_with_open_commitment"]
+        assert "audit" in directive_content.lower()
 
-    def test_opener_directive_does_not_contain_hardcoded_greeting(self):
-        # No opener directive should contain phrases like "Hi. I'm glad you're here"
-        # from the deprecated V4 hardcoded strings — those are V4-only.
+    def test_no_opener_directive_contains_hardcoded_greeting(self):
+        # V4 hardcoded phrases must not leak into V5 opener guidance.
         for ctx_key in _OPENER_CONTEXT_GUIDANCE:
             guidance = _OPENER_CONTEXT_GUIDANCE[ctx_key]
             assert "Hi. I'm glad you're here" not in guidance
@@ -387,41 +457,58 @@ class TestNoFalseContinuity:
 
 
 # =============================================================================
-# 6. Integration smoke — build a full opener payload end-to-end
+# 6. Integration smoke — build a full turn-0 payload end-to-end
 # =============================================================================
-class TestOpenerPayloadIntegration:
-    def test_first_ever_payload_structure(self):
-        msgs, max_tok, ctx = build_opener_messages(
-            session_count=0, tenure_hint=None,
-            last_session_summary=None, recent_summaries=[],
-            active_memory=[], owner_key="u:new-user",
+class TestTurnZeroPayloadIntegration:
+    def test_first_ever_neutral_payload_structure(self):
+        msgs, stance, _, mt = build_v5_messages(
+            user_text="hey there",
+            turn_index=0,
+            prior_stance=None,
+            session_count=0,
+            tenure_hint=None,
+            recent_summaries=[],
+            active_memory=[],
+            recent_closing_shapes=[],
+            recent_assistant_messages=[],
+            owner_key="u:new-user",
+            transcript_block="",
         )
         assert len(msgs) == 3
         assert msgs[0]["role"] == "system"
         assert msgs[1]["role"] == "system"
         assert msgs[2]["role"] == "user"
+        assert msgs[2]["content"] == "hey there"
         # Voice message contains identity, not a fictional character.
         assert "Prayers Loft" in msgs[0]["content"]
         assert "not a person" in msgs[0]["content"].lower()
-        # Turn directive contains arrive stance and first-ever context.
+        # Turn directive contains ARRIVE stance and FIRST-EVER context.
         assert "ARRIVE" in msgs[1]["content"]
         assert "FIRST-EVER" in msgs[1]["content"]
-        # max_tok stays tight for openers.
-        assert 150 <= max_tok <= 400
-        assert ctx == "first_ever"
+        assert stance == "arrive"
+        # max_tokens stays tight for arrive.
+        assert 150 <= mt <= 400
 
-    def test_returning_after_grief_payload_has_recap(self):
-        msgs, _, _ = build_opener_messages(
-            session_count=3, tenure_hint="the past few weeks",
-            last_session_summary="Grieving the loss of a father three weeks ago.",
+    def test_returning_after_grief_first_message_has_recap(self):
+        msgs, stance, _, _ = build_v5_messages(
+            user_text="hey",
+            turn_index=0,
+            prior_stance=None,
+            session_count=3,
+            tenure_hint="the past few weeks",
             recent_summaries=[
                 "Grieving the loss of a father three weeks ago.",
                 "Wrestling with numbness and the exhaustion of mourning.",
             ],
             active_memory=[],
+            recent_closing_shapes=[],
+            recent_assistant_messages=[],
             owner_key="u:grief-user",
+            transcript_block="",
+            last_session_summary="Grieving the loss of a father three weeks ago.",
         )
         # Memory recap should be present in the directive.
         assert "WHAT YOU KNOW ABOUT THIS PERSON" in msgs[1]["content"]
         # Grief-return opener context guidance is present.
         assert "GRIEF" in msgs[1]["content"]
+        assert stance == "arrive"
