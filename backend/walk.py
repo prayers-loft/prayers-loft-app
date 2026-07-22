@@ -647,24 +647,62 @@ _SANITIZE_RHETORICAL_SENTENCES = [
 ]
 
 
-# Prefix patterns to strip from the start of any sentence.
-_SANITIZE_PREFIXES = [
+# Prefix patterns to strip (or rewrite) from the start of any sentence.
+# Each entry is a (compiled_pattern, replacement) tuple. Replacement is
+# usually "" (strip) — a small number rewrite to a natural equivalent
+# rather than dropping content that carries meaning ("Last time" preserves
+# temporal framing that "" would erase).
+_SANITIZE_PREFIXES: List[Tuple[re.Pattern[str], str]] = [
     # "Can I ask — X?" / "Can I ask, X?" / "Can I ask you — X?"
     # Preserves the question, drops the preamble.
-    re.compile(
+    (re.compile(
         r"^\s*Can\s+I\s+ask(?:\s+you)?(?:\s+something)?\s*[,\-\u2014\u2013:—]+\s*",
         re.IGNORECASE,
-    ),
+    ), ""),
     # "Can I ask what/why/how ..." — drop just the "Can I ask " lead-in.
-    re.compile(
+    (re.compile(
         r"^\s*Can\s+I\s+ask(?:\s+you)?\s+(?=what|why|how|when|where|who|whether|if\b)",
         re.IGNORECASE,
-    ),
+    ), ""),
     # "May I ask —" variants
-    re.compile(
+    (re.compile(
         r"^\s*May\s+I\s+ask(?:\s+you)?\s*[,\-\u2014\u2013:—]+\s*",
         re.IGNORECASE,
-    ),
+    ), ""),
+    # V5 (post-Phase 6): narrow CRM-recall opener strippers/rewrites.
+    # Sentence-START only. We do NOT try to rewrite embedded "you said" /
+    # "you told me" mid-sentence — that path leads to an ever-growing
+    # rewrite engine. Kept deliberately narrow.
+    #
+    # "Last time you said X" -> "Last time, X" (temporal framing preserved).
+    (re.compile(
+        r"^\s*Last\s+time\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), "Last time, "),
+    # "Earlier you said X" -> "Earlier, X"
+    (re.compile(
+        r"^\s*Earlier\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), "Earlier, "),
+    # "Previously you said X" -> "" (drop entirely; the sentence stands alone).
+    (re.compile(
+        r"^\s*Previously\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    # Plain "You said X" / "You mentioned X" / "You told me X" -> drop the
+    # preamble; the substantive content that follows stands on its own.
+    (re.compile(
+        r"^\s*You\s+said(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r"^\s*You\s+mentioned(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r"^\s*You\s+told\s+me(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
 ]
 
 
@@ -677,19 +715,24 @@ def _sanitize_assistant_sentence(sentence: str) -> str:
     if not sentence:
         return sentence
     changed = False
-    for pat in _SANITIZE_PREFIXES:
-        new_sentence, n = pat.subn("", sentence, count=1)
+    used_replacement = ""
+    for pat, replacement in _SANITIZE_PREFIXES:
+        new_sentence, n = pat.subn(replacement, sentence, count=1)
         if n:
             sentence = new_sentence
+            used_replacement = replacement
             changed = True
             break  # only one prefix strip per sentence
     if changed:
         # Re-capitalize the first non-whitespace letter, since we likely
         # stripped a preamble like "Can I ask — have you…" -> " have you…".
-        stripped = sentence.lstrip()
-        if stripped and stripped[0].islower():
-            lead = sentence[: len(sentence) - len(stripped)]
-            sentence = lead + stripped[0].upper() + stripped[1:]
+        # For rewrites that inject a natural prefix ("Last time, "), skip
+        # re-capitalization — the injected prefix is already capitalized.
+        if not used_replacement.strip():
+            stripped = sentence.lstrip()
+            if stripped and stripped[0].islower():
+                lead = sentence[: len(sentence) - len(stripped)]
+                sentence = lead + stripped[0].upper() + stripped[1:]
     return sentence
 
 
