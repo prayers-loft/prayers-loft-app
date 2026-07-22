@@ -651,7 +651,7 @@ function EndedPanel({
       <Text style={styles.endedTitle}>Take a breath.</Text>
       {hasAnyContent ? (
         <Text style={styles.endedBody}>
-          {"Here's the shape of what we sat with. I've kept the meaning of what you shared — you can remove any of these later from Walk."}
+          {"Here's the shape of what we sat with. I've kept the meaning of what you shared — you can view or remove any of these anytime from the Walk tab."}
         </Text>
       ) : (
         <Text style={styles.endedBody}>
@@ -660,7 +660,10 @@ function EndedPanel({
       )}
       {savedFromExtraction.length > 0 && (
         <View style={styles.savedList} testID="walk-saved-from-extraction">
-          <Text style={styles.savedListHeader}>Saved for next time</Text>
+          <Text style={styles.savedListHeader}>Saved to your Walk memory</Text>
+          <Text style={styles.savedListHint}>
+            You can view or remove these anytime from the Walk tab.
+          </Text>
           {savedFromExtraction.map((s, i) => (
             <View key={`saved-${i}`} style={[styles.candidateCard, styles.candidateCardSaved]}>
               <Text style={styles.candidateKind}>{prettyKind(s.kind)}</Text>
@@ -955,6 +958,16 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginTop: spacing.md,
     marginBottom: 2,
+  },
+  // Small helper line sitting below "SAVED TO YOUR WALK MEMORY" so users
+  // know where these items go and how to manage them later. Not a link —
+  // deliberately quiet, we don't want to compete with the Done CTA below.
+  savedListHint: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   candidateKind: {
     fontFamily: fonts.sansSemibold,
