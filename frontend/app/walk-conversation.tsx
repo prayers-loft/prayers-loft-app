@@ -46,6 +46,29 @@ import {
 
 type Phase = "loading" | "ready" | "streaming" | "ended";
 
+// -----------------------------------------------------------------------------
+// Local-time greeting helper.
+//
+// V5 intentionally REMOVED the AI-generated opener from /session/start to
+// eliminate a Claude round-trip on cold-open (see backend walk.py:1213). The
+// backend returns `opening_message: ""` and does NOT persist any assistant
+// message in the transcript. To keep the conversation screen from opening
+// blank, we render a lightweight static invitation based on the device's
+// LOCAL time.
+//
+// Contract (per Build 26B UX ticket):
+//   • Determined entirely on the client from Date.getHours().
+//   • Never sent to the backend, never included in the transcript, never
+//     persisted as an assistant message. Pure UI ornament.
+//   • Disappears the moment the user's first message hits the transcript.
+// -----------------------------------------------------------------------------
+function getLocalTimeGreeting(now: Date = new Date()): string {
+  const h = now.getHours();
+  if (h >= 5 && h < 12) return "Good morning.";
+  if (h >= 12 && h < 18) return "Good afternoon.";
+  return "Good evening.";
+}
+
 export default function WalkConversationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -54,6 +77,11 @@ export default function WalkConversationScreen() {
   const [messages, setMessages] = useState<WalkMessage[]>([]);
   const [pendingText, setPendingText] = useState(""); // input box
   const [streamBuffer, setStreamBuffer] = useState<string>(""); // in-flight assistant text
+  // Static, client-computed greeting shown ONLY when the transcript is empty.
+  // Locked to the local hour at session-open so it doesn't flip mid-conversation
+  // if the user lingers across the noon or 6pm boundary. See getLocalTimeGreeting
+  // above for the timezone-privacy contract (never sent to the backend).
+  const [greeting, setGreeting] = useState<string>(() => getLocalTimeGreeting());
   const [candidates, setCandidates] = useState<MemoryCandidate[] | null>(null);
   const [savedFromExtraction, setSavedFromExtraction] = useState<
     { kind: string; content: string; scripture_ref: string | null }[]
@@ -70,14 +98,24 @@ export default function WalkConversationScreen() {
       try {
         const s = await startWalkSession();
         setSessionId(s.id);
-        setMessages([
-          {
-            id: "opener",
-            role: "assistant",
-            content: s.opening_message,
-            at: new Date().toISOString(),
-          },
-        ]);
+        // V5 (Build 26B) — the backend returns opening_message="" and
+        // deliberately stores NO assistant message on the session. Inserting
+        // an empty bubble caused the blank landing regression. Only seed
+        // the transcript with an opener when the V4 fallback actually
+        // provides one; otherwise leave the transcript empty and let the
+        // static local-time greeting (rendered below) invite the user in.
+        if (s.opening_message && s.opening_message.trim()) {
+          setMessages([
+            {
+              id: "opener",
+              role: "assistant",
+              content: s.opening_message,
+              at: new Date().toISOString(),
+            },
+          ]);
+        } else {
+          setMessages([]);
+        }
         setPhase("ready");
       } catch {
         setError(
@@ -280,6 +318,42 @@ export default function WalkConversationScreen() {
     [sessionId],
   );
 
+  // "Done" — the ended-panel CTA that closes out the conversation.
+  //
+  // Contract (Build 26B UX fix):
+  //   • The session has ALREADY been persisted server-side via
+  //     closeAndExtract → endWalkSession, so no additional save call.
+  //   • Clear the entire local conversation state so the previous transcript,
+  //     candidates, and session id cannot leak into a subsequent Walk. This
+  //     protects against the "previous conversation is still visible" bug if
+  //     the screen briefly renders during the pop animation.
+  //   • Navigate explicitly to the Walk tab landing (fresh greeting screen).
+  //     We use `router.replace` rather than `router.back()` so the behavior
+  //     is deterministic even when the user deep-linked into the conversation
+  //     (no back stack to pop) or the stack is otherwise in an odd state.
+  //   • The next time the user taps Begin, a brand-new session is created —
+  //     the Walk tab's own `useFocusEffect` re-runs the landing fetch so
+  //     any commitments extracted from this session appear immediately.
+  const handleDone = useCallback(() => {
+    // Abort any lingering stream first — belt to closeAndExtract's braces.
+    try {
+      abortRef.current?.();
+    } catch {}
+    setSessionId(null);
+    setMessages([]);
+    setStreamBuffer("");
+    setCandidates(null);
+    setSavedFromExtraction([]);
+    setSavedIds(new Set());
+    setError(null);
+    setPendingText("");
+    // Refresh the greeting so a user who lingered past a boundary sees the
+    // right one on their next Begin. Cheap, deterministic, no I/O.
+    setGreeting(getLocalTimeGreeting());
+    setPhase("loading"); // avoids a flash of the static greeting on this route
+    router.replace("/(tabs)/walk" as any);
+  }, [router]);
+
   return (
     <ScreenBackground>
       <Stack.Screen
@@ -315,6 +389,20 @@ export default function WalkConversationScreen() {
           contentContainerStyle={styles.chatContainer}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Static local-time greeting — pure UI ornament, never touches the
+              transcript, backend, or LLM. Rendered ONLY when the conversation
+              hasn't started yet (empty transcript, no live stream). Disappears
+              the moment the user sends their first message. */}
+          {phase === "ready" &&
+            messages.length === 0 &&
+            streamBuffer.length === 0 && (
+              <View style={styles.staticGreeting} testID="walk-static-greeting">
+                <Text style={styles.staticGreetingLine}>{greeting}</Text>
+                <Text style={styles.staticGreetingPrompt}>
+                  What&apos;s on your heart today?
+                </Text>
+              </View>
+            )}
           {messages.map((m) => (
             <MessageBubble key={m.id} role={m.role} content={m.content} />
           ))}
@@ -338,7 +426,7 @@ export default function WalkConversationScreen() {
               savedFromExtraction={savedFromExtraction}
               savedIndices={savedIds}
               onSave={savePendingCandidate}
-              onDone={() => router.back()}
+              onDone={handleDone}
             />
           )}
           {error ? <Text style={styles.errorLine}>{error}</Text> : null}
@@ -383,7 +471,7 @@ export default function WalkConversationScreen() {
             </Pressable>
           </View>
         )}
-        {phase === "ready" && messages.length > 1 && (
+        {phase === "ready" && messages.some((m) => m.role === "user") && (
           <Pressable
             onPress={closeAndExtract}
             style={styles.closeSessionBtn}
@@ -664,6 +752,31 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
     gap: 10,
+  },
+  // Static local-time greeting hero. Deliberately quiet — a serif line and a
+  // gentle prompt, centered with generous top-padding so the empty state
+  // reads as an invitation rather than a broken screen. Once the user sends
+  // their first message this block unmounts and normal chat bubbles take
+  // over.
+  staticGreeting: {
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+    gap: 10,
+    alignItems: "flex-start",
+  },
+  staticGreetingLine: {
+    fontFamily: fonts.serif,
+    fontSize: 26,
+    lineHeight: 32,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  staticGreetingPrompt: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.textSecondary,
   },
   userBubbleWrap: {
     alignItems: "flex-end",
