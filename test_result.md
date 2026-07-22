@@ -335,3 +335,32 @@ agent_communication:
            too.
 
       FAILED TEST CASES: none.
+
+  - agent: "main"
+    message: |
+      Build 26B UX follow-up (frontend-only): fixed Walk V5 blank-landing
+      regression + session reset. Zero Walk backend files modified.
+
+      Changes (single file: /app/frontend/app/walk-conversation.tsx):
+      - Client-only getLocalTimeGreeting() helper (morning/afternoon/evening).
+      - Mount effect no longer inserts an empty assistant opener when
+        opening_message === "" (V5 case). Transcript stays empty until user
+        speaks.
+      - Static greeting hero renders when phase==="ready" &&
+        messages.length===0 && streamBuffer.length===0. Not persisted, never
+        sent to backend, disappears on first user message.
+      - "Close this conversation" gate switched to
+        messages.some(m => m.role==="user") so it appears only after the
+        user speaks.
+      - New handleDone: aborts stream, clears sessionId/messages/streamBuffer/
+        candidates/savedFromExtraction/savedIds/error/pendingText, recomputes
+        greeting, then router.replace("/(tabs)/walk") — deterministic even
+        for deep-link users with no back stack.
+      - V4 fallback: if s.opening_message is truthy the transcript is seeded
+        with it as before — no V4 regression.
+
+      Focus for testing_agent: Walk regression sweep (frontend). 12 scenarios
+      requested by user (fresh V5 landing, opener absence, no-LLM until send,
+      first message stream/persist, close-btn gating, ended panel, Done
+      routing incl. deep-link, fresh session on reopen, V4 fallback, crisis,
+      no duplicate sessions/messages, no Walk V5 backend edits).

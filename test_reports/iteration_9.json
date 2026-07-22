@@ -1,0 +1,36 @@
+{
+  "summary": "Focused Walk regression sweep (frontend-only, 12 scenarios) — 12/12 PASS. V5 static greeting hero renders correctly with local-time salutation ('Good evening.' + 'What\u2019s on your heart today?') outside the transcript; zero /api/walk/session/*/message calls and zero anthropic.com calls before the user hits Send; exactly 1 POST to /session/start per screen mount; first user send fires exactly 1 POST to /session/{id}/message, streams the assistant reply into the transcript (visible: 'What\u2019s happening at work that\u2019s pressing on you right now?'), and persists both turns server-side (confirmed indirectly via the ended-panel extraction which surfaced STRUGGLE = 'I\u2019m feeling anxious about work'). 'Close this conversation' is hidden before the user speaks and reappears after the first reply completes. Ended panel shows 'Take a breath.' + Done button + Saved-for-next-time list. Done returns to /walk (both normal push and cold-open deep-link) with the Walk hero visible and NO 'GO_BACK was not handled' error. Reopening Walk yields a brand-new session with the static greeting hero and empty transcript — no prior text leaks. V4 fallback restored the backend hardcoded opener ('Hi. I\u2019m glad you\u2019re here \u2014 take your time...') as an assistant MessageBubble and correctly suppressed the static-greeting hero (messages.length>0); GET /session/{id} returned messages[0].role='assistant' with non-empty content. Crisis routing works: sending 'I want to hurt myself.' produced a response citing '988 (the Suicide & Crisis Lifeline)' with ZERO scripture cards and no commitment prompt. Frozen Walk V5 backend files (walk.py, walk_v5.py, walk_scripture.py, walk_metrics.py) are untouched; /app/backend/.env restored to WALK_PROMPT_VERSION=v5 with zero remaining diff. GO for GitHub save.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_9.json"
+  ],
+  "action_items": [
+    "None. All 12 Walk regression scenarios pass. Safe to save to GitHub."
+  ],
+  "critical_code_review_comments": [
+    "walk-conversation.tsx: mount effect (line ~96) correctly gates opener insertion on s.opening_message.trim() so V5 empty opener no longer produces a phantom assistant bubble.",
+    "'Close this conversation' visibility is correctly driven by messages.some(m => m.role === 'user') (line ~490), not messages.length > 1 — matches the review-request spec.",
+    "handleDone (line ~353) resets sessionId/messages/streamBuffer/candidates/savedFromExtraction/savedIds/error/pendingText, refreshes greeting via getLocalTimeGreeting(), and calls router.replace('/(tabs)/walk') — deterministic navigation eliminates the GO_BACK error on cold-open/deep-link (verified in S7b).",
+    "Static-greeting hero gated on phase==='ready' && messages.length===0 && streamBuffer.length===0 (line ~412) — correctly disappears the moment the user sends their first message and remains hidden while V4's real opener is present.",
+    "streamWalkMessage in walk-api.ts uses XHR-based SSE parsing (React Native has no reliable Response.body reader) — Playwright's page.on('request') did still capture the /message XHR, confirming the request accounting used by S3/S4/S11 is accurate."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not-tested (frontend-only scope per review request)",
+    "frontend": "100% (12/12 Walk scenarios)"
+  },
+  "seed_data_creation": "Each test session is namespaced by the per-browser localStorage guest id (prayersloft_guest_id). No shared/production data was mutated. Test-created walk_sessions/walk_memory rows remain scoped to their generated guest_id.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend runs at http://localhost:3000 with EXPO_PUBLIC_BACKEND_URL pointing at https://prayers-loft.preview.emergentagent.com (so the frontend does NOT proxy /api through localhost:3000 — direct fetch('/api/...') from page.evaluate returns the Metro HTML). Always call the backend with the absolute preview URL when doing programmatic GET/POST from the browser context. Also, the guest identity key in localStorage is 'prayersloft_guest_id' (see /app/frontend/src/lib/guest-identity.ts) — do NOT iterate localStorage keys generically; grab that exact key. Scenario 9 requires flipping WALK_PROMPT_VERSION in /app/backend/.env and restarting backend via supervisorctl; be sure to restore v5 and verify `git diff /app/backend/.env` is empty at the end.",
+  "rca_of_issue": "N/A — no regressions found in this pass. The four frontend fixes made by the main agent (static greeting hero, opener gate, user-role close-session gate, deterministic router.replace on Done) all behave per spec across V5, V4-fallback, normal-push, and deep-link scenarios."
+}
