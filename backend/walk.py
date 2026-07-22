@@ -50,6 +50,26 @@ WALK_MODEL = "claude-sonnet-4-5-20250929"
 
 _EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# Build 26B: prompt architecture version flag. `v4` keeps the shipping
+# monolithic SYSTEM_PROMPT; `v5` activates the identity-free voice prompt +
+# per-turn directive builder in walk_v5.py. Default is v4 in production —
+# beta cohort flips this to v5 via env.
+WALK_PROMPT_VERSION = os.environ.get("WALK_PROMPT_VERSION", "v4").strip().lower()
+if WALK_PROMPT_VERSION not in ("v4", "v5"):
+    logger.warning(
+        "Unknown WALK_PROMPT_VERSION=%r; falling back to v4", WALK_PROMPT_VERSION
+    )
+    WALK_PROMPT_VERSION = "v4"
+
+# V5 architecture — imported lazily so V4-only deployments never load it.
+if WALK_PROMPT_VERSION == "v5":
+    from walk_v5 import build_v5_messages, STANCE_TOKEN_BUDGET  # noqa: F401
+    logger.info("Walk prompt architecture: V5 active")
+else:
+    build_v5_messages = None  # type: ignore[assignment]
+    STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
+    logger.info("Walk prompt architecture: V4 active (default)")
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -1170,6 +1190,45 @@ def build_walk_router(
         transcript = _condense_transcript(fresh.get("messages", []))
         combined_system = system_msg + "\n\n===\nCONVERSATION SO FAR\n" + transcript
 
+        # -------------------------------------------------------------------
+        # V5 turn-directive architecture (Build 26B).
+        # When WALK_PROMPT_VERSION=v5, we replace the monolithic system
+        # message with a two-message structure: identity-free voice prompt
+        # + per-turn directive (stance / memory recap / closing shape /
+        # variety hint). V4 remains the default and is unmodified.
+        # -------------------------------------------------------------------
+        v5_messages: Optional[List[Dict[str, str]]] = None
+        v5_stance: Optional[str] = None
+        v5_closing_shape: Optional[str] = None
+        v5_max_tokens: Optional[int] = None
+        if WALK_PROMPT_VERSION == "v5" and build_v5_messages is not None:
+            all_msgs = fresh.get("messages", []) or []
+            user_turns_so_far = [m for m in all_msgs if m.get("role") == "user"]
+            turn_index = max(0, len(user_turns_so_far) - 1)
+            prior_stance = fresh.get("current_stance")
+            recent_assistant_msgs = [
+                (m.get("content") or "")
+                for m in all_msgs
+                if m.get("role") == "assistant"
+            ][-3:]
+            recent_closing_shapes = list(fresh.get("recent_closing_shapes") or [])
+            tenure_hint = _tenure_hint(
+                first_session["started_at"] if first_session else None
+            )
+            v5_messages, v5_stance, v5_closing_shape, v5_max_tokens = build_v5_messages(
+                user_text=payload.text,
+                turn_index=turn_index,
+                prior_stance=prior_stance,
+                session_count=prior_count,
+                tenure_hint=tenure_hint,
+                recent_summaries=recent_summaries,
+                active_memory=active_memory,
+                recent_closing_shapes=recent_closing_shapes,
+                recent_assistant_messages=recent_assistant_msgs,
+                owner_key=_owner_key(owner),
+                transcript_block=transcript,
+            )
+
         assistant_msg_id = str(uuid.uuid4())
         assistant_at = _now_iso()
 
@@ -1191,16 +1250,22 @@ def build_walk_router(
             sanitizer = _StreamSanitizer()
             try:
                 # Build litellm params matching emergentintegrations proxy setup.
-                params: Dict[str, Any] = {
-                    "model": WALK_MODEL,
-                    "messages": [
+                if v5_messages is not None:
+                    call_messages = v5_messages
+                    call_max_tokens = v5_max_tokens or 800
+                else:
+                    call_messages = [
                         {"role": "system", "content": combined_system},
                         {"role": "user", "content": payload.text},
-                    ],
+                    ]
+                    call_max_tokens = 800
+                params: Dict[str, Any] = {
+                    "model": WALK_MODEL,
+                    "messages": call_messages,
                     "api_key": _EMERGENT_LLM_KEY,
                     "stream": True,
-                    "temperature": 0.75,
-                    "max_tokens": 800,
+                    "temperature": 0.75 if v5_messages is None else 0.9,
+                    "max_tokens": call_max_tokens,
                 }
                 if _EMERGENT_LLM_KEY.startswith("sk-emergent-"):
                     proxy_url = get_integration_proxy_url()
@@ -1233,18 +1298,28 @@ def build_walk_router(
                 final_text = sanitizer.final_text.strip()
                 if final_text:
                     try:
+                        update_doc: Dict[str, Any] = {
+                            "$push": {
+                                "messages": {
+                                    "id": assistant_msg_id,
+                                    "role": "assistant",
+                                    "content": final_text,
+                                    "at": assistant_at,
+                                }
+                            }
+                        }
+                        # V5: record the stance we held for this turn, and
+                        # append the closing shape to a per-session rotation
+                        # log so pick_closing_shape can avoid recent repeats.
+                        if v5_stance is not None:
+                            update_doc["$set"] = {"current_stance": v5_stance}
+                        if v5_closing_shape is not None:
+                            update_doc.setdefault("$push", {})[
+                                "recent_closing_shapes"
+                            ] = v5_closing_shape
                         await db.walk_sessions.update_one(
                             {"id": session_id, "owner_key": _owner_key(owner)},
-                            {
-                                "$push": {
-                                    "messages": {
-                                        "id": assistant_msg_id,
-                                        "role": "assistant",
-                                        "content": final_text,
-                                        "at": assistant_at,
-                                    }
-                                }
-                            },
+                            update_doc,
                         )
                     except Exception:  # noqa: BLE001
                         logger.exception("Failed to persist assistant reply")
