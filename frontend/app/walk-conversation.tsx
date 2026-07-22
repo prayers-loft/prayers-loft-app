@@ -32,6 +32,7 @@ import {
 } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { colors, fonts, spacing, radii } from "@/src/theme/theme";
@@ -386,22 +387,65 @@ export default function WalkConversationScreen() {
         <ScrollView
           ref={scrollRef}
           style={{ flex: 1 }}
-          contentContainerStyle={styles.chatContainer}
+          contentContainerStyle={[
+            styles.chatContainer,
+            // When the transcript is empty we let the container grow to fill
+            // the available height so the greeting can sit lower on the
+            // screen (via the flex-spacer layout below) rather than hugging
+            // the top under the header. Once messages arrive, natural
+            // top-anchored scroll behavior takes over again.
+            phase === "ready" &&
+              messages.length === 0 &&
+              streamBuffer.length === 0 &&
+              styles.chatContainerEmpty,
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           {/* Static local-time greeting — pure UI ornament, never touches the
               transcript, backend, or LLM. Rendered ONLY when the conversation
               hasn't started yet (empty transcript, no live stream). Disappears
-              the moment the user sends their first message. */}
+              the moment the user sends their first message.
+
+              Layout: two flex spacers sandwich the greeting at roughly the
+              2/3 mark down the visible area. This deliberately AVOIDS
+              vertical centering (which would feel like a splash screen)
+              and instead anchors the invitation nearer the composer where
+              the user's thumb is heading — visual gravity toward the reply
+              rather than away from it. */}
           {phase === "ready" &&
             messages.length === 0 &&
             streamBuffer.length === 0 && (
-              <View style={styles.staticGreeting} testID="walk-static-greeting">
-                <Text style={styles.staticGreetingLine}>{greeting}</Text>
-                <Text style={styles.staticGreetingPrompt}>
-                  What&apos;s on your heart today?
-                </Text>
-              </View>
+              <>
+                {/* Ambient depth for the empty state only. Two very soft,
+                    warm-tinted glow discs and a horizon-fade at the bottom
+                    add just enough tonal variation to feel intentional
+                    without introducing artwork. Pointer-events disabled so
+                    taps still hit the composer / ScrollView unimpeded. */}
+                <View
+                  pointerEvents="none"
+                  style={styles.ambientLayer}
+                  testID="walk-empty-ambient"
+                >
+                  <View style={styles.ambientGlowMid} />
+                  <View style={styles.ambientGlowLower} />
+                  <LinearGradient
+                    colors={[
+                      "rgba(15,23,42,0)",
+                      "rgba(15,23,42,0.35)",
+                    ]}
+                    locations={[0.55, 1]}
+                    style={styles.ambientHorizon}
+                  />
+                </View>
+                <View style={styles.emptyTopSpacer} />
+                <View style={styles.staticGreeting} testID="walk-static-greeting">
+                  <Text style={styles.staticGreetingLine}>{greeting}</Text>
+                  <Text style={styles.staticGreetingPrompt}>
+                    What&apos;s on your heart today?
+                  </Text>
+                </View>
+                <View style={styles.emptyBottomSpacer} />
+              </>
             )}
           {messages.map((m) => (
             <MessageBubble key={m.id} role={m.role} content={m.content} />
@@ -442,7 +486,7 @@ export default function WalkConversationScreen() {
             <TextInput
               value={pendingText}
               onChangeText={setPendingText}
-              placeholder="Type when you're ready…"
+              placeholder="Share what's on your heart…"
               placeholderTextColor={colors.textTertiary}
               style={styles.input}
               multiline
@@ -756,30 +800,87 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     gap: 10,
   },
+  // Only applied while the empty greeting state is on-screen. flexGrow: 1
+  // gives the two flex spacers room to breathe so we can anchor the
+  // greeting in the lower third; a slightly larger horizontal inset lets
+  // the copy sit inboard from the header chevron.
+  chatContainerEmpty: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    gap: 0,
+  },
+  // 2:1 spacer ratio puts the greeting roughly two-thirds of the way down
+  // the visible area — clearly BELOW center (per the polish brief) yet not
+  // hugging the composer. Feels contemplative rather than empty.
+  emptyTopSpacer: { flex: 2 },
+  emptyBottomSpacer: { flex: 1 },
   // Static local-time greeting hero. Deliberately quiet — a serif line and a
   // gentle prompt, centered with generous top-padding so the empty state
   // reads as an invitation rather than a broken screen. Once the user sends
   // their first message this block unmounts and normal chat bubbles take
   // over.
   staticGreeting: {
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.md,
     paddingHorizontal: spacing.sm,
     gap: 10,
     alignItems: "flex-start",
   },
   staticGreetingLine: {
     fontFamily: fonts.serif,
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 28,
+    lineHeight: 34,
     color: colors.textPrimary,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   staticGreetingPrompt: {
     fontFamily: fonts.sansRegular,
     fontSize: 16,
     lineHeight: 24,
     color: colors.textSecondary,
+    // A whisper of extra opacity separation lets the subtitle sit as a
+    // supporting line rather than compete with the serif greeting above.
+    opacity: 0.92,
+  },
+  // Ambient background layer for the empty state only. Absolute-positioned
+  // so it doesn't take up flex space or shift the greeting; pointerEvents
+  // disabled at the container level so the composer / scrollview still
+  // receive taps cleanly. Nothing here is decorative artwork — just soft
+  // tonal gradients that give the empty screen a sense of depth so it
+  // doesn't feel like a blank canvas.
+  ambientLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+  },
+  // Warm mid-screen glow — sits directly behind the greeting to gently
+  // lift the eye toward it. Very low alpha so it registers as atmosphere,
+  // not as a visible shape. Sized/tuned so the greeting stays the clear
+  // focal point: ~25% smaller and ~25% less opaque than the first pass.
+  ambientGlowMid: {
+    position: "absolute",
+    top: "38%",
+    left: "-22%",
+    right: "-22%",
+    height: 315,
+    borderRadius: 315,
+    backgroundColor: "rgba(200,169,107,0.04)",
+  },
+  // Cooler lower glow — a hint of horizon warmth low on the screen. Adds
+  // vertical rhythm between the header and composer without introducing
+  // any imagery. Also downsized and dimmed to yield to the greeting.
+  ambientGlowLower: {
+    position: "absolute",
+    bottom: -120,
+    left: "-15%",
+    right: "-15%",
+    height: 270,
+    borderRadius: 270,
+    backgroundColor: "rgba(100,120,160,0.028)",
+  },
+  // Whisper of a horizon fade above the composer. Uses the same base bg
+  // color so it just deepens the lower portion by ~35% — you'd never spot
+   // it consciously but it grounds the composer visually.
+  ambientHorizon: {
+    ...StyleSheet.absoluteFillObject,
   },
   userBubbleWrap: {
     alignItems: "flex-end",
