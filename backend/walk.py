@@ -1281,6 +1281,28 @@ def build_walk_router(
             )
 
         ended_at = _now_iso()
+        # Defense-in-depth (Build 26A #1): if the session has no user
+        # turns, there is nothing to extract or summarize. Mark it ended
+        # so it stops occupying "active session" state, but do NOT run
+        # extraction and do NOT write session_summary — otherwise a
+        # returning-user's prior "Last time, ..." callback would be
+        # clobbered by an empty summary. Client also gates this on Back
+        # (walk-conversation.tsx fireEndInBackground); this is the
+        # server-side belt-and-braces.
+        msgs = session.get("messages", []) or []
+        has_user_turn = any(m.get("role") == "user" for m in msgs)
+        if not has_user_turn:
+            await db.walk_sessions.update_one(
+                {"id": session_id, "owner_key": _owner_key(owner)},
+                {"$set": {"ended_at": ended_at}},
+            )
+            return SessionEndResponse(
+                id=session_id,
+                ended_at=ended_at,
+                candidates_saved=[],
+                candidates_pending=[],
+            )
+
         # Extraction — best effort. Errors do not fail the close.
         candidates: List[MemoryCandidate] = []
         session_summary: Optional[str] = None
@@ -1293,14 +1315,16 @@ def build_walk_router(
         except Exception as e:  # noqa: BLE001
             logger.exception("summary failed (non-fatal): %s", e)
 
+        # Never write a null/empty summary — that would clobber the prior
+        # returning-user callback. Only $set session_summary if we
+        # actually produced one.
+        session_set: Dict[str, Any] = {"ended_at": ended_at}
+        if session_summary:
+            session_set["session_summary"] = session_summary
+
         await db.walk_sessions.update_one(
             {"id": session_id, "owner_key": _owner_key(owner)},
-            {
-                "$set": {
-                    "ended_at": ended_at,
-                    "session_summary": session_summary,
-                }
-            },
+            {"$set": session_set},
         )
 
         # Auto-save rule: extraction can only produce explicit_statement or

@@ -194,6 +194,22 @@ export default function WalkConversationScreen() {
   // during the /end call whether or not the client sticks around.
   const fireEndInBackground = useCallback(() => {
     if (!sessionId) return;
+    // Guard: never persist / extract / summarize a session that contains
+    // no user turns. The messages array is seeded with one assistant
+    // opener at session start (line ~73), so "the user has actually
+    // participated" is defined as "at least one message with role='user'".
+    //
+    // Root cause of Build 26A bug #1: previously we called /end
+    // unconditionally on Back. For an empty session the server's
+    // summarization LLM produces an empty/fallback string that then
+    // overwrites the returning-user's previous session_summary. Result:
+    // the Walk landing "Last time, ..." callback disappears after the
+    // user opens Walk, sees the greeting, and backs out without typing.
+    //
+    // Fix: skip /end entirely when there is nothing to extract. No
+    // network call, no state overwrite, no risk of clobbering data.
+    const hasUserTurn = messages.some((m) => m.role === "user");
+    if (!hasUserTurn) return;
     // Abort any live stream first to avoid a race with /end.
     try {
       abortRef.current?.();
@@ -202,7 +218,7 @@ export default function WalkConversationScreen() {
     endWalkSession(sessionId).catch(() => {
       /* extraction is best-effort by design */
     });
-  }, [sessionId]);
+  }, [sessionId, messages]);
 
   // Decide what to do when the header back button OR Android hardware back
   // is pressed. Design principle: the Back button represents the user's
