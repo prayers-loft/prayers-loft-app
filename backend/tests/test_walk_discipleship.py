@@ -90,8 +90,17 @@ class TestSessionLifecycle:
         data = r.json()
         assert data["is_first_session"] is True
         assert data["memory_context_count"] == 0
-        assert "glad you're here" in data["opening_message"].lower() or \
-               "take your time" in data["opening_message"].lower()
+        # Version-aware: V4 stores an opener; V5 returns opener_context
+        # metadata and an empty opening_message (client renders a static
+        # invitation). Accept either shape as valid.
+        if data.get("opener_context"):
+            # V5 path — first_ever context, no opener text stored.
+            assert data["opener_context"] == "first_ever"
+            assert (data.get("opening_message") or "") == ""
+        else:
+            # V4 path — hardcoded opener with familiar phrasing.
+            assert "glad you're here" in data["opening_message"].lower() or \
+                   "take your time" in data["opening_message"].lower()
 
     def test_returning_session_quotes_last_commitment(self):
         """After a session where extractor saves a commitment, the next
@@ -120,36 +129,45 @@ class TestSessionLifecycle:
         # Not a hard failure if extractor didn't pick it up, but flag it:
         has_commitment = "commitment" in saved_kinds
 
-        # Session 2: opener must be present, must NOT falsely claim it was
-        # a first session, and must NOT quote user transcript verbatim.
-        # We deliberately avoid asserting on a specific opener phrase — the
-        # V4 opener text has evolved across sprints and locking the test to
-        # any exact string makes it fragile without adding safety value.
         r2 = requests.post(f"{API}/walk/session/start", headers=h, timeout=15)
         assert r2.status_code == 200
         d2 = r2.json()
         opener = d2.get("opening_message", "") or ""
         assert d2["is_first_session"] is False, \
             "returning session incorrectly reported is_first_session=True"
-        assert isinstance(opener, str) and len(opener.strip()) > 0, \
-            "returning session must include a non-empty opening_message"
-        # The opener must not invent a transcript recall — never quote the
-        # user back to themselves. This is the durable contract, regardless
-        # of exact opener wording.
-        opener_lc = opener.lower()
-        for forbidden in ("you said", "you mentioned", "you told me"):
-            assert forbidden not in opener_lc, (
-                f"returning opener falsely quoted user with {forbidden!r}: "
-                f"{opener!r}"
-            )
+
+        # Version-aware: V4 always stores an opener; V5 returns
+        # opener_context metadata and an empty opening_message. Both must
+        # NOT falsely quote the user transcript verbatim.
+        if d2.get("opener_context"):
+            # V5 path — opener_context label present, opener text empty.
+            assert opener == "", \
+                f"V5 must not store an opener message; got: {opener!r}"
+            # opener_context must be one of the known returning shapes.
+            assert d2["opener_context"] in {
+                "returning_general",
+                "returning_no_memory",
+                "returning_after_grief",
+                "returning_after_celebration",
+                "returning_after_crisis",
+                "returning_with_open_commitment",
+            }, f"unexpected V5 opener_context: {d2['opener_context']}"
+        else:
+            # V4 path — opener text must be non-empty and must not falsely
+            # quote user transcript verbatim.
+            assert isinstance(opener, str) and len(opener.strip()) > 0, \
+                "V4 returning session must include a non-empty opening_message"
+            opener_lc = opener.lower()
+            for forbidden in ("you said", "you mentioned", "you told me"):
+                assert forbidden not in opener_lc, (
+                    f"returning opener falsely quoted user with {forbidden!r}: "
+                    f"{opener!r}"
+                )
 
         if has_commitment:
             # When a commitment was extracted, the memory context count
-            # must reflect it — this is the durable, behavioral contract
-            # ("prior context is available") rather than a fragile check
-            # for a specific commitment phrase in the opener text. The
-            # returning opener itself may or may not reference the
-            # commitment verbatim depending on prompt version.
+            # must reflect it — durable, behavioral contract that works
+            # across V4 and V5.
             assert d2.get("memory_context_count", 0) >= 1, (
                 "commitment was extracted but memory_context_count is 0"
             )
@@ -176,10 +194,16 @@ class TestStreamingDiscipline:
         # Verify persistence: GET session shows the assistant turn
         g = requests.get(f"{API}/walk/session/{sid}", headers=h, timeout=15)
         assert g.status_code == 200
-        msgs = g.json().get("messages", [])
+        session_data = g.json()
+        msgs = session_data.get("messages", [])
         assistant_msgs = [m for m in msgs if m["role"] == "assistant"]
-        # There should be the opener + the streamed reply
-        assert len(assistant_msgs) >= 2, f"expected 2 assistant msgs, got {len(assistant_msgs)}"
+        # Version-aware: V4 stores opener + streamed reply (>=2 assistant
+        # messages). V5 stores only the streamed reply (transcript starts
+        # empty until the user speaks). Either way, the streamed reply
+        # MUST be persisted after the done frame.
+        min_expected = 2 if not session_data.get("opener_context") else 1
+        assert len(assistant_msgs) >= min_expected, \
+            f"expected >={min_expected} assistant msgs, got {len(assistant_msgs)}"
         assert assistant_msgs[-1]["content"].strip(), "final assistant content empty"
 
 

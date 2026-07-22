@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Literal, Optional
@@ -74,6 +75,17 @@ else:
     STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
     _v5_detect_depth = None  # type: ignore[assignment]
     logger.info("Walk prompt architecture: V4 active (default)")
+
+# Lightweight beta monitoring. Metrics emissions are fire-and-forget and
+# never propagate failures back to the Walk response path.
+try:
+    from walk_metrics import emit as _metrics_emit, sanitizer_rule_category as _metrics_rule_category
+except Exception:  # noqa: BLE001
+    def _metrics_emit(*_a, **_kw):  # type: ignore[misc]
+        return None
+    def _metrics_rule_category(*_a, **_kw):  # type: ignore[misc]
+        return "other"
+    logger.debug("walk_metrics import failed; metrics disabled", exc_info=True)
 
 
 def _now() -> datetime:
@@ -573,11 +585,14 @@ async def ensure_walk_indexes(db: AsyncIOMotorDatabase) -> None:
             [("owner_key", 1), ("status", 1), ("updated_at", -1)]
         )
         await db.walk_memory.create_index("id", unique=True)
-        # V5 (Phase 4): per-owner state — currently used to persist the
-        # closing-shape rotation across sessions so shapes don't repeat
-        # mechanically for a returning user. Safe to create on V4 too;
-        # nothing reads it there.
+        # V5 (Phase 4): per-owner state
         await db.walk_owner_state.create_index("owner_key", unique=True)
+        # V5 beta monitoring: metrics event log.
+        try:
+            from walk_metrics import ensure_metrics_indexes
+            await ensure_metrics_indexes(db)
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics index setup non-fatal", exc_info=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("ensure_walk_indexes non-fatal: %s", e)
 
@@ -706,11 +721,18 @@ _SANITIZE_PREFIXES: List[Tuple[re.Pattern[str], str]] = [
 ]
 
 
-def _sanitize_assistant_sentence(sentence: str) -> str:
+def _sanitize_assistant_sentence(
+    sentence: str,
+    rule_categories_hit: Optional[set] = None,
+) -> str:
     """Apply the V4 mechanical cleanup to a single sentence-ish chunk.
 
     Sentence-level scope so we can safely run this per-sentence during
     streaming without breaking cross-sentence structure.
+
+    Optional ``rule_categories_hit`` set is populated with the coarse
+    category name (e.g. "soft_question", "crm_recall_plain") whenever a
+    prefix rule fires. Sentence content is never stored — category only.
     """
     if not sentence:
         return sentence
@@ -722,6 +744,11 @@ def _sanitize_assistant_sentence(sentence: str) -> str:
             sentence = new_sentence
             used_replacement = replacement
             changed = True
+            if rule_categories_hit is not None:
+                try:
+                    rule_categories_hit.add(_metrics_rule_category(pat.pattern))
+                except Exception:  # noqa: BLE001
+                    pass
             break  # only one prefix strip per sentence
     if changed:
         # Re-capitalize the first non-whitespace letter, since we likely
@@ -744,12 +771,18 @@ def _sanitize_assistant_sentence(sentence: str) -> str:
 _SENTENCE_SPLIT = re.compile(r"([.!?]+[\s\n]+|\n{2,})")
 
 
-def _sanitize_assistant_reply(text: str) -> str:
+def _sanitize_assistant_reply(
+    text: str,
+    rule_categories_hit: Optional[set] = None,
+) -> str:
     """Sanitize a full assistant reply. Idempotent — safe to call twice.
 
     Applies _sanitize_assistant_sentence to each sentence-ish chunk. Also
     removes whole rhetorical-question opener sentences ("Can I share an
     observation?", "Can I tell you something true?") before sentence-splitting.
+
+    Optional ``rule_categories_hit`` set is populated with rule categories
+    that fired. Never contains sentence content.
     """
     if not text:
         return text
@@ -772,7 +805,7 @@ def _sanitize_assistant_reply(text: str) -> str:
         if i % 2 == 1:
             out.append(p)
         else:
-            out.append(_sanitize_assistant_sentence(p))
+            out.append(_sanitize_assistant_sentence(p, rule_categories_hit))
     return "".join(out)
 
 
@@ -788,11 +821,17 @@ class _StreamSanitizer:
       * feed(delta) -> yields zero or more strings ready to be sent to the client
       * flush()     -> yields any remaining buffered text (call once at end)
       * final_text  -> the sanitized full accumulated reply
+      * rule_categories_hit -> set of coarse rule categories fired during this
+                               stream (e.g. "soft_question", "crm_recall_plain")
     """
 
     def __init__(self) -> None:
         self._buffer: str = ""
         self._final_parts: List[str] = []
+        # Aggregate of rule categories that fired across every sentence
+        # sanitize call on this stream. Used by metrics; never contains
+        # any sentence content.
+        self.rule_categories_hit: set = set()
 
     def feed(self, delta: str) -> List[str]:
         if not delta:
@@ -806,7 +845,7 @@ class _StreamSanitizer:
             end = m.end()
             completed = self._buffer[:end]
             self._buffer = self._buffer[end:]
-            clean = _sanitize_assistant_reply(completed)
+            clean = _sanitize_assistant_reply(completed, self.rule_categories_hit)
             if clean:
                 released.append(clean)
                 self._final_parts.append(clean)
@@ -817,7 +856,7 @@ class _StreamSanitizer:
         self._buffer = ""
         if not remaining:
             return []
-        clean = _sanitize_assistant_reply(remaining)
+        clean = _sanitize_assistant_reply(remaining, self.rule_categories_hit)
         if clean:
             self._final_parts.append(clean)
             return [clean]
@@ -1245,6 +1284,16 @@ def build_walk_router(
 
         await db.walk_sessions.insert_one(session_doc)
 
+        # V5 beta monitoring — session started event. Fire-and-forget.
+        _metrics_emit(
+            db, "session_started",
+            version=WALK_PROMPT_VERSION,
+            session_id=sid,
+            is_first_session=is_first,
+            opener_context=opener_context_label,
+            memory_context_count=len(active_memory),
+        )
+
         return SessionStartResponse(
             id=sid,
             opening_message=opener,  # empty string for V5
@@ -1418,6 +1467,12 @@ def build_walk_router(
             reaches the client. Persistence uses the sanitized final_text.
             """
             sanitizer = _StreamSanitizer()
+            # V5 beta monitoring: timing + token accounting for this turn.
+            _turn_t0 = time.time()
+            _turn_ttfc_ms: Optional[int] = None
+            _turn_input_tokens: Optional[int] = None
+            _turn_output_tokens: Optional[int] = None
+            _turn_failed = False
             try:
                 # Build litellm params matching emergentintegrations proxy setup.
                 if v5_messages is not None:
@@ -1448,20 +1503,46 @@ def build_walk_router(
                         delta = chunk.choices[0].delta.content
                     except Exception:  # noqa: BLE001
                         delta = None
+                    # Capture provider usage metadata when it arrives on
+                    # the stream (usually the final chunk).
+                    try:
+                        usage = getattr(chunk, "usage", None)
+                        if usage:
+                            u_in = getattr(usage, "prompt_tokens", None) or \
+                                (usage.get("prompt_tokens") if isinstance(usage, dict) else None)
+                            u_out = getattr(usage, "completion_tokens", None) or \
+                                (usage.get("completion_tokens") if isinstance(usage, dict) else None)
+                            if u_in is not None:
+                                _turn_input_tokens = int(u_in)
+                            if u_out is not None:
+                                _turn_output_tokens = int(u_out)
+                    except Exception:  # noqa: BLE001
+                        pass
                     if not delta:
                         continue
                     for cleaned in sanitizer.feed(delta):
+                        if _turn_ttfc_ms is None:
+                            _turn_ttfc_ms = int((time.time() - _turn_t0) * 1000)
                         safe = cleaned.replace("\r", "").replace("\n", "\\n")
                         yield f"data: {safe}\n\n"
                 # End-of-stream: flush any remaining buffered text (this is
                 # the tail after the last sentence terminator — often the
                 # closing sentence with no trailing period).
                 for cleaned in sanitizer.flush():
+                    if _turn_ttfc_ms is None:
+                        _turn_ttfc_ms = int((time.time() - _turn_t0) * 1000)
                     safe = cleaned.replace("\r", "").replace("\n", "\\n")
                     yield f"data: {safe}\n\n"
             except Exception as e:  # noqa: BLE001
                 logger.exception("Walk stream failure: %s", e)
+                _turn_failed = True
                 yield 'event: error\ndata: {"detail":"stream_failed"}\n\n'
+                # V5 beta monitoring: LLM failure event.
+                _metrics_emit(
+                    db, "llm_failure",
+                    version=WALK_PROMPT_VERSION,
+                    session_id=session_id,
+                )
             finally:
                 # Persist the SANITIZED text — future memory recall and
                 # extraction see clean prose.
@@ -1516,6 +1597,52 @@ def build_walk_router(
                         )
                     except Exception:  # noqa: BLE001
                         logger.exception("Failed to persist assistant reply")
+
+                # V5 beta monitoring: emit aggregate events AFTER persistence
+                # so the write happens on the safe side. Fire-and-forget.
+                if not _turn_failed:
+                    _turn_total_ms = int((time.time() - _turn_t0) * 1000)
+                    # Token fallback estimates if provider metadata is
+                    # unavailable (LiteLLM's streaming usage support varies
+                    # by provider).
+                    if _turn_input_tokens is None and call_messages:
+                        _turn_input_tokens = sum(
+                            len((m.get("content") or "")) for m in call_messages
+                        ) // 4
+                    if _turn_output_tokens is None:
+                        _turn_output_tokens = len(final_text) // 4
+                    _metrics_emit(
+                        db, "turn_completed",
+                        version=WALK_PROMPT_VERSION,
+                        session_id=session_id,
+                        stance=v5_stance,
+                        closing_shape=v5_closing_shape,
+                        input_tokens=_turn_input_tokens,
+                        output_tokens=_turn_output_tokens,
+                        ttfc_ms=_turn_ttfc_ms,
+                        total_ms=_turn_total_ms,
+                        reply_char_len=len(final_text) if final_text else 0,
+                    )
+                    # Crisis-route event (safety-critical metric).
+                    if v5_stance == "crisis":
+                        _metrics_emit(
+                            db, "crisis_route",
+                            version=WALK_PROMPT_VERSION,
+                            session_id=session_id,
+                        )
+                    # Sanitizer activation events — CATEGORY ONLY, no
+                    # sentence content, deduped within this turn.
+                    try:
+                        cats = set(getattr(sanitizer, "rule_categories_hit", []) or [])
+                        for cat in cats:
+                            _metrics_emit(
+                                db, "sanitizer_activated",
+                                version=WALK_PROMPT_VERSION,
+                                session_id=session_id,
+                                rule_category=cat,
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
                 yield f'event: done\ndata: {{"message_id":"{assistant_msg_id}"}}\n\n'
 
         return StreamingResponse(
@@ -1563,6 +1690,12 @@ def build_walk_router(
             await db.walk_sessions.update_one(
                 {"id": session_id, "owner_key": _owner_key(owner)},
                 {"$set": {"ended_at": ended_at}},
+            )
+            _metrics_emit(
+                db, "session_ended",
+                version=WALK_PROMPT_VERSION,
+                session_id=session_id,
+                empty=True,
             )
             return SessionEndResponse(
                 id=session_id,
@@ -1619,12 +1752,50 @@ def build_walk_router(
             else:
                 pending.append(c)
 
+        _metrics_emit(
+            get_db_fn(),
+            "session_ended",
+            version=WALK_PROMPT_VERSION,
+            session_id=session_id,
+        )
         return SessionEndResponse(
             id=session_id,
             ended_at=ended_at,
             candidates_saved=saved,
             candidates_pending=pending,
         )
+
+    # --------------------------- Beta metrics summary (admin) -----------
+    # Read-only aggregate of the walk_metrics_events collection. Contains
+    # NO user content — only counters and averages. Safe to expose to
+    # authenticated users for beta monitoring.
+    @router.get("/metrics/summary")
+    async def metrics_summary(
+        hours: int = 168,
+        owner: dict = Depends(get_owner_dep),  # auth gate; response is aggregate only
+    ):
+        db = get_db_fn()
+        try:
+            from walk_metrics import summarize_beta
+            return await summarize_beta(db, since_hours=max(1, min(hours, 24 * 30)))
+        except Exception as e:  # noqa: BLE001
+            logger.exception("metrics_summary failed")
+            raise HTTPException(status_code=500, detail=f"metrics_summary failed: {e}")
+    # Read-only aggregate of the walk_metrics_events collection. Contains
+    # NO user content — only counters and averages. Safe to expose to
+    # authenticated users for beta monitoring.
+    @router.get("/metrics/summary")
+    async def metrics_summary(
+        hours: int = 168,
+        owner: dict = Depends(get_owner_dep),  # auth gate; response is aggregate only
+    ):
+        db = get_db_fn()
+        try:
+            from walk_metrics import summarize_beta
+            return await summarize_beta(db, since_hours=max(1, min(hours, 24 * 30)))
+        except Exception as e:  # noqa: BLE001
+            logger.exception("metrics_summary failed")
+            raise HTTPException(status_code=500, detail=f"metrics_summary failed: {e}")
 
     # --------------------------- Get a single session ---------------------------
     @router.get("/session/{session_id}")
