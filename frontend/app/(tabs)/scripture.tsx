@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Easing,
   Linking,
   Pressable,
@@ -31,7 +32,7 @@ import {
   View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
@@ -50,7 +51,8 @@ import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { formatVerseShareText } from "@/src/lib/verse-share";
 import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
-import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { requestUpgradePrompt, forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { useAuthState } from "@/src/hooks/use-auth-state";
 import { StructuredDevotional } from "@/src/components/StructuredDevotional";
 import { EmptyState } from "@/src/components/EmptyState";
 import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
@@ -83,6 +85,17 @@ type ShareSource = { kind: "verse" } | { kind: "devotional" };
 
 export default function ScriptureScreen() {
   const router = useRouter();
+  const auth = useAuthState();
+  // Journal is authenticated-only — see reflections-history.tsx. Guest taps
+  // on the "View My Journal" link surface the AuthSheet via the upgrade-prompt
+  // host instead of routing into the (walled) Journal screen.
+  const openJournal = () => {
+    if (auth.ready && !auth.user) {
+      forceUpgradePrompt("journal_entry_guest");
+      return;
+    }
+    router.push("/reflections-history" as any);
+  };
   const [verse, setVerse] = useState<VerseMeta | null>(null);
   const [devotional, setDevotional] = useState<string>(""); // flat text — used for share + fallback
   const [structuredDevo, setStructuredDevo] = useState<StructuredDevotionalType | null>(null);
@@ -122,6 +135,13 @@ export default function ScriptureScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Tracks the local calendar date of the currently-rendered verse so we
+  // can detect when the user crosses midnight (either by leaving the app
+  // suspended overnight, or by switching to another tab while the screen
+  // stays mounted) and refresh into the new day's verse automatically.
+  const lastLoadedDateRef = useRef<string | null>(null);
+  const lastLoadedTzRef = useRef<string | null>(null);
+
   // Two-phase load orchestrator, extracted into a callable so pull-to-
   // refresh and inline retry can invoke it. `force=true` skips the cache
   // hit fast-path and always hits the network.
@@ -130,6 +150,11 @@ export default function ScriptureScreen() {
       const tz = detectTimezone();
       const today = localDateInTz(tz);
       setLoadError(null);
+      // Remember the local date we attempted so the day-change watcher can
+      // detect a rollover. We update this even on failure — otherwise the
+      // watcher would keep re-firing on every focus/foreground event.
+      lastLoadedDateRef.current = today;
+      lastLoadedTzRef.current = tz;
 
       try {
         // Phase 0: client cache hit → render instantly. Force-refresh
@@ -264,6 +289,62 @@ export default function ScriptureScreen() {
       cancelled = true;
     };
   }, [loadDailyVerse, newDayOpacity]);
+
+  // -------------------------------------------------------------------------
+  // Day-change watcher (Build 26B follow-up — Daily Verse refresh bug).
+  //
+  // The initial-mount effect above only fires once. Users who leave the app
+  // running in the background overnight, or who linger on another tab while
+  // midnight rolls over, would otherwise see YESTERDAY's verse the next
+  // morning until manually pull-to-refreshing.
+  //
+  // Two triggers force a fresh load when the local calendar day has changed:
+  //   1. The tab regains focus (useFocusEffect) — covers tab-swap crossings.
+  //   2. AppState transitions back to "active" — covers background→foreground
+  //      crossings and iOS "state restoration" after a long suspend.
+  //
+  // The comparison is against lastLoadedDateRef which loadDailyVerse updates
+  // on every attempt (see above). Only a genuine date change triggers a
+  // refetch; same-day focus/foreground events are no-ops so we don't churn
+  // the LLM devotional endpoint.
+  // -------------------------------------------------------------------------
+  const refreshIfDayChanged = useCallback(async () => {
+    const tz = detectTimezone();
+    const today = localDateInTz(tz);
+    const prevDate = lastLoadedDateRef.current;
+    const prevTz = lastLoadedTzRef.current;
+    if (!prevDate) return; // initial mount hasn't run yet; the mount effect will handle it
+    if (prevDate === today && prevTz === tz) return; // same day, same tz — nothing to do
+    // Reset skeletons so the transition to the new day's copy is visible,
+    // matching the pull-to-refresh look-and-feel.
+    setDevoLoading(true);
+    await loadDailyVerse(true);
+    // Surface the transient "new day" pill so the user notices the switch.
+    setNewDayPill(true);
+    Animated.sequence([
+      Animated.timing(newDayOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.delay(3500),
+      Animated.timing(newDayOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+    ]).start(() => setNewDayPill(false));
+  }, [loadDailyVerse, newDayOpacity]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Fire-and-forget; the tab remains usable while the refresh completes
+      // in the background. Errors are already surfaced by loadDailyVerse.
+      refreshIfDayChanged();
+      return undefined;
+    }, [refreshIfDayChanged])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        refreshIfDayChanged();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshIfDayChanged]);
 
   /** Pull-to-refresh handler. Wraps loadDailyVerse(true) with the
    *  RefreshControl spinner state and guards against overlapping calls. */
@@ -644,7 +725,7 @@ export default function ScriptureScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => router.push("/reflections-history" as any)}
+              onPress={openJournal}
               style={styles.viewAllLink}
               testID="view-all-reflections-link"
               accessibilityRole="button"

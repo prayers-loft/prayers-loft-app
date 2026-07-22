@@ -11,7 +11,12 @@ export type UpgradeTrigger =
   | "guest_soft_banner"
   | "seven_day_streak"
   | "five_prayers"
-  | "five_reflections";
+  | "five_reflections"
+  // Fired when a signed-out user taps a "View My Journal" entry point
+  // (Prayer tab, Scripture tab, Settings row, or the auth-wall CTA on the
+  // Journal screen itself). Manual trigger — bypasses throttling because
+  // the user actively opted in by tapping.
+  | "journal_entry_guest";
 
 export type UpgradeVariant = {
   key: "backup" | "streak" | "entries";
@@ -54,6 +59,7 @@ export function variantForTrigger(t: UpgradeTrigger): UpgradeVariant {
       return VARIANTS.entries;
     case "settings_backup_button":
     case "guest_soft_banner":
+    case "journal_entry_guest":
     default:
       return VARIANTS.backup;
   }
@@ -93,7 +99,13 @@ const MIN_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h between auto-fired prompts.
 
 export async function shouldShowAutomatic(trigger: UpgradeTrigger): Promise<boolean> {
   // Manual triggers (user-tapped buttons) bypass throttle entirely.
-  if (trigger === "settings_backup_button" || trigger === "guest_soft_banner") return true;
+  if (
+    trigger === "settings_backup_button" ||
+    trigger === "guest_soft_banner" ||
+    trigger === "journal_entry_guest"
+  ) {
+    return true;
+  }
 
   const s = await readState();
   if (s.shown[trigger]) return false; // Each contextual trigger only once.

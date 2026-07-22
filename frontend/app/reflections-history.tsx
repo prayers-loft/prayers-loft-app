@@ -434,7 +434,7 @@ export default function MyReflectionsScreen() {
             devices. Sign in to see what you&apos;ve saved.
           </Text>
           <Pressable
-            onPress={() => forceUpgradePrompt("journal_auth_gate")}
+            onPress={() => forceUpgradePrompt("journal_entry_guest")}
             style={({ pressed }) => [
               styles.authGateBtn,
               pressed && { opacity: 0.85 },
