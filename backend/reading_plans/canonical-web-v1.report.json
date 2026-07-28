@@ -1,0 +1,536 @@
+{
+  "artifact": "canonical-web-v1.json",
+  "sha256": "e6a12a27bca9b8a319ba41035be9ef2843be157c7e58a040c6cdba16bb165b60",
+  "assembled_at_utc": "2026-07-28T21:53:24Z",
+  "total_days": 995,
+  "sections": {
+    "Pentateuch": {
+      "first_day": 1,
+      "last_day": 155,
+      "count": 155
+    },
+    "Historical": {
+      "first_day": 156,
+      "last_day": 317,
+      "count": 162
+    },
+    "Wisdom/Poetry": {
+      "first_day": 318,
+      "last_day": 510,
+      "count": 193
+    },
+    "Major Prophets": {
+      "first_day": 511,
+      "last_day": 641,
+      "count": 131
+    },
+    "Minor Prophets": {
+      "first_day": 642,
+      "last_day": 684,
+      "count": 43
+    },
+    "Gospels": {
+      "first_day": 685,
+      "last_day": 829,
+      "count": 145
+    },
+    "Acts": {
+      "first_day": 830,
+      "last_day": 854,
+      "count": 25
+    },
+    "Epistles": {
+      "first_day": 855,
+      "last_day": 973,
+      "count": 119
+    },
+    "Revelation": {
+      "first_day": 974,
+      "last_day": 995,
+      "count": 22
+    }
+  },
+  "structural_problems_total": 0,
+  "structural_problems_by_kind": {},
+  "structural_problems": [],
+  "paraphrase_warnings_total": 7,
+  "paraphrase_warnings_by_kind": {
+    "summary_low_passage_overlap": 7
+  },
+  "paraphrase_warnings_note": "Low lexical overlap between summary and passage. Not a structural failure — Haiku paraphrases heavily. Each entry below was inspected by hand and confirmed to describe its passage accurately (parable of the prodigal son, Psalm 39 speaker resolves to guard speech, etc.).",
+  "paraphrase_warnings": [
+    {
+      "day": 377,
+      "reference": "Psalm 39",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.172,
+        "unmatched": [
+          "acknowledging",
+          "affliction",
+          "asks",
+          "brevity",
+          "deliverance",
+          "divine",
+          "ends",
+          "expresses",
+          "fleeting",
+          "fragility"
+        ]
+      }
+    },
+    {
+      "day": 406,
+      "reference": "Psalm 73",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.194,
+        "unmatched": [
+          "affirming",
+          "affliction",
+          "alone",
+          "constant",
+          "entering",
+          "envy",
+          "eternal",
+          "face",
+          "finds",
+          "god's"
+        ]
+      }
+    },
+    {
+      "day": 472,
+      "reference": "Proverbs 6",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.167,
+        "unmatched": [
+          "adultery's",
+          "against",
+          "ants",
+          "condemns",
+          "consequences",
+          "destructive",
+          "diligence",
+          "instructs",
+          "laziness",
+          "lists"
+        ]
+      }
+    },
+    {
+      "day": 710,
+      "reference": "Matthew 18",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.179,
+        "unmatched": [
+          "believers",
+          "brothers",
+          "causing",
+          "characterize",
+          "childlikeness",
+          "concern",
+          "debt-forgiveness",
+          "emphasizes",
+          "forgiveness",
+          "god's"
+        ]
+      }
+    },
+    {
+      "day": 778,
+      "reference": "Luke 12:35-59",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.171,
+        "unmatched": [
+          "among",
+          "awaiting",
+          "brings",
+          "comparing",
+          "criticizes",
+          "declares",
+          "discern",
+          "duties",
+          "face",
+          "fail"
+        ]
+      }
+    },
+    {
+      "day": 782,
+      "reference": "Luke 15:11-32",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.167,
+        "unmatched": [
+          "ask",
+          "celebration",
+          "distant",
+          "early",
+          "facing",
+          "festivities",
+          "forgiveness",
+          "home",
+          "inheritance",
+          "join"
+        ]
+      }
+    },
+    {
+      "day": 931,
+      "reference": "1 Timothy 5",
+      "kind": "summary_low_passage_overlap",
+      "detail": {
+        "ratio": 0.161,
+        "unmatched": [
+          "accusations",
+          "addressing",
+          "ages",
+          "appropriate",
+          "careful",
+          "church",
+          "compensating",
+          "criteria",
+          "devoted",
+          "different"
+        ]
+      }
+    }
+  ],
+  "coverage": {
+    "GEN": {
+      "expected": 1533,
+      "covered": 1533,
+      "complete": true
+    },
+    "EXO": {
+      "expected": 1213,
+      "covered": 1213,
+      "complete": true
+    },
+    "LEV": {
+      "expected": 859,
+      "covered": 859,
+      "complete": true
+    },
+    "NUM": {
+      "expected": 1288,
+      "covered": 1288,
+      "complete": true
+    },
+    "DEU": {
+      "expected": 959,
+      "covered": 959,
+      "complete": true
+    },
+    "JOS": {
+      "expected": 658,
+      "covered": 658,
+      "complete": true
+    },
+    "JDG": {
+      "expected": 618,
+      "covered": 618,
+      "complete": true
+    },
+    "RUT": {
+      "expected": 85,
+      "covered": 85,
+      "complete": true
+    },
+    "1SA": {
+      "expected": 810,
+      "covered": 810,
+      "complete": true
+    },
+    "2SA": {
+      "expected": 695,
+      "covered": 695,
+      "complete": true
+    },
+    "1KI": {
+      "expected": 816,
+      "covered": 816,
+      "complete": true
+    },
+    "2KI": {
+      "expected": 719,
+      "covered": 719,
+      "complete": true
+    },
+    "1CH": {
+      "expected": 942,
+      "covered": 942,
+      "complete": true
+    },
+    "2CH": {
+      "expected": 822,
+      "covered": 822,
+      "complete": true
+    },
+    "EZR": {
+      "expected": 280,
+      "covered": 280,
+      "complete": true
+    },
+    "NEH": {
+      "expected": 406,
+      "covered": 406,
+      "complete": true
+    },
+    "EST": {
+      "expected": 167,
+      "covered": 167,
+      "complete": true
+    },
+    "JOB": {
+      "expected": 1070,
+      "covered": 1070,
+      "complete": true
+    },
+    "PSA": {
+      "expected": 2461,
+      "covered": 2461,
+      "complete": true
+    },
+    "PRO": {
+      "expected": 915,
+      "covered": 915,
+      "complete": true
+    },
+    "ECC": {
+      "expected": 222,
+      "covered": 222,
+      "complete": true
+    },
+    "SNG": {
+      "expected": 117,
+      "covered": 117,
+      "complete": true
+    },
+    "ISA": {
+      "expected": 1292,
+      "covered": 1292,
+      "complete": true
+    },
+    "JER": {
+      "expected": 1364,
+      "covered": 1364,
+      "complete": true
+    },
+    "LAM": {
+      "expected": 154,
+      "covered": 154,
+      "complete": true
+    },
+    "EZK": {
+      "expected": 1273,
+      "covered": 1273,
+      "complete": true
+    },
+    "DAN": {
+      "expected": 357,
+      "covered": 357,
+      "complete": true
+    },
+    "HOS": {
+      "expected": 197,
+      "covered": 197,
+      "complete": true
+    },
+    "JOL": {
+      "expected": 73,
+      "covered": 73,
+      "complete": true
+    },
+    "AMO": {
+      "expected": 146,
+      "covered": 146,
+      "complete": true
+    },
+    "OBA": {
+      "expected": 21,
+      "covered": 21,
+      "complete": true
+    },
+    "JON": {
+      "expected": 48,
+      "covered": 48,
+      "complete": true
+    },
+    "MIC": {
+      "expected": 105,
+      "covered": 105,
+      "complete": true
+    },
+    "NAM": {
+      "expected": 47,
+      "covered": 47,
+      "complete": true
+    },
+    "HAB": {
+      "expected": 56,
+      "covered": 56,
+      "complete": true
+    },
+    "ZEP": {
+      "expected": 53,
+      "covered": 53,
+      "complete": true
+    },
+    "HAG": {
+      "expected": 38,
+      "covered": 38,
+      "complete": true
+    },
+    "ZEC": {
+      "expected": 211,
+      "covered": 211,
+      "complete": true
+    },
+    "MAL": {
+      "expected": 55,
+      "covered": 55,
+      "complete": true
+    },
+    "MAT": {
+      "expected": 1071,
+      "covered": 1071,
+      "complete": true
+    },
+    "MRK": {
+      "expected": 678,
+      "covered": 678,
+      "complete": true
+    },
+    "LUK": {
+      "expected": 1150,
+      "covered": 1150,
+      "complete": true
+    },
+    "JHN": {
+      "expected": 879,
+      "covered": 879,
+      "complete": true
+    },
+    "ACT": {
+      "expected": 1004,
+      "covered": 1004,
+      "complete": true
+    },
+    "ROM": {
+      "expected": 430,
+      "covered": 430,
+      "complete": true
+    },
+    "1CO": {
+      "expected": 437,
+      "covered": 437,
+      "complete": true
+    },
+    "2CO": {
+      "expected": 257,
+      "covered": 257,
+      "complete": true
+    },
+    "GAL": {
+      "expected": 149,
+      "covered": 149,
+      "complete": true
+    },
+    "EPH": {
+      "expected": 155,
+      "covered": 155,
+      "complete": true
+    },
+    "PHP": {
+      "expected": 104,
+      "covered": 104,
+      "complete": true
+    },
+    "COL": {
+      "expected": 95,
+      "covered": 95,
+      "complete": true
+    },
+    "1TH": {
+      "expected": 89,
+      "covered": 89,
+      "complete": true
+    },
+    "2TH": {
+      "expected": 47,
+      "covered": 47,
+      "complete": true
+    },
+    "1TI": {
+      "expected": 113,
+      "covered": 113,
+      "complete": true
+    },
+    "2TI": {
+      "expected": 83,
+      "covered": 83,
+      "complete": true
+    },
+    "TIT": {
+      "expected": 46,
+      "covered": 46,
+      "complete": true
+    },
+    "PHM": {
+      "expected": 25,
+      "covered": 25,
+      "complete": true
+    },
+    "HEB": {
+      "expected": 303,
+      "covered": 303,
+      "complete": true
+    },
+    "JAS": {
+      "expected": 108,
+      "covered": 108,
+      "complete": true
+    },
+    "1PE": {
+      "expected": 105,
+      "covered": 105,
+      "complete": true
+    },
+    "2PE": {
+      "expected": 61,
+      "covered": 61,
+      "complete": true
+    },
+    "1JN": {
+      "expected": 105,
+      "covered": 105,
+      "complete": true
+    },
+    "2JN": {
+      "expected": 13,
+      "covered": 13,
+      "complete": true
+    },
+    "3JN": {
+      "expected": 14,
+      "covered": 14,
+      "complete": true
+    },
+    "JUD": {
+      "expected": 25,
+      "covered": 25,
+      "complete": true
+    },
+    "REV": {
+      "expected": 404,
+      "covered": 404,
+      "complete": true
+    }
+  },
+  "immutability_method": "posix-0o444"
+}
