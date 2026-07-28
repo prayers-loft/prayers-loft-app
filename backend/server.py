@@ -152,13 +152,19 @@ async def current_owner_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_owner_bearer),
     x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-Id"),
 ) -> Optional[dict]:
-    """Soft variant of current_owner: returns None if the caller is fully anonymous.
+    """Soft variant of current_owner: returns None ONLY when the caller is
+    genuinely anonymous (no Authorization header at all).
 
-    Signed-in Bearer tokens still return {"user_id": ...} (with session-revocation
-    check). A guest header still returns {"guest_id": ...}. Anonymous (no header,
-    no token) returns None instead of raising 401.
+    Contract:
+      • No Authorization header → treat as guest/anonymous (return None or
+        the X-Guest-Id if provided).
+      • Valid Bearer token → return {"user_id": ...}.
+      • Invalid, expired, malformed, or revoked Bearer → RAISE 401 so the
+        frontend can refresh authentication instead of quietly showing Day 1
+        as if progress had been lost.
     """
     if credentials is not None and credentials.credentials:
+        # Explicit auth attempted — never silently downgrade to anonymous.
         try:
             payload = _jose_jwt.decode(
                 credentials.credentials,
@@ -168,14 +174,14 @@ async def current_owner_optional(
                 issuer=os.environ.get("JWT_ISSUER"),
             )
         except Exception:
-            return None  # soft: treat bad token as anonymous
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
         user_id = payload.get("sub")
         session_id = payload.get("sid")
         if not user_id or not session_id:
-            return None
+            raise HTTPException(status_code=401, detail="Invalid token payload")
         session = await db.user_sessions.find_one({"id": session_id}, {"_id": 0})
         if not session or session.get("revoked"):
-            return None
+            raise HTTPException(status_code=401, detail="Session revoked")
         return {"user_id": user_id}
     if x_guest_id:
         gid = x_guest_id.strip()

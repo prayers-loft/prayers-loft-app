@@ -253,6 +253,81 @@ class TestGuestPath:
 
 
 # --------------------------------------------------------------------------
+# Auth error surfacing — the endpoint must NOT silently fall back to Day 1
+# when a Bearer token is present but invalid/expired/malformed/revoked.
+# --------------------------------------------------------------------------
+
+class TestAuthErrorSurfacing:
+    def test_malformed_bearer_returns_401(self):
+        r = requests.get(
+            f"{API}/daily-verse",
+            params={"local_date": "2026-06-01"},
+            headers={"Authorization": "Bearer not-a-real-jwt"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 401, r.text
+
+    def test_expired_bearer_returns_401(self):
+        # Forge an expired JWT with the real secret so we exercise the
+        # jwt.decode() expiry branch (not the malformed branch).
+        from jose import jwt as _jwt
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+        import time as _time
+        payload = {
+            "sub": "user-that-does-not-exist",
+            "sid": "session-that-does-not-exist",
+            "iss": os.environ.get("JWT_ISSUER"),
+            "aud": os.environ.get("JWT_AUDIENCE"),
+            "iat": int(_time.time()) - 3600,
+            "exp": int(_time.time()) - 1800,  # expired 30 min ago
+        }
+        expired = _jwt.encode(payload, os.environ["JWT_SECRET"], algorithm="HS256")
+        r = requests.get(
+            f"{API}/daily-verse",
+            params={"local_date": "2026-06-01"},
+            headers={"Authorization": f"Bearer {expired}"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 401, r.text
+
+    def test_revoked_session_returns_401(self):
+        """A token whose backing user_sessions row is missing/revoked must 401."""
+        from jose import jwt as _jwt
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+        import time as _time
+        payload = {
+            "sub": f"user-{uuid.uuid4().hex[:8]}",
+            "sid": f"session-that-was-never-persisted-{uuid.uuid4().hex[:8]}",
+            "iss": os.environ.get("JWT_ISSUER"),
+            "aud": os.environ.get("JWT_AUDIENCE"),
+            "iat": int(_time.time()),
+            "exp": int(_time.time()) + 3600,
+        }
+        forged = _jwt.encode(payload, os.environ["JWT_SECRET"], algorithm="HS256")
+        r = requests.get(
+            f"{API}/daily-verse",
+            params={"local_date": "2026-06-01"},
+            headers={"Authorization": f"Bearer {forged}"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 401, r.text
+
+    def test_missing_authorization_still_serves_day_1(self):
+        # Sanity check the other side of the contract — genuine anonymity
+        # (no Authorization header at all) still returns 200 with Day 1.
+        r = requests.get(
+            f"{API}/daily-verse",
+            params={"local_date": "2026-06-01"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["day"] == 1
+        assert r.json()["progress"] is None
+
+
+# --------------------------------------------------------------------------
 # Loader caching
 # --------------------------------------------------------------------------
 

@@ -1,0 +1,44 @@
+{
+  "summary": "Journey Through Scripture (canonical-web-v1) frontend regression — 8/8 PASS. All 8 review-request scenarios verified against http://localhost:3000/scripture at mobile viewport 390x844. Signed-in canonical response, guest Day 1 response (with correct 'sign in to save your place' hint and no 'progress was reset' language), expired-token fallback to Day 1 without a scary error card, long multi-chapter passage rendering (25 verse lines, 22px gap, GENESIS 1 heading), Key Verse card (verse text + uppercase reference + solid 3px gold accent border rgb(200,169,107)), Passage Overview label ('Passage Overview', prose, no APPLICATION/PRAYER sections), offline retry state (error card + retry button + no blank screen + successful reload after coming online), and reflection/journal navigation (guest → 'Save your spiritual journey' upgrade prompt, signed-in → /reflections-history) all behave per spec. No source-code changes were made.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_10.json",
+    "/app/test_reports/screenshots/t1_signedin.png",
+    "/app/test_reports/screenshots/t2_guest.png",
+    "/app/test_reports/screenshots/t3_expired.png",
+    "/app/test_reports/screenshots/t4_fullpassage.png",
+    "/app/test_reports/screenshots/t7_offline_spa.png",
+    "/app/test_reports/screenshots/t7_offline_after_retry.png",
+    "/app/test_reports/screenshots/t8_guest_journal_click.png",
+    "/app/test_reports/screenshots/t8_signedin_journal.png"
+  ],
+  "action_items": [
+    "None — ship it. All 8 Scripture regression scenarios pass."
+  ],
+  "critical_code_review_comments": [
+    "scripture.tsx correctly gates the guest hint on `isGuestPayload && auth.ready && !auth.user` (line ~388) — the exact language 'Reading Day 1 · sign in to save your place.' never mixes with 'progress was reset' phrasing.",
+    "AuthExpired handling in scripture.tsx (lines ~161-175) does the right thing: after refresh fails, it still calls api.dailyVerse a second time (guest path, since clearAuth already ran) so the UI has a Day 1 payload and no red error card. Verified by injecting an invalid token blob into localStorage under 'prayersloft_auth_v1' and reloading — the tab rendered Day 1 with the guest hint (not the auth hint), which is the expected user-facing outcome after the session is fully cleared.",
+    "Key Verse card left border resolves to a solid 3px rgb(200,169,107) accent — visually distinct against the surface1 background. Passes contrast/prominence.",
+    "Full-passage toggle expands to reveal a chapter-grouped view with a 22px row-gap on chapterBlock and an 8px inner gap on the verse list container — no wall of text, matches the design spec.",
+    "Offline error card uses the shared EmptyState variant='error' with testID='scripture-error-card' and testID='scripture-retry-button' on the CTA. Clicking retry after context.setOffline(false) correctly refetched Day 1 without a page reload."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not-tested (frontend-only scope per review request)",
+    "frontend": "100% (8/8 Scripture scenarios)"
+  },
+  "seed_data_creation": "Test 1 registered one fresh user via POST /api/auth/register with a random canonui_<uuid>@prayersloft-qa.com email + password TestPass123!. Auth blob was persisted to localStorage under key 'prayersloft_auth_v1' (from /app/frontend/src/lib/auth-store.ts STORAGE_KEY). No other data mutated.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "auth-store's localStorage key is 'prayersloft_auth_v1' (see /app/frontend/src/lib/auth-store.ts:30). The persisted shape is {user, tokens: {access_token, refresh_token}, provider}. POST /api/auth/register returns {user, tokens} — plug directly into that blob. For offline-path testing, DON'T `page.reload()` while offline (the web preview serves HTML from network and the reload navigation itself fails at the browser layer with ERR_INTERNET_DISCONNECTED before the app can render its cached-in-memory state). Instead: (1) load /scripture, (2) SPA-navigate away to another tab route like /walk, (3) `page.context.set_offline(True)`, (4) SPA-navigate back to /scripture by clicking the Scripture tab — this triggers the in-app loadDaily fetch which fails cleanly and shows the scripture-error-card + scripture-retry-button without needing a full page reload. Verse-row counting inside scripture-full-passage: a reliable heuristic is `Array.from(scope.querySelectorAll('div')).filter(d => /^[0-9]{1,3}\\s/.test((d.textContent||'').trim()))` — Day 1 (Genesis 1:1-25) yields exactly 25.",
+  "rca_of_issue": "N/A — no regressions found. The scripture tab implementation cleanly handles: (a) signed-in canonical payload with progress metadata and no guest hint, (b) guest Day 1 payload with the correct sign-in nudge (no 'progress reset' language), (c) expired-token → refresh-fail → guest-fallback (renders Day 1 with the guest hint, no error card), (d) offline (renders scripture-error-card with scripture-retry-button, screen never blank), and (e) journal-link auth gating (guest → forceUpgradePrompt sheet, signed-in → router.push('/reflections-history'))."
+}
