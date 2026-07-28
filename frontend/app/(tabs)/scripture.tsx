@@ -115,7 +115,10 @@ export default function ScriptureScreen() {
   const [authExpired, setAuthExpired] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [passageExpanded, setPassageExpanded] = useState<boolean>(false);
+  const [overviewExpanded, setOverviewExpanded] = useState<boolean>(false);
+  const [readingComplete, setReadingComplete] = useState<boolean>(false);
   const fade = useRef(new Animated.Value(0)).current;
+  const completeFade = useRef(new Animated.Value(0)).current;
 
   // Reflection state -----------------------------------------------------
   const [reflectionText, setReflectionText] = useState("");
@@ -134,6 +137,20 @@ export default function ScriptureScreen() {
   const [shareSource, setShareSource] = useState<ShareSource | null>(null);
   const [sharePreparing, setSharePreparing] = useState(false);
   const [sharePayload, setSharePayload] = useState<ShareKind | null>(null);
+
+  // Completion transition ------------------------------------------------
+  // Declared here (early) so callbacks below can safely reference it.
+  const markReadingComplete = useCallback(() => {
+    if (readingComplete) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setReadingComplete(true);
+    Animated.timing(completeFade, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [readingComplete, completeFade]);
 
   // Track the local date we last rendered so a midnight-crossing rollover
   // triggers a fresh request on next focus.
@@ -316,6 +333,7 @@ export default function ScriptureScreen() {
         has_emotion: !!reflectionEmotion,
         source: "scripture_canonical_reading",
       });
+      markReadingComplete();
     } catch (e) {
       const isAuthErr = !!(e && typeof e === "object" && (e as any).isAuthExpired);
       showToast({
@@ -329,11 +347,46 @@ export default function ScriptureScreen() {
     } finally {
       setReflectionSaving(false);
     }
-  }, [data, reflectionText, reflectionEmotion, reflectionSaving, reflectionSavedCount, todayReflectionPrompt]);
+  }, [data, reflectionText, reflectionEmotion, reflectionSaving, reflectionSavedCount, todayReflectionPrompt, markReadingComplete]);
+
+  // Reading time — silent-read estimate at 225 wpm, floor 1 minute.
+  const readingTimeMinutes = useMemo(() => {
+    if (!data) return 1;
+    const words = data.passage.reduce(
+      (sum, v) => sum + v.text.split(/\s+/).filter(Boolean).length,
+      0,
+    );
+    return Math.max(1, Math.round(words / 225));
+  }, [data]);
+
+  // Passage-overview truncation. We only truncate if the summary exceeds
+  // this soft ceiling — most Haiku summaries fall in 45–55 words so this
+  // shows a "Read more" only for the longer ones.
+  const OVERVIEW_TRUNCATE_CHARS = 220;
+  const overviewIsLong = !!data && data.summary.length > OVERVIEW_TRUNCATE_CHARS;
+  const overviewText = useMemo(() => {
+    if (!data) return "";
+    if (!overviewIsLong || overviewExpanded) return data.summary;
+    // truncate at last word boundary before the ceiling
+    const slice = data.summary.slice(0, OVERVIEW_TRUNCATE_CHARS);
+    const cut = slice.lastIndexOf(" ");
+    return `${slice.slice(0, cut > 60 ? cut : slice.length).trim()}…`;
+  }, [data, overviewIsLong, overviewExpanded]);
+
+  const continueToPrayer = useCallback(() => {
+    router.push("/(tabs)/prayer" as any);
+  }, [router]);
 
   const togglePassage = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setPassageExpanded((v) => !v);
+    // Reading the full passage counts as completing today's reading.
+    markReadingComplete();
+  }, [markReadingComplete]);
+
+  const toggleOverview = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOverviewExpanded((v) => !v);
   }, []);
 
   // ---------------------------------------------------------------------
@@ -366,28 +419,37 @@ export default function ScriptureScreen() {
           <Text style={styles.eyebrow}>Journey Through Scripture</Text>
           {loading ? (
             <>
-              <View style={[styles.skeletonBar, { width: "35%", height: 22, marginTop: 12 }]} />
-              <View style={[styles.skeletonBar, { width: "70%", height: 14, marginTop: 12 }]} />
+              <View style={[styles.skeletonBar, { width: "35%", height: 14, marginTop: 10 }]} />
+              <View style={[styles.skeletonBar, { width: "80%", height: 26, marginTop: 12 }]} />
             </>
           ) : data ? (
             <>
-              <Text style={styles.dayHeadline} testID="scripture-day-headline">
-                Day {data.day} <Text style={styles.dayHeadlineDim}>of {data.total_days}</Text>
+              <Text style={styles.dayLine} testID="scripture-day-headline">
+                Today&rsquo;s Reading{" "}
+                <Text style={styles.dayLineMuted}>· Day {data.day} of {data.total_days}</Text>
               </Text>
-              <View style={styles.chipRow} testID="scripture-meta-chips">
-                <View style={styles.chip}>
-                  <Text style={styles.chipText}>{data.section}</Text>
-                </View>
-                <View style={styles.chip}>
-                  <Text style={styles.chipText}>{data.book_name}</Text>
-                </View>
-              </View>
-              <Text style={styles.passageRef} testID="scripture-passage-reference">
+              <Text style={styles.passageRefHero} testID="scripture-passage-reference">
                 {data.reference}
               </Text>
+              <View style={styles.metaRow} testID="scripture-meta-row">
+                <View style={styles.chipRow} testID="scripture-meta-chips">
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>{data.section}</Text>
+                  </View>
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>{data.book_name}</Text>
+                  </View>
+                </View>
+                <View style={styles.readingTimePill} testID="scripture-reading-time">
+                  <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
+                  <Text style={styles.readingTimeText}>
+                    {readingTimeMinutes} min read
+                  </Text>
+                </View>
+              </View>
               {isGuestPayload && auth.ready && !auth.user && (
                 <Text style={styles.guestHint} testID="scripture-guest-hint">
-                  Reading Day 1 · sign in to save your place.
+                  Sign in to continue your Scripture journey across devices.
                 </Text>
               )}
               {isGuestPayload && auth.ready && !!auth.user && authExpired && (
@@ -416,15 +478,15 @@ export default function ScriptureScreen() {
           />
         ) : null}
 
-        {/* --------------- KEY VERSE (prominent) --------------- */}
+        {/* --------------- KEY VERSE (label + ref above quote; tightened) --------------- */}
         {data && (
           <Animated.View style={{ opacity: fade }}>
-            <Text style={styles.sectionLabel}>Key Verse</Text>
             <View style={styles.keyVerseCard} testID="scripture-key-verse">
+              <Text style={styles.keyVerseLabel}>Key Verse</Text>
+              <Text style={styles.keyVerseRef}>{data.key_verse.reference}</Text>
               <Text style={styles.keyVerseText}>
                 &ldquo;{data.key_verse.text}&rdquo;
               </Text>
-              <Text style={styles.keyVerseRef}>{data.key_verse.reference}</Text>
               <View style={styles.keyVerseActions}>
                 <Pressable
                   onPress={onNativeShare}
@@ -453,12 +515,26 @@ export default function ScriptureScreen() {
           </Animated.View>
         )}
 
-        {/* --------------- PASSAGE OVERVIEW (renamed from Devotional) --------------- */}
+        {/* --------------- PASSAGE OVERVIEW (tighter, expandable) --------------- */}
         {data && (
           <Animated.View style={{ opacity: fade }}>
             <Text style={styles.sectionLabel}>Passage Overview</Text>
             <View style={styles.overviewCard} testID="scripture-passage-overview">
-              <Text style={styles.overviewText}>{data.summary}</Text>
+              <Text style={styles.overviewText}>{overviewText}</Text>
+              {overviewIsLong && (
+                <Pressable
+                  onPress={toggleOverview}
+                  hitSlop={8}
+                  style={styles.overviewMoreBtn}
+                  testID="scripture-overview-toggle"
+                  accessibilityRole="button"
+                  accessibilityLabel={overviewExpanded ? "Show less" : "Read more"}
+                >
+                  <Text style={styles.overviewMoreText}>
+                    {overviewExpanded ? "Show less" : "Read more"}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </Animated.View>
         )}
@@ -505,10 +581,11 @@ export default function ScriptureScreen() {
           </Animated.View>
         )}
 
-        {/* --------------- REFLECTION --------------- */}
+        {/* --------------- PAUSE & REFLECT --------------- */}
         {data && (
           <Animated.View style={{ opacity: fade }} testID="scripture-reflection-section">
-            <Text style={styles.sectionLabel}>Reflection</Text>
+            <Text style={styles.sectionLabel}>Pause &amp; Reflect</Text>
+            <Text style={styles.reflectionSubtitle}>What stood out to you today?</Text>
             <Text style={styles.reflectionPrompt}>{todayReflectionPrompt}</Text>
 
             <View style={styles.reflectionInputWrap}>
@@ -574,6 +651,32 @@ export default function ScriptureScreen() {
             </Pressable>
           </Animated.View>
         )}
+
+        {/* --------------- COMPLETION TRANSITION --------------- */}
+        {data && readingComplete && (
+          <Animated.View
+            style={[styles.completionCard, { opacity: completeFade }]}
+            testID="scripture-completion-card"
+          >
+            <View style={styles.completionCheck}>
+              <Ionicons name="checkmark" size={18} color={colors.textOnAccent} />
+            </View>
+            <Text style={styles.completionTitle}>Today&rsquo;s Reading Complete</Text>
+            <Text style={styles.completionSubtitle}>
+              Carry this word into prayer.
+            </Text>
+            <Pressable
+              onPress={continueToPrayer}
+              style={styles.completionCta}
+              testID="scripture-continue-to-prayer"
+              accessibilityRole="button"
+              accessibilityLabel="Continue to Prayer"
+            >
+              <Text style={styles.completionCtaText}>Continue to Prayer</Text>
+              <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+            </Pressable>
+          </Animated.View>
+        )}
       </KeyboardAwareScrollView>
 
       {sharePayload && (
@@ -593,16 +696,36 @@ const styles = StyleSheet.create({
     letterSpacing: 2.4,
     textTransform: "uppercase",
   },
-  dayHeadline: {
+  // Muted secondary line: "Today's Reading · Day 1 of 995"
+  dayLine: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.3,
+    marginTop: 10,
+  },
+  dayLineMuted: {
+    color: colors.textTertiary,
+    fontFamily: fonts.sans,
+  },
+  // Passage reference is now the visual hero
+  passageRefHero: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 30,
+    fontSize: 28,
     color: colors.text,
     letterSpacing: -0.4,
     lineHeight: 34,
     marginTop: 4,
   },
-  dayHeadlineDim: { color: colors.textTertiary, fontFamily: fonts.sans },
-  chipRow: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
+  metaRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   chip: {
     paddingHorizontal: 11,
     paddingVertical: 5,
@@ -617,13 +740,19 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     letterSpacing: 0.4,
   },
-  passageRef: {
+  readingTimePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  readingTimeText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    color: colors.accent,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginTop: 14,
+    fontSize: 11,
+    color: colors.textTertiary,
+    letterSpacing: 0.3,
   },
   guestHint: {
     fontFamily: fonts.sans,
@@ -631,6 +760,7 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     marginTop: 10,
     letterSpacing: 0.2,
+    lineHeight: 18,
   },
   authHint: {
     fontFamily: fonts.sans,
@@ -638,6 +768,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     marginTop: 10,
     letterSpacing: 0.2,
+    lineHeight: 18,
   },
   sectionLabel: {
     fontFamily: fonts.sansMedium,
@@ -648,49 +779,68 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Key Verse (prominent)
+  // Key Verse — tighter card, label + ref above quote
   keyVerseCard: {
     backgroundColor: colors.surface1,
-    borderRadius: 26,
-    padding: 26,
-    gap: 14,
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+    gap: 6,
     borderLeftWidth: 3,
     borderLeftColor: colors.accent,
   },
-  keyVerseText: {
-    fontFamily: fonts.serif,
-    fontSize: 22,
-    color: colors.text,
-    lineHeight: 34,
-    letterSpacing: 0.1,
+  keyVerseLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    color: colors.accent,
   },
   keyVerseRef: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: colors.accent,
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-    marginTop: 4,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    color: colors.text,
+    letterSpacing: 0.2,
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  keyVerseText: {
+    fontFamily: fonts.serif,
+    fontSize: 20,
+    color: colors.text,
+    lineHeight: 30,
+    letterSpacing: 0.1,
   },
   keyVerseActions: {
     flexDirection: "row",
-    gap: 4,
+    gap: 2,
     marginTop: 4,
     marginLeft: -8,
   },
   iconBtn: { padding: 8, borderRadius: 20 },
 
-  // Passage overview (summary)
+  // Passage overview (tighter padding, expandable)
   overviewCard: {
     backgroundColor: colors.surface1,
-    borderRadius: 20,
-    padding: 22,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
   overviewText: {
     fontFamily: fonts.serif,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.textSecondary,
-    lineHeight: 26,
+    lineHeight: 24,
+  },
+  overviewMoreBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
+  overviewMoreText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: colors.accent,
+    letterSpacing: 0.5,
   },
 
   // Full passage
@@ -735,7 +885,15 @@ const styles = StyleSheet.create({
     color: colors.accent,
   },
 
-  // Reflection
+  // Pause & Reflect
+  reflectionSubtitle: {
+    fontFamily: fonts.sans,
+    fontSize: 13,
+    color: colors.textTertiary,
+    letterSpacing: 0.2,
+    marginBottom: 12,
+    marginTop: -4,
+  },
   reflectionPrompt: {
     fontFamily: fonts.serif,
     fontSize: 17,
@@ -796,6 +954,53 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   viewAllText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.accent,
+    letterSpacing: 0.5,
+  },
+
+  // Completion transition
+  completionCard: {
+    backgroundColor: colors.surface1,
+    borderRadius: 20,
+    paddingVertical: 22,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.18)",
+  },
+  completionCheck: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  completionTitle: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: 0.3,
+  },
+  completionSubtitle: {
+    fontFamily: fonts.serif,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.1,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  completionCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+  },
+  completionCtaText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: colors.accent,
