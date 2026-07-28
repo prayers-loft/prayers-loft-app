@@ -29,6 +29,7 @@ import {
   AppState,
   Easing,
   LayoutAnimation,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -44,7 +45,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenBackground } from "@/src/components/ScreenBackground";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
-import { colors, emotionColors, fonts } from "@/src/theme/theme";
+import { colors, fonts } from "@/src/theme/theme";
 import { api } from "@/src/lib/api";
 import type { DailyVerseResponse } from "@/src/lib/api";
 import { recordActiveDay } from "@/src/lib/streak-ledger";
@@ -62,9 +63,6 @@ import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
 // -----------------------------------------------------------------------------
 // Local helpers
 // -----------------------------------------------------------------------------
-type Emotion = "peaceful" | "joyful" | "grateful" | "hopeful" | "reflective";
-const EMOTIONS: Emotion[] = ["peaceful", "joyful", "grateful", "hopeful", "reflective"];
-
 const REFLECTION_PROMPTS = [
   "What in this reading stays with you?",
   "Where does this reading meet you today?",
@@ -121,8 +119,11 @@ export default function ScriptureScreen() {
   const completeFade = useRef(new Animated.Value(0)).current;
 
   // Reflection state -----------------------------------------------------
+  // Emotion chips were intentionally removed from Scripture: they belong to
+  // Prayer / Walk where the user categorises feelings after doing something.
+  // Scripture should invite engagement with the passage itself, not with
+  // feelings about it.
   const [reflectionText, setReflectionText] = useState("");
-  const [reflectionEmotion, setReflectionEmotion] = useState<Emotion | null>(null);
   const [reflectionSaving, setReflectionSaving] = useState(false);
   const [reflectionSavedCount, setReflectionSavedCount] = useState(0);
   const todayReflectionPrompt = useMemo(() => {
@@ -313,13 +314,12 @@ export default function ScriptureScreen() {
       const chars = reflectionText.trim().length;
       await api.createReflection(
         reflectionText.trim(),
-        reflectionEmotion ?? undefined,
+        undefined,
         todayReflectionPrompt,
         data.verse_id,
       );
       recordActiveDay().catch((e) => console.warn("streak ledger record failed", e));
       setReflectionText("");
-      setReflectionEmotion(null);
       const nextCount = reflectionSavedCount + 1;
       setReflectionSavedCount(nextCount);
       showToast({
@@ -330,7 +330,6 @@ export default function ScriptureScreen() {
       });
       track(ConversionTrigger.ReflectionSaved, {
         chars,
-        has_emotion: !!reflectionEmotion,
         source: "scripture_canonical_reading",
       });
       markReadingComplete();
@@ -347,7 +346,7 @@ export default function ScriptureScreen() {
     } finally {
       setReflectionSaving(false);
     }
-  }, [data, reflectionText, reflectionEmotion, reflectionSaving, reflectionSavedCount, todayReflectionPrompt, markReadingComplete]);
+  }, [data, reflectionText, reflectionSaving, reflectionSavedCount, todayReflectionPrompt, markReadingComplete]);
 
   // Reading time — silent-read estimate at 225 wpm, floor 1 minute.
   const readingTimeMinutes = useMemo(() => {
@@ -373,16 +372,38 @@ export default function ScriptureScreen() {
     return `${slice.slice(0, cut > 60 ? cut : slice.length).trim()}…`;
   }, [data, overviewIsLong, overviewExpanded]);
 
-  const continueToPrayer = useCallback(() => {
+  // Continue-Your-Walk bottom sheet --------------------------------------
+  const [continueSheetOpen, setContinueSheetOpen] = useState(false);
+  const openContinueSheet = useCallback(() => setContinueSheetOpen(true), []);
+  const closeContinueSheet = useCallback(() => setContinueSheetOpen(false), []);
+  const goPray = useCallback(() => {
+    closeContinueSheet();
     router.push("/(tabs)/prayer" as any);
-  }, [router]);
+  }, [router, closeContinueSheet]);
+  const goJournal = useCallback(() => {
+    closeContinueSheet();
+    if (auth.ready && !auth.user) {
+      forceUpgradePrompt("journal_entry_guest");
+      return;
+    }
+    router.push("/reflections-history" as any);
+  }, [router, closeContinueSheet, auth]);
+  const goContinueReading = useCallback(() => {
+    closeContinueSheet();
+    if (!passageExpanded) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setPassageExpanded(true);
+    }
+  }, [closeContinueSheet, passageExpanded]);
 
   const togglePassage = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setPassageExpanded((v) => !v);
-    // Reading the full passage counts as completing today's reading.
-    markReadingComplete();
-  }, [markReadingComplete]);
+    // NOTE: expanding the passage no longer marks the reading complete.
+    // Completion is only granted by an explicit user action:
+    //   - saving a reflection, or
+    //   - tapping "Mark Today's Reading Complete" at the end of the passage.
+  }, []);
 
   const toggleOverview = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -576,6 +597,18 @@ export default function ScriptureScreen() {
                     </View>
                   </View>
                 ))}
+                {!readingComplete && (
+                  <Pressable
+                    onPress={markReadingComplete}
+                    style={styles.markCompleteBtn}
+                    testID="scripture-mark-complete-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="Mark Today's Reading Complete"
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={16} color={colors.accent} />
+                    <Text style={styles.markCompleteText}>Mark Today&rsquo;s Reading Complete</Text>
+                  </Pressable>
+                )}
               </View>
             )}
           </Animated.View>
@@ -598,29 +631,6 @@ export default function ScriptureScreen() {
                 style={styles.reflectionInput}
                 testID="scripture-reflection-input"
               />
-            </View>
-
-            <View style={styles.emotionChipsWrap} testID="scripture-emotion-chips">
-              {EMOTIONS.map((em) => {
-                const c = emotionColors[em];
-                const active = reflectionEmotion === em;
-                return (
-                  <Pressable
-                    key={em}
-                    onPress={() => setReflectionEmotion(active ? null : em)}
-                    style={[
-                      styles.emotionChip,
-                      { backgroundColor: active ? c.bg : colors.surface1 },
-                      active && { borderColor: c.border, borderWidth: 1 },
-                    ]}
-                    testID={`scripture-emotion-chip-${em}`}
-                  >
-                    <Text style={[styles.emotionChipText, active && { color: c.text }]}>
-                      {em}
-                    </Text>
-                  </Pressable>
-                );
-              })}
             </View>
 
             <Pressable
@@ -663,21 +673,104 @@ export default function ScriptureScreen() {
             </View>
             <Text style={styles.completionTitle}>Today&rsquo;s Reading Complete</Text>
             <Text style={styles.completionSubtitle}>
-              Carry this word into prayer.
+              Carry this word into the rest of your day.
             </Text>
             <Pressable
-              onPress={continueToPrayer}
+              onPress={openContinueSheet}
               style={styles.completionCta}
-              testID="scripture-continue-to-prayer"
+              testID="scripture-continue-your-walk"
               accessibilityRole="button"
-              accessibilityLabel="Continue to Prayer"
+              accessibilityLabel="Continue Your Walk"
             >
-              <Text style={styles.completionCtaText}>Continue to Prayer</Text>
+              <Text style={styles.completionCtaText}>Continue Your Walk</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
+
+      {/* --------------- CONTINUE YOUR WALK — BOTTOM SHEET --------------- */}
+      <Modal
+        visible={continueSheetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeContinueSheet}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={closeContinueSheet}
+          testID="scripture-continue-sheet-backdrop"
+        >
+          <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Continue Your Walk</Text>
+            <Text style={styles.sheetSubtitle}>
+              Pick whatever meets you where you are right now.
+            </Text>
+
+            <Pressable
+              onPress={goPray}
+              style={styles.sheetRow}
+              testID="scripture-continue-sheet-pray"
+              accessibilityRole="button"
+              accessibilityLabel="Go to Prayer"
+            >
+              <Text style={styles.sheetRowIcon}>🙏</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetRowTitle}>Pray</Text>
+                <Text style={styles.sheetRowHelp}>Bring this reading into prayer.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+            </Pressable>
+
+            {!passageExpanded && (
+              <Pressable
+                onPress={goContinueReading}
+                style={styles.sheetRow}
+                testID="scripture-continue-sheet-read"
+                accessibilityRole="button"
+                accessibilityLabel="Continue Reading"
+              >
+                <Text style={styles.sheetRowIcon}>📖</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetRowTitle}>Continue Reading</Text>
+                  <Text style={styles.sheetRowHelp}>Expand the full passage.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </Pressable>
+            )}
+
+            <Pressable
+              onPress={goJournal}
+              style={styles.sheetRow}
+              testID="scripture-continue-sheet-journal"
+              accessibilityRole="button"
+              accessibilityLabel="Open Journal"
+            >
+              <Text style={styles.sheetRowIcon}>✍🏽</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetRowTitle}>Journal</Text>
+                <Text style={styles.sheetRowHelp}>Revisit past reflections.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+            </Pressable>
+
+            <Pressable
+              onPress={closeContinueSheet}
+              style={[styles.sheetRow, styles.sheetRowDone]}
+              testID="scripture-continue-sheet-done"
+              accessibilityRole="button"
+              accessibilityLabel="Done for today"
+            >
+              <Text style={styles.sheetRowIcon}>✕</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetRowTitle}>Done for Today</Text>
+                <Text style={styles.sheetRowHelp}>Close this and rest.</Text>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {sharePayload && (
         <ShareImageModal visible={shareOpen} onClose={closeShare} payload={sharePayload} />
@@ -917,21 +1010,100 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   emotionChipsWrap: {
+    // deprecated — emotion chips removed from Scripture tab
+    display: "none",
+  },
+  emotionChip: { display: "none" },
+  emotionChipText: { display: "none" },
+
+  // "Mark Today's Reading Complete" — explicit affirmation at end of passage
+  markCompleteBtn: {
+    marginTop: 8,
+    alignSelf: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(200,169,107,0.35)",
+    backgroundColor: "rgba(200,169,107,0.06)",
   },
-  emotionChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 14,
-  },
-  emotionChipText: {
+  markCompleteText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
-    color: colors.textSecondary,
-    textTransform: "capitalize",
+    color: colors.accent,
+    letterSpacing: 0.4,
+  },
+
+  // Continue-Your-Walk bottom sheet
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  sheetContainer: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 16,
+    color: colors.text,
+    letterSpacing: 0.2,
+  },
+  sheetSubtitle: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    color: colors.textTertiary,
+    letterSpacing: 0.2,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  sheetRowDone: {
+    marginTop: 4,
+    opacity: 0.75,
+  },
+  sheetRowIcon: {
+    fontSize: 20,
+    width: 26,
+    textAlign: "center",
+  },
+  sheetRowTitle: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: 0.2,
+  },
+  sheetRowHelp: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginTop: 1,
+    lineHeight: 16,
   },
   saveBtn: {
     backgroundColor: colors.accent,
