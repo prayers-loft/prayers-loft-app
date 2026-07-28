@@ -1,0 +1,540 @@
+{
+  "sample_version": 1,
+  "purpose": "Reviewable sample of passage boundaries, summaries, and key verses for the Canonical Scripture Journey. Once approved (or edited), these entries drop directly into the 1,000-day master plan at canonical-web-v1.json with no reformatting.",
+  "translation_note": "Key-verse text is drawn from the NLT (Bible.com version id 116 — the translation the app already uses for Daily Verse cards). Substitute your preferred translation freely; nothing in the code depends on translation choice.",
+  "schema": {
+    "day": "integer position in the master plan (populated for the first 14; null for the topical samples until they're placed on their calendar day)",
+    "passages": "array of one or more passage ranges — a day is usually one range, but occasionally two paired ranges when a natural section spans a chapter boundary",
+    "key_verse": "the single verse that best summarizes the reading; stored as metadata, never computed at runtime",
+    "passage_summary": "one to two sentences that give the model (and eventually the user) the context of the whole reading, not just the key verse"
+  },
+
+  "sections": {
+
+    "first_14_days": [
+      {
+        "day": 1,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 1:1-25",
+            "start_chapter": 1, "start_verse": 1, "end_chapter": 1, "end_verse": 25 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 1:1",
+          "text": "In the beginning God created the heavens and the earth.",
+          "book": "GEN", "chapter": 1, "verse_num": 1
+        },
+        "passage_summary": "In the beginning God speaks creation into being — light, sky, land, sea, plants, sun, moon, stars, sea creatures, and birds — and calls it all good."
+      },
+      {
+        "day": 2,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 1:26-2:3",
+            "start_chapter": 1, "start_verse": 26, "end_chapter": 2, "end_verse": 3 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 1:27",
+          "text": "So God created human beings in his own image. In the image of God he created them; male and female he created them.",
+          "book": "GEN", "chapter": 1, "verse_num": 27
+        },
+        "passage_summary": "God crowns creation by making humanity in his own image, blesses them, and rests on the seventh day, establishing rhythm and holiness in time."
+      },
+      {
+        "day": 3,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 2:4-25",
+            "start_chapter": 2, "start_verse": 4, "end_chapter": 2, "end_verse": 25 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 2:18",
+          "text": "Then the Lord God said, 'It is not good for the man to be alone. I will make a helper who is just right for him.'",
+          "book": "GEN", "chapter": 2, "verse_num": 18
+        },
+        "passage_summary": "God plants a garden and forms Adam from the dust. Seeing that solitude is not good, he fashions a companion from Adam's side, and the two become one flesh."
+      },
+      {
+        "day": 4,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 3:1-24",
+            "start_chapter": 3, "start_verse": 1, "end_chapter": 3, "end_verse": 24 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 3:15",
+          "text": "And I will cause hostility between you and the woman, and between your offspring and her offspring. He will strike your head, and you will strike his heel.",
+          "book": "GEN", "chapter": 3, "verse_num": 15
+        },
+        "passage_summary": "The serpent tempts Eve to doubt God's word, and sin enters the world. Even in judgment God speaks a promise: a coming offspring who will crush the serpent's head."
+      },
+      {
+        "day": 5,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 4:1-26",
+            "start_chapter": 4, "start_verse": 1, "end_chapter": 4, "end_verse": 26 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 4:7",
+          "text": "You will be accepted if you do what is right. But if you refuse to do what is right, then watch out! Sin is crouching at the door, eager to control you. But you must subdue it and be its master.",
+          "book": "GEN", "chapter": 4, "verse_num": 7
+        },
+        "passage_summary": "Cain's jealousy toward Abel becomes murder. God warns that sin crouches at the door, then extends mercy even to Cain, while through Seth a line of worshipers is preserved."
+      },
+      {
+        "day": 6,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 5:1-6:8",
+            "start_chapter": 5, "start_verse": 1, "end_chapter": 6, "end_verse": 8 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 6:8",
+          "text": "But Noah found favor with the Lord.",
+          "book": "GEN", "chapter": 6, "verse_num": 8
+        },
+        "passage_summary": "Ten generations pass from Adam to Noah. As human wickedness fills the earth, God's heart is grieved — yet one man, Noah, finds favor with the Lord."
+      },
+      {
+        "day": 7,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 6:9-7:24",
+            "start_chapter": 6, "start_verse": 9, "end_chapter": 7, "end_verse": 24 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 6:22",
+          "text": "So Noah did everything exactly as God had commanded him.",
+          "book": "GEN", "chapter": 6, "verse_num": 22
+        },
+        "passage_summary": "God commissions Noah to build an ark to survive the coming judgment. Noah obeys in every detail, gathers his family and the animals, and the waters flood the earth."
+      },
+      {
+        "day": 8,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 8:1-9:17",
+            "start_chapter": 8, "start_verse": 1, "end_chapter": 9, "end_verse": 17 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 9:13",
+          "text": "I have placed my rainbow in the clouds. It is the sign of my covenant with you and with all the earth.",
+          "book": "GEN", "chapter": 9, "verse_num": 13
+        },
+        "passage_summary": "God remembers Noah, the waters recede, and Noah worships on dry land. God makes a covenant with all creation and sets the rainbow as the sign that mercy will keep the earth."
+      },
+      {
+        "day": 9,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 9:18-11:9",
+            "start_chapter": 9, "start_verse": 18, "end_chapter": 11, "end_verse": 9 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 11:4",
+          "text": "Come, let's build a great city for ourselves with a tower that reaches into the sky. This will make us famous and keep us from being scattered all over the world.",
+          "book": "GEN", "chapter": 11, "verse_num": 4
+        },
+        "passage_summary": "The nations spread from Noah's sons. When humanity builds a tower to make a name for itself, God confuses their language and scatters them: pride cannot climb to heaven."
+      },
+      {
+        "day": 10,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 11:10-12:9",
+            "start_chapter": 11, "start_verse": 10, "end_chapter": 12, "end_verse": 9 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 12:2-3",
+          "text": "I will make you into a great nation. I will bless you and make you famous, and you will be a blessing to others. ... All the families on earth will be blessed through you.",
+          "book": "GEN", "chapter": 12, "verse_num": 2
+        },
+        "passage_summary": "From Shem's line comes Abram. God calls him to leave home for a land he does not know, promising to bless him and, through him, all the families of the earth."
+      },
+      {
+        "day": 11,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 13:1-14:24",
+            "start_chapter": 13, "start_verse": 1, "end_chapter": 14, "end_verse": 24 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 14:20",
+          "text": "And blessed be God Most High, who has defeated your enemies for you.",
+          "book": "GEN", "chapter": 14, "verse_num": 20
+        },
+        "passage_summary": "Abram gives Lot first choice of the land. When Lot is captured in war, Abram rescues him, and Melchizedek — priest of God Most High — blesses Abram, who gives him a tenth of everything."
+      },
+      {
+        "day": 12,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 15:1-21",
+            "start_chapter": 15, "start_verse": 1, "end_chapter": 15, "end_verse": 21 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 15:6",
+          "text": "And Abram believed the Lord, and the Lord counted him as righteous because of his faith.",
+          "book": "GEN", "chapter": 15, "verse_num": 6
+        },
+        "passage_summary": "In a vision, God renews his promise of a son and a land. Abram believes God, and that faith is counted as righteousness — a covenant sealed by fire between the pieces."
+      },
+      {
+        "day": 13,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 16:1-17:27",
+            "start_chapter": 16, "start_verse": 1, "end_chapter": 17, "end_verse": 27 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 17:1",
+          "text": "I am El-Shaddai — 'God Almighty.' Serve me faithfully and live a blameless life.",
+          "book": "GEN", "chapter": 17, "verse_num": 1
+        },
+        "passage_summary": "Sarai's impatience produces Ishmael through Hagar, yet God does not forget her. Years later, God renames Abram — 'Abraham, father of many' — and gives circumcision as the sign of covenant."
+      },
+      {
+        "day": 14,
+        "passages": [
+          { "book": "GEN", "reference": "Genesis 18:1-19:38",
+            "start_chapter": 18, "start_verse": 1, "end_chapter": 19, "end_verse": 38 }
+        ],
+        "key_verse": {
+          "reference": "Genesis 18:14",
+          "text": "Is anything too hard for the Lord? I will return about this time next year, and Sarah will have a son.",
+          "book": "GEN", "chapter": 18, "verse_num": 14
+        },
+        "passage_summary": "Three visitors promise Sarah a son within the year. When judgment falls on Sodom, Abraham intercedes and Lot is rescued — a reminder that nothing is too hard for the Lord."
+      }
+    ],
+
+    "psalms_sample": [
+      {
+        "day": null,
+        "passages": [
+          { "book": "PSA", "reference": "Psalm 1:1-6",
+            "start_chapter": 1, "start_verse": 1, "end_chapter": 1, "end_verse": 6 }
+        ],
+        "key_verse": {
+          "reference": "Psalm 1:2",
+          "text": "But they delight in the law of the Lord, meditating on it day and night.",
+          "book": "PSA", "chapter": 1, "verse_num": 2
+        },
+        "passage_summary": "The psalter opens by contrasting two paths: the righteous who delight in God's word and flourish like a tree by streams, and the wicked whose way blows away like chaff."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PSA", "reference": "Psalm 23:1-6",
+            "start_chapter": 23, "start_verse": 1, "end_chapter": 23, "end_verse": 6 }
+        ],
+        "key_verse": {
+          "reference": "Psalm 23:1",
+          "text": "The Lord is my shepherd; I have all that I need.",
+          "book": "PSA", "chapter": 23, "verse_num": 1
+        },
+        "passage_summary": "David sings of the Lord as shepherd who provides, restores, and walks with him even through the darkest valley, with goodness and mercy following him all his days."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PSA", "reference": "Psalm 51:1-19",
+            "start_chapter": 51, "start_verse": 1, "end_chapter": 51, "end_verse": 19 }
+        ],
+        "key_verse": {
+          "reference": "Psalm 51:10",
+          "text": "Create in me a clean heart, O God. Renew a loyal spirit within me.",
+          "book": "PSA", "chapter": 51, "verse_num": 10
+        },
+        "passage_summary": "After his sin with Bathsheba, David turns to God with grief, asking for a clean heart, a right spirit, and the joy of salvation restored — for God delights in a broken and contrite heart."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PSA", "reference": "Psalm 91:1-16",
+            "start_chapter": 91, "start_verse": 1, "end_chapter": 91, "end_verse": 16 }
+        ],
+        "key_verse": {
+          "reference": "Psalm 91:1-2",
+          "text": "Those who live in the shelter of the Most High will find rest in the shadow of the Almighty. This I declare about the Lord: He alone is my refuge, my place of safety; he is my God, and I trust him.",
+          "book": "PSA", "chapter": 91, "verse_num": 1
+        },
+        "passage_summary": "A psalm of refuge: the one who dwells in the shelter of the Most High rests in the shadow of the Almighty. God is fortress, defender, and rescuer of those who love him."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PSA", "reference": "Psalm 139:1-24",
+            "start_chapter": 139, "start_verse": 1, "end_chapter": 139, "end_verse": 24 }
+        ],
+        "key_verse": {
+          "reference": "Psalm 139:14",
+          "text": "Thank you for making me so wonderfully complex! Your workmanship is marvelous — how well I know it.",
+          "book": "PSA", "chapter": 139, "verse_num": 14
+        },
+        "passage_summary": "David marvels that God knows him fully — his thoughts, his going out and coming in, his frame formed in the womb. He invites God to search his heart and lead him in the everlasting way."
+      }
+    ],
+
+    "proverbs_sample": [
+      {
+        "day": null,
+        "passages": [
+          { "book": "PRO", "reference": "Proverbs 3:1-12",
+            "start_chapter": 3, "start_verse": 1, "end_chapter": 3, "end_verse": 12 }
+        ],
+        "key_verse": {
+          "reference": "Proverbs 3:5-6",
+          "text": "Trust in the Lord with all your heart; do not depend on your own understanding. Seek his will in all you do, and he will show you which path to take.",
+          "book": "PRO", "chapter": 3, "verse_num": 5
+        },
+        "passage_summary": "Solomon calls his son to bind loyalty and truth around his neck — to trust the Lord with all his heart, honor him with his wealth, and receive his loving discipline as a good father's care."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PRO", "reference": "Proverbs 4:20-27",
+            "start_chapter": 4, "start_verse": 20, "end_chapter": 4, "end_verse": 27 }
+        ],
+        "key_verse": {
+          "reference": "Proverbs 4:23",
+          "text": "Guard your heart above all else, for it determines the course of your life.",
+          "book": "PRO", "chapter": 4, "verse_num": 23
+        },
+        "passage_summary": "A father urges his son to keep God's words within reach — to guard the heart above all else, because from it flow the wellsprings of life."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PRO", "reference": "Proverbs 15:1-18",
+            "start_chapter": 15, "start_verse": 1, "end_chapter": 15, "end_verse": 18 }
+        ],
+        "key_verse": {
+          "reference": "Proverbs 15:1",
+          "text": "A gentle answer deflects anger, but harsh words make tempers flare.",
+          "book": "PRO", "chapter": 15, "verse_num": 1
+        },
+        "passage_summary": "Wisdom shapes how we speak. A gentle answer turns wrath away; the tongue of the wise brings healing, and a joyful heart makes the face cheerful."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PRO", "reference": "Proverbs 16:1-9",
+            "start_chapter": 16, "start_verse": 1, "end_chapter": 16, "end_verse": 9 }
+        ],
+        "key_verse": {
+          "reference": "Proverbs 16:3",
+          "text": "Commit your actions to the Lord, and your plans will succeed.",
+          "book": "PRO", "chapter": 16, "verse_num": 3
+        },
+        "passage_summary": "We plan our path, but the Lord directs our steps. The one who commits work to God, walks in humility, and trusts his sovereign hand finds true security."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PRO", "reference": "Proverbs 22:1-16",
+            "start_chapter": 22, "start_verse": 1, "end_chapter": 22, "end_verse": 16 }
+        ],
+        "key_verse": {
+          "reference": "Proverbs 22:6",
+          "text": "Direct your children onto the right path, and when they are older, they will not leave it.",
+          "book": "PRO", "chapter": 22, "verse_num": 6
+        },
+        "passage_summary": "A good name is worth more than silver, and humility before the Lord leads to riches, honor, and life. Train children in the right way, and integrity will guard them all their days."
+      }
+    ],
+
+    "prophetic_sample": [
+      {
+        "day": null,
+        "passages": [
+          { "book": "ISA", "reference": "Isaiah 6:1-13",
+            "start_chapter": 6, "start_verse": 1, "end_chapter": 6, "end_verse": 13 }
+        ],
+        "key_verse": {
+          "reference": "Isaiah 6:8",
+          "text": "Then I heard the Lord asking, 'Whom should I send as a messenger to this people? Who will go for us?' I said, 'Here I am. Send me.'",
+          "book": "ISA", "chapter": 6, "verse_num": 8
+        },
+        "passage_summary": "Isaiah sees the Lord high and lifted up, and seraphim cry 'Holy, holy, holy.' Undone by his uncleanness, Isaiah is cleansed by a burning coal, then answers God's call: 'Here I am. Send me.'"
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "ISA", "reference": "Isaiah 40:1-31",
+            "start_chapter": 40, "start_verse": 1, "end_chapter": 40, "end_verse": 31 }
+        ],
+        "key_verse": {
+          "reference": "Isaiah 40:31",
+          "text": "But those who trust in the Lord will find new strength. They will soar high on wings like eagles. They will run and not grow weary. They will walk and not faint.",
+          "book": "ISA", "chapter": 40, "verse_num": 31
+        },
+        "passage_summary": "God speaks tender comfort to a weary people: every valley raised, every mountain leveled, and his glory revealed. The everlasting God does not grow tired, and those who wait on him find their strength renewed."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "ISA", "reference": "Isaiah 53:1-12",
+            "start_chapter": 53, "start_verse": 1, "end_chapter": 53, "end_verse": 12 }
+        ],
+        "key_verse": {
+          "reference": "Isaiah 53:5",
+          "text": "But he was pierced for our rebellion, crushed for our sins. He was beaten so we could be whole. He was whipped so we could be healed.",
+          "book": "ISA", "chapter": 53, "verse_num": 5
+        },
+        "passage_summary": "The prophet foresees a servant despised and rejected, pierced for our transgressions and crushed for our iniquities. By his wounds we are healed; he bears the sins of many and intercedes for the guilty."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "JER", "reference": "Jeremiah 29:1-14",
+            "start_chapter": 29, "start_verse": 1, "end_chapter": 29, "end_verse": 14 }
+        ],
+        "key_verse": {
+          "reference": "Jeremiah 29:11",
+          "text": "'For I know the plans I have for you,' says the Lord. 'They are plans for good and not for disaster, to give you a future and a hope.'",
+          "book": "JER", "chapter": 29, "verse_num": 11
+        },
+        "passage_summary": "To the exiles in Babylon, Jeremiah writes: build houses, plant gardens, seek the peace of the city. God has not forgotten them — his plans are for their good, and he will bring them home when they call to him."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "EZK", "reference": "Ezekiel 36:22-38",
+            "start_chapter": 36, "start_verse": 22, "end_chapter": 36, "end_verse": 38 }
+        ],
+        "key_verse": {
+          "reference": "Ezekiel 36:26",
+          "text": "And I will give you a new heart, and I will put a new spirit in you. I will take out your stony, stubborn heart and give you a tender, responsive heart.",
+          "book": "EZK", "chapter": 36, "verse_num": 26
+        },
+        "passage_summary": "For the sake of his name, God promises to gather his scattered people, cleanse them, and give them a new heart and a new spirit — his own Spirit dwelling within, moving them to walk in his ways."
+      }
+    ],
+
+    "gospel_sample": [
+      {
+        "day": null,
+        "passages": [
+          { "book": "MAT", "reference": "Matthew 5:1-16",
+            "start_chapter": 5, "start_verse": 1, "end_chapter": 5, "end_verse": 16 }
+        ],
+        "key_verse": {
+          "reference": "Matthew 5:8",
+          "text": "God blesses those whose hearts are pure, for they will see God.",
+          "book": "MAT", "chapter": 5, "verse_num": 8
+        },
+        "passage_summary": "On the mountain, Jesus opens the Sermon by blessing the poor in spirit, those who mourn, the meek, the pure in heart, and the peacemakers, then calls his followers to be salt of the earth and light of the world."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "MAT", "reference": "Matthew 6:5-15",
+            "start_chapter": 6, "start_verse": 5, "end_chapter": 6, "end_verse": 15 }
+        ],
+        "key_verse": {
+          "reference": "Matthew 6:9",
+          "text": "Pray like this: Our Father in heaven, may your name be kept holy.",
+          "book": "MAT", "chapter": 6, "verse_num": 9
+        },
+        "passage_summary": "Jesus warns against showy prayer and gives his disciples a pattern to pray — a prayer that honors the Father's name, seeks his kingdom, asks for daily bread, and forgives as it has been forgiven."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "LUK", "reference": "Luke 15:11-32",
+            "start_chapter": 15, "start_verse": 11, "end_chapter": 15, "end_verse": 32 }
+        ],
+        "key_verse": {
+          "reference": "Luke 15:20",
+          "text": "So he returned home to his father. And while he was still a long way off, his father saw him coming. Filled with love and compassion, he ran to his son, embraced him, and kissed him.",
+          "book": "LUK", "chapter": 15, "verse_num": 20
+        },
+        "passage_summary": "A younger son squanders his inheritance and returns home in ruin. Before he can finish his confession, the father runs to embrace him — while the elder brother's cold resentment reveals that grace offends the self-righteous."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "JHN", "reference": "John 3:1-21",
+            "start_chapter": 3, "start_verse": 1, "end_chapter": 3, "end_verse": 21 }
+        ],
+        "key_verse": {
+          "reference": "John 3:16",
+          "text": "For this is how God loved the world: He gave his one and only Son, so that everyone who believes in him will not perish but have eternal life.",
+          "book": "JHN", "chapter": 3, "verse_num": 16
+        },
+        "passage_summary": "Nicodemus comes to Jesus by night. Jesus tells him no one can enter the kingdom without being born of water and Spirit — for God so loved the world that he gave his only Son, that whoever believes might have eternal life."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "JHN", "reference": "John 15:1-17",
+            "start_chapter": 15, "start_verse": 1, "end_chapter": 15, "end_verse": 17 }
+        ],
+        "key_verse": {
+          "reference": "John 15:5",
+          "text": "Yes, I am the vine; you are the branches. Those who remain in me, and I in them, will produce much fruit. For apart from me you can do nothing.",
+          "book": "JHN", "chapter": 15, "verse_num": 5
+        },
+        "passage_summary": "Jesus is the true vine and the Father the gardener. Apart from him, branches wither; abiding in him and in his love, they bear much fruit — the mark of true disciples."
+      }
+    ],
+
+    "epistle_sample": [
+      {
+        "day": null,
+        "passages": [
+          { "book": "ROM", "reference": "Romans 8:1-17",
+            "start_chapter": 8, "start_verse": 1, "end_chapter": 8, "end_verse": 17 }
+        ],
+        "key_verse": {
+          "reference": "Romans 8:1",
+          "text": "So now there is no condemnation for those who belong to Christ Jesus.",
+          "book": "ROM", "chapter": 8, "verse_num": 1
+        },
+        "passage_summary": "What the law could not do because of the flesh, God did through his Son. For those in Christ Jesus there is no condemnation — the same Spirit who raised Jesus lives in believers, making them children and heirs of God."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "ROM", "reference": "Romans 12:1-21",
+            "start_chapter": 12, "start_verse": 1, "end_chapter": 12, "end_verse": 21 }
+        ],
+        "key_verse": {
+          "reference": "Romans 12:1",
+          "text": "And so, dear brothers and sisters, I plead with you to give your bodies to God because of all he has done for you. Let them be a living and holy sacrifice — the kind he will find acceptable. This is truly the way to worship him.",
+          "book": "ROM", "chapter": 12, "verse_num": 1
+        },
+        "passage_summary": "In view of God's mercy, Paul urges believers to offer their bodies as living sacrifices — not conformed to the world but transformed by the renewing of their minds, using their gifts humbly and overcoming evil with good."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "1CO", "reference": "1 Corinthians 13:1-13",
+            "start_chapter": 13, "start_verse": 1, "end_chapter": 13, "end_verse": 13 }
+        ],
+        "key_verse": {
+          "reference": "1 Corinthians 13:13",
+          "text": "Three things will last forever — faith, hope, and love — and the greatest of these is love.",
+          "book": "1CO", "chapter": 13, "verse_num": 13
+        },
+        "passage_summary": "Without love, every gift is empty noise. Love is patient and kind, does not envy or boast, keeps no record of wrongs, and endures all things. Faith and hope will remain, but love is the greatest."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "EPH", "reference": "Ephesians 2:1-10",
+            "start_chapter": 2, "start_verse": 1, "end_chapter": 2, "end_verse": 10 }
+        ],
+        "key_verse": {
+          "reference": "Ephesians 2:8-9",
+          "text": "God saved you by his grace when you believed. And you can't take credit for this; it is a gift from God. Salvation is not a reward for the good things we have done, so none of us can boast about it.",
+          "book": "EPH", "chapter": 2, "verse_num": 8
+        },
+        "passage_summary": "Once dead in trespasses, believers have been made alive with Christ and raised with him — saved by grace through faith, not by works, but created in Christ for good works God prepared beforehand."
+      },
+      {
+        "day": null,
+        "passages": [
+          { "book": "PHP", "reference": "Philippians 4:4-13",
+            "start_chapter": 4, "start_verse": 4, "end_chapter": 4, "end_verse": 13 }
+        ],
+        "key_verse": {
+          "reference": "Philippians 4:6-7",
+          "text": "Don't worry about anything; instead, pray about everything. Tell God what you need, and thank him for all he has done. Then you will experience God's peace, which exceeds anything we can understand. His peace will guard your hearts and minds as you live in Christ Jesus.",
+          "book": "PHP", "chapter": 4, "verse_num": 6
+        },
+        "passage_summary": "Paul urges the Philippians to rejoice always, be anxious for nothing, and bring every request to God with thanksgiving — and God's peace, beyond understanding, will guard their hearts. He has learned contentment in every circumstance through Christ who strengthens him."
+      }
+    ]
+
+  }
+}
