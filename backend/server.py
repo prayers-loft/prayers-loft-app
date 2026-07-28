@@ -23,6 +23,7 @@ load_dotenv(ROOT_DIR / '.env')
 # Import auth AFTER load_dotenv so JWT_SECRET etc. are present in os.environ.
 from auth import build_auth_router, ensure_indexes as ensure_auth_indexes  # noqa: E402
 from walk import build_walk_router, ensure_walk_indexes  # noqa: E402
+from reading_plans import loader as reading_plan_loader  # noqa: E402
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -145,6 +146,53 @@ def owner_fields(owner: dict) -> dict:
     if "user_id" in owner:
         return {"user_id": owner["user_id"]}
     return {"guest_id": owner["guest_id"]}
+
+
+async def current_owner_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_owner_bearer),
+    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-Id"),
+) -> Optional[dict]:
+    """Soft variant of current_owner: returns None if the caller is fully anonymous.
+
+    Signed-in Bearer tokens still return {"user_id": ...} (with session-revocation
+    check). A guest header still returns {"guest_id": ...}. Anonymous (no header,
+    no token) returns None instead of raising 401.
+    """
+    if credentials is not None and credentials.credentials:
+        try:
+            payload = _jose_jwt.decode(
+                credentials.credentials,
+                os.environ["JWT_SECRET"],
+                algorithms=["HS256"],
+                audience=os.environ.get("JWT_AUDIENCE"),
+                issuer=os.environ.get("JWT_ISSUER"),
+            )
+        except Exception:
+            return None  # soft: treat bad token as anonymous
+        user_id = payload.get("sub")
+        session_id = payload.get("sid")
+        if not user_id or not session_id:
+            return None
+        session = await db.user_sessions.find_one({"id": session_id}, {"_id": 0})
+        if not session or session.get("revoked"):
+            return None
+        return {"user_id": user_id}
+    if x_guest_id:
+        gid = x_guest_id.strip()
+        if 1 <= len(gid) <= 128:
+            return {"guest_id": gid}
+    return None
+
+
+def owner_key(owner: Optional[dict]) -> Optional[str]:
+    """Produce a stable string identifier from an owner dict, or None."""
+    if not owner:
+        return None
+    if "user_id" in owner:
+        return f"user:{owner['user_id']}"
+    if "guest_id" in owner:
+        return f"guest:{owner['guest_id']}"
+    return None
 
 
 
@@ -402,69 +450,153 @@ async def daily_verse(
     local_date: Optional[str] = None,
     tz: Optional[str] = None,
     include_devotional: bool = True,
+    owner: Optional[dict] = Depends(current_owner_optional),
 ):
-    """Returns the devotional for the user's LOCAL calendar day.
+    """Serve one day of the canonical Scripture reading plan.
+
+    Behaviour:
+      • Signed-in users track progress server-side and advance at most once
+        per local calendar day. Same-day requests return the same day.
+      • Guests (X-Guest-Id header) and fully anonymous callers receive the
+        first-day payload — client-side stores their local progress.
+      • ``local_date`` may be supplied as YYYY-MM-DD in the caller's tz to
+        avoid UTC drift; otherwise UTC today is used.
+      • The canonical-web-v1 asset is loaded once at first call and cached.
 
     Query params:
       local_date:         YYYY-MM-DD as seen on the user's device (preferred).
-      tz:                 IANA timezone name (e.g. America/Chicago). Stored for telemetry only.
-      include_devotional: when False, skips the LLM call entirely and returns
-                          the verse meta only (sub-100ms). The frontend uses
-                          this for a 2-phase load: render the verse card
-                          instantly, then fetch the devotional behind a skeleton.
-                          Default True for backward compatibility.
-
-    Verse selection is deterministic on local_date so every user sharing the
-    same local day sees the same scripture. Devotional is cached per
-    local_date so it is generated exactly once per day globally.
+      tz:                 IANA timezone name (informational only).
+      include_devotional: retained for API back-compat; the new plan ships
+                          static summaries, so the response is fast either
+                          way and includes ``summary`` unconditionally.
     """
     date_str = parse_local_date(local_date)
-    v = get_verse_for_date(date_str)
-    base = {
-        "verse": v["verse"],
-        "reference": v["reference"],
-        "verse_id": v["verse_id"],
-        "bible_link": f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{v['book']}.{v['chapter']}.{v['verse_num']}",
-        "local_date": date_str,
-    }
-    if not include_devotional:
-        # Fast path: no LLM call, no devotional in payload. The frontend will
-        # request the devotional in a second call with include_devotional=true.
-        return {**base, "devotional": "", "devotional_structured": None}
+    key = owner_key(owner)
 
-    cache_key = f"devo:{date_str}:{v['verse_id']}"
-    cached = await db.devotional_cache.find_one({"_id": cache_key})
-    if cached:
-        devotional = cached.get("devotional", "")
-        # Newer cache entries carry the structured payload; older ones won't,
-        # in which case the frontend will fall back to the flat devotional.
-        structured = cached.get("devotional_structured")
+    plan_meta = reading_plan_loader.plan_metadata()
+    total = reading_plan_loader.total_days()
+
+    if key is not None and key.startswith("user:"):
+        # Signed-in user → advance / persist progress
+        day_number, progress_doc = await _advance_reading_progress(
+            key, plan_meta["plan_id"], date_str, total,
+        )
     else:
-        structured = None
-        devotional = ""
-        try:
-            raw = await ai_chat(
-                DEVOTIONAL_SYSTEM,
-                f"Verse: \"{v['verse']}\" ({v['reference']})",
-                max_tokens=600,
+        # Guest or fully anonymous → always Day 1 (client tracks locally)
+        day_number = 1
+        progress_doc = None
+
+    return _build_daily_payload(day_number, date_str, tz, progress_doc, plan_meta, total)
+
+
+async def _advance_reading_progress(
+    owner_key_str: str,
+    plan_id_str: str,
+    today: str,
+    total_days: int,
+) -> tuple[int, dict]:
+    """Return (current_day, progress_doc). Advances by at most 1 per local day."""
+    filt = {"owner_key": owner_key_str, "plan_id": plan_id_str}
+    doc = await db.reading_progress.find_one(filt)
+
+    if doc is None:
+        new = {
+            "owner_key": owner_key_str,
+            "plan_id": plan_id_str,
+            "current_day": 1,
+            "last_view_local_date": today,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        await db.reading_progress.insert_one(new)
+        return 1, new
+
+    current = reading_plan_loader.clamp_day(doc.get("current_day"), default=1)
+    last_view = doc.get("last_view_local_date")
+
+    # Same local day → do NOT advance (revisiting).
+    if last_view == today:
+        # If we detected clamping earlier, persist the corrected day.
+        if current != doc.get("current_day"):
+            await db.reading_progress.update_one(
+                filt,
+                {"$set": {"current_day": current, "updated_at": now_iso()}},
             )
-            structured, devotional = parse_structured_devotional(raw)
-            if not devotional:
-                # Extreme edge case: LLM returned nothing usable.
-                devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
-            await db.devotional_cache.insert_one({
-                "_id": cache_key,
-                "devotional": devotional,
-                "devotional_structured": structured,
-                "local_date": date_str,
-                "verse_id": v["verse_id"],
-                "tz_sample": tz,
-                "created_at": now_iso(),
-            })
-        except Exception:
-            logger.exception("devotional generation failed")
-            devotional = "Sit with this verse today. Let its quiet truth settle into the places that feel weary or uncertain. Sometimes the simplest words carry the deepest peace."
-    return {**base, "devotional": devotional, "devotional_structured": structured}
+        return current, {**doc, "current_day": current}
+
+    # Different local day → advance by exactly ONE (regardless of how many
+    # calendar days were skipped) and cap at the plan's last day.
+    next_day = current + 1
+    if next_day > total_days:
+        next_day = total_days
+
+    update = {
+        "$set": {
+            "current_day": next_day,
+            "last_view_local_date": today,
+            "updated_at": now_iso(),
+        }
+    }
+    await db.reading_progress.update_one(filt, update)
+    new_doc = {**doc, **update["$set"]}
+    return next_day, new_doc
+
+
+def _build_daily_payload(
+    day_number: int,
+    date_str: str,
+    tz: Optional[str],
+    progress_doc: Optional[dict],
+    plan_meta: dict,
+    total_days: int,
+) -> dict:
+    day_entry = reading_plan_loader.get_day(day_number)
+    kv = day_entry["key_verse"]
+    # legacy compatibility fields — the client's older code path reads these
+    ref = day_entry["reference"]
+    kv_ref = kv["reference"]
+    kv_text = kv.get("text", "")
+    verse_id = f"{day_entry['book']}.{kv['chapter']}.{kv['verse_start']}"
+    bible_link = f"https://www.bible.com/bible/{BIBLE_VERSION_ID}/{day_entry['book']}.{kv['chapter']}.{kv['verse_start']}"
+
+    return {
+        # -------- new canonical-plan fields --------
+        "plan_id": plan_meta.get("plan_id"),
+        "plan_version": plan_meta.get("plan_version"),
+        "day": day_number,
+        "total_days": total_days,
+        "section": day_entry["section"],
+        "book": day_entry["book"],
+        "book_name": day_entry["book_name"],
+        "reference": ref,
+        "passage": day_entry["passage"],
+        "key_verse": {
+            "reference": kv_ref,
+            "chapter": kv["chapter"],
+            "verse_start": kv["verse_start"],
+            "verse_end": kv["verse_end"],
+            "text": kv_text,
+        },
+        "summary": day_entry["summary"],
+        "summary_word_count": day_entry.get("summary_word_count"),
+        "editorial_note": day_entry.get("editorial_note"),
+        # -------- back-compat legacy fields --------
+        "verse": kv_text,
+        "verse_id": verse_id,
+        "bible_link": bible_link,
+        "local_date": date_str,
+        "tz_sample": tz,
+        # AI devotional is intentionally not generated in this phase.
+        "devotional": "",
+        "devotional_structured": None,
+        # -------- progress metadata (nullable for guests) --------
+        "progress": None if progress_doc is None else {
+            "current_day": progress_doc.get("current_day"),
+            "last_view_local_date": progress_doc.get("last_view_local_date"),
+            "created_at": progress_doc.get("created_at"),
+            "updated_at": progress_doc.get("updated_at"),
+        },
+    }
 
 
 VALID_REACTIONS = {"pray", "love", "fire", "insight"}
@@ -769,6 +901,20 @@ app.include_router(auth_router, prefix="/api")
 async def _on_startup():
     await ensure_auth_indexes(db)
     await ensure_walk_indexes(db)
+    # Reading-plan progress: unique per (owner_key, plan_id)
+    await db.reading_progress.create_index(
+        [("owner_key", 1), ("plan_id", 1)], unique=True
+    )
+    # Warm the canonical-web-v1 asset into memory so the first user request
+    # doesn't pay the 7.8 MB parse cost.
+    reading_plan_loader.plan_metadata()
+    logger.info(
+        "canonical_reading_plan_ready",
+        extra={
+            "plan_id": reading_plan_loader.plan_id(),
+            "total_days": reading_plan_loader.total_days(),
+        },
+    )
 
 
 app.add_middleware(

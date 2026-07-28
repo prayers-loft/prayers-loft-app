@@ -74,8 +74,15 @@ class TestDailyVerse:
         r = session.get(f"{API}/daily-verse", timeout=TIMEOUT)
         assert r.status_code == 200, r.text
         data = r.json()
-        for k in ("verse", "reference", "verse_id", "bible_link", "devotional", "local_date"):
+        # Non-empty core (legacy back-compat fields)
+        for k in ("verse", "reference", "verse_id", "bible_link", "local_date"):
             assert k in data and data[k], f"missing/empty {k}"
+        # devotional is now intentionally blank — the canonical plan ships
+        # static summaries instead of AI-generated devotional prose.
+        assert data.get("devotional", "") == ""
+        assert isinstance(data.get("summary"), str) and data["summary"], "summary must be non-empty"
+        assert data["plan_id"] == "canonical-web-v1"
+        assert isinstance(data["day"], int) and data["day"] >= 1
         assert "/bible/116/" in data["bible_link"], data["bible_link"]
         assert re.match(r"^[A-Z0-9]+\.\d+\.\d+$", data["verse_id"]), data["verse_id"]
         assert_no_mongo_id(data)
@@ -83,8 +90,10 @@ class TestDailyVerse:
     def test_daily_verse_local_date_deterministic(self, session):
         r1 = session.get(f"{API}/daily-verse?local_date=2026-01-15", timeout=TIMEOUT).json()
         r2 = session.get(f"{API}/daily-verse?local_date=2026-01-15", timeout=TIMEOUT).json()
+        # Anonymous callers always get day 1 (no per-user progression).
+        assert r1["day"] == r2["day"] == 1
         assert r1["verse_id"] == r2["verse_id"]
-        assert r1["devotional"] == r2["devotional"]  # cached
+        assert r1["summary"] == r2["summary"]
         assert r1["local_date"] == "2026-01-15"
 
 
