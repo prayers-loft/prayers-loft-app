@@ -179,4 +179,6 @@ class TestDailyDevotionalUnchanged:
         body = r.json()
         assert "verse" in body and len(body["verse"]) > 0
         assert "reference" in body and len(body["reference"]) > 0
-        assert "devotional" in body and len(body["devotional"]) > 0
+        # canonical-web-v1: `summary` replaces the old AI `devotional` string;
+        # the legacy `devotional` field remains present but intentionally empty.
+        assert "summary" in body and len(body["summary"]) > 0

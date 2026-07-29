@@ -263,10 +263,15 @@ class TestFlow4DevotionalLoad:
         r = api_client.get(f"{API}/daily-verse", timeout=LLM_TIMEOUT)
         assert r.status_code == 200, r.text
         body = r.json()
+        # Legacy back-compat fields (still populated for older clients).
         assert body.get("verse") and isinstance(body["verse"], str)
         assert body.get("reference")
         assert body.get("verse_id")
-        assert body.get("devotional")
+        # canonical-web-v1 plan: `devotional` is intentionally an empty
+        # string; the new client renders `summary` + `passage[]` instead.
+        assert body.get("summary") and isinstance(body["summary"], str)
+        assert body.get("plan_id") == "canonical-web-v1"
+        assert isinstance(body.get("passage"), list) and len(body["passage"]) > 0
 
     def test_daily_verse_with_tz_chicago(self, api_client):
         r = api_client.get(
@@ -294,7 +299,8 @@ class TestFlow4DevotionalLoad:
         b1, b2 = r1.json(), r2.json()
         assert b1["verse_id"] == b2["verse_id"]
         assert b1["reference"] == b2["reference"]
-        assert b1["devotional"] == b2["devotional"], "devotional cache not honored"
+        # canonical-web-v1: `summary` is the static content; guests always see day 1.
+        assert b1["summary"] == b2["summary"], "canonical summary must be deterministic"
 
     def test_daily_verse_invalid_tz_handled_gracefully(self, api_client):
         r = api_client.get(
