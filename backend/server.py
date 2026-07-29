@@ -483,9 +483,9 @@ async def daily_verse(
     total = reading_plan_loader.total_days()
 
     if key is not None and key.startswith("user:"):
-        # Signed-in user → advance / persist progress
-        day_number, progress_doc = await _advance_reading_progress(
-            key, plan_meta["plan_id"], date_str, total,
+        # Signed-in user → read (never advance) their persisted progress.
+        day_number, progress_doc = await _read_reading_progress(
+            key, plan_meta["plan_id"],
         )
     else:
         # Guest or fully anonymous → always Day 1 (client tracks locally)
@@ -495,57 +495,158 @@ async def daily_verse(
     return _build_daily_payload(day_number, date_str, tz, progress_doc, plan_meta, total)
 
 
-async def _advance_reading_progress(
+async def _read_reading_progress(
     owner_key_str: str,
     plan_id_str: str,
-    today: str,
-    total_days: int,
 ) -> tuple[int, dict]:
-    """Return (current_day, progress_doc). Advances by at most 1 per local day."""
+    """Return (current_day, progress_doc) without advancing.
+
+    Creates a Day-1 row on first access so subsequent completions can be
+    scoped to the same document, but does NOT touch last_completed_date.
+    """
     filt = {"owner_key": owner_key_str, "plan_id": plan_id_str}
     doc = await db.reading_progress.find_one(filt)
-
     if doc is None:
         new = {
             "owner_key": owner_key_str,
             "plan_id": plan_id_str,
             "current_day": 1,
-            "last_view_local_date": today,
+            "last_completed_date": None,
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
         await db.reading_progress.insert_one(new)
         return 1, new
+    current = reading_plan_loader.clamp_day(doc.get("current_day"), default=1)
+    if current != doc.get("current_day"):
+        # Backfill a clamped value silently so future writes are safe.
+        await db.reading_progress.update_one(
+            filt, {"$set": {"current_day": current, "updated_at": now_iso()}},
+        )
+        doc = {**doc, "current_day": current}
+    return current, doc
+
+
+class ReadingCompleteRequest(BaseModel):
+    day: int
+    local_date: Optional[str] = None
+    tz: Optional[str] = None
+
+
+@api_router.post("/daily-verse/complete")
+async def daily_verse_complete(
+    payload: ReadingCompleteRequest,
+    owner: Optional[dict] = Depends(current_owner_optional),
+):
+    """Idempotent completion of the current day's reading.
+
+    Behaviour:
+      • Guest / anonymous caller → 200 with `progress: null` and no DB write.
+      • Signed-in caller → advance current_day by exactly one IFF
+          (a) the submitted `day` matches the user's current_day, AND
+          (b) they haven't already completed today's reading (last_completed_date != today).
+      • Otherwise (stale, future, or already-completed) → 200 no-op returning
+        the current server-side progress. **Never advances more than once.**
+      • Day 995 is capped: completing 995 sets last_completed_date=today but
+        current_day stays 995.
+    """
+    today = parse_local_date(payload.local_date)
+    total = reading_plan_loader.total_days()
+    plan_id_str = reading_plan_loader.plan_id()
+    key = owner_key(owner)
+
+    if key is None or not key.startswith("user:"):
+        return {
+            "plan_id": plan_id_str,
+            "status": "guest",
+            "progress": None,
+            "current_day": 1,
+            "total_days": total,
+            "local_date": today,
+        }
+
+    filt = {"owner_key": key, "plan_id": plan_id_str}
+    doc = await db.reading_progress.find_one(filt)
+    if doc is None:
+        # First-ever completion request. Create at day 1, then evaluate.
+        doc = {
+            "owner_key": key,
+            "plan_id": plan_id_str,
+            "current_day": 1,
+            "last_completed_date": None,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        await db.reading_progress.insert_one(doc)
 
     current = reading_plan_loader.clamp_day(doc.get("current_day"), default=1)
-    last_view = doc.get("last_view_local_date")
+    last_completed = doc.get("last_completed_date")
 
-    # Same local day → do NOT advance (revisiting).
-    if last_view == today:
-        # If we detected clamping earlier, persist the corrected day.
-        if current != doc.get("current_day"):
-            await db.reading_progress.update_one(
-                filt,
-                {"$set": {"current_day": current, "updated_at": now_iso()}},
-            )
-        return current, {**doc, "current_day": current}
+    submitted_day = payload.day
+    if not isinstance(submitted_day, int) or submitted_day < 1 or submitted_day > total:
+        raise HTTPException(status_code=400, detail="Invalid day")
 
-    # Different local day → advance by exactly ONE (regardless of how many
-    # calendar days were skipped) and cap at the plan's last day.
-    next_day = current + 1
-    if next_day > total_days:
-        next_day = total_days
+    # --- Idempotency / staleness guards ---
+    if submitted_day != current:
+        # Stale (already advanced past) OR future (ahead of server). No-op.
+        status = "stale" if submitted_day < current else "ahead"
+        return {
+            "plan_id": plan_id_str,
+            "status": status,
+            "current_day": current,
+            "last_completed_date": last_completed,
+            "total_days": total,
+            "local_date": today,
+            "progress": {
+                "current_day": current,
+                "last_completed_date": last_completed,
+                "created_at": doc.get("created_at"),
+                "updated_at": doc.get("updated_at"),
+            },
+        }
 
+    if last_completed == today:
+        # Already completed today — repeated request is a no-op.
+        return {
+            "plan_id": plan_id_str,
+            "status": "already_completed",
+            "current_day": current,
+            "last_completed_date": last_completed,
+            "total_days": total,
+            "local_date": today,
+            "progress": {
+                "current_day": current,
+                "last_completed_date": last_completed,
+                "created_at": doc.get("created_at"),
+                "updated_at": doc.get("updated_at"),
+            },
+        }
+
+    # Advance (bounded at total).
+    new_day = min(current + 1, total)
     update = {
         "$set": {
-            "current_day": next_day,
-            "last_view_local_date": today,
+            "current_day": new_day,
+            "last_completed_date": today,
             "updated_at": now_iso(),
         }
     }
     await db.reading_progress.update_one(filt, update)
     new_doc = {**doc, **update["$set"]}
-    return next_day, new_doc
+    return {
+        "plan_id": plan_id_str,
+        "status": "advanced" if new_day > current else "completed_final",
+        "current_day": new_day,
+        "last_completed_date": today,
+        "total_days": total,
+        "local_date": today,
+        "progress": {
+            "current_day": new_day,
+            "last_completed_date": today,
+            "created_at": new_doc.get("created_at"),
+            "updated_at": new_doc.get("updated_at"),
+        },
+    }
 
 
 def _build_daily_payload(
@@ -598,7 +699,7 @@ def _build_daily_payload(
         # -------- progress metadata (nullable for guests) --------
         "progress": None if progress_doc is None else {
             "current_day": progress_doc.get("current_day"),
-            "last_view_local_date": progress_doc.get("last_view_local_date"),
+            "last_completed_date": progress_doc.get("last_completed_date"),
             "created_at": progress_doc.get("created_at"),
             "updated_at": progress_doc.get("updated_at"),
         },

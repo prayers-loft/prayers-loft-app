@@ -100,7 +100,7 @@ export type DailyVerseKeyVerse = {
 };
 export type DailyVerseProgress = {
   current_day: number;
-  last_view_local_date: string;
+  last_completed_date: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -467,6 +467,32 @@ export const api = {
       `/daily-verse${qs ? `?${qs}` : ""}`
     );
   },
+
+  /**
+   * Idempotent "I've finished today's reading" signal.
+   *
+   * Sends the day the client believes it's completing plus the caller's
+   * local date. The backend advances current_day by exactly one iff the
+   * submitted day matches server state AND today's completion hasn't
+   * already been recorded. Repeated / stale / future requests are safe
+   * no-ops.
+   *
+   * For anonymous callers the server returns { status: "guest", progress: null }
+   * and writes nothing — guests complete purely client-side.
+   */
+  completeDailyReading: (day: number, localDate?: string, tz?: string) =>
+    request<{
+      plan_id: string;
+      status: "advanced" | "already_completed" | "stale" | "ahead" | "completed_final" | "guest";
+      current_day: number;
+      last_completed_date: string | null;
+      total_days: number;
+      local_date: string;
+      progress: { current_day: number; last_completed_date: string | null } | null;
+    }>("/daily-verse/complete", {
+      method: "POST",
+      body: JSON.stringify({ day, local_date: localDate, tz }),
+    }),
 
   reactToVerse: (verse_id: string, reaction: string) =>
     request<{ verse_id: string; reaction: string; count: number }>("/react-to-verse", {

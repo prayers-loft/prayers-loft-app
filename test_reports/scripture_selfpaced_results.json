@@ -1,0 +1,48 @@
+{
+  "scenario_1": {
+    "name": "S1: Opening tab does not advance",
+    "pass": true,
+    "details": [
+      "Load 0: headline='Today\u2019s Reading \u00b7 Day 1'",
+      "Load 1: headline='Today\u2019s Reading \u00b7 Day 1'",
+      "Load 2: headline='Today\u2019s Reading \u00b7 Day 1'",
+      "Final headline='Today\u2019s Reading \u00b7 Day 1'",
+      "GET /api/daily-verse: status=200 day=1 last_completed_date=None",
+      "POST /complete calls during viewing: 0"
+    ]
+  },
+  "scenario_2": {
+    "name": "S2: Mark Complete advances",
+    "pass": true,
+    "details": [
+      "Completion card appeared",
+      "Headline pre-reload='Today\u2019s Reading \u00b7 Day 1'",
+      "POST /complete calls: 1",
+      "  status=200 req_body={\"day\":1,\"local_date\":\"2026-07-29\"} resp_body_keys=['plan_id', 'status', 'current_day', 'last_completed_date', 'total_days']",
+      "req parsed: {'day': 1, 'local_date': '2026-07-29'}",
+      "Headline post-reload='Today\u2019s Reading \u00b7 Day 2'"
+    ]
+  },
+  "scenario_3": {
+    "name": "S3: Save reflection advances",
+    "pass": true,
+    "details": [
+      "Completion card appeared",
+      "POST /complete calls: 1",
+      "Headline post-reload='Today\u2019s Reading \u00b7 Day 2'"
+    ]
+  },
+  "scenario_4": {
+    "name": "S4: Guest never writes progress",
+    "pass": true,
+    "details": [
+      "Guest headline='Today\u2019s Reading \u00b7 Day 1'",
+      "progress_label='Your journey has begun'",
+      "First toggle click did not expand; dispatching JS click",
+      "Completion card appeared (guest)",
+      "POST /complete calls: 1",
+      "resp body: status=guest progress=None",
+      "GET /daily-verse guest progress=None"
+    ]
+  }
+}

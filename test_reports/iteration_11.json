@@ -1,0 +1,58 @@
+{
+  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://prayers-loft.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "Opening tab does not advance progress",
+      "result": "PASS",
+      "evidence": "Fresh signed-in user; three page.reload() cycles — headline stays 'Today's Reading · Day 1' every load. Direct in-browser fetch of GET /api/daily-verse with Bearer token returned day=1 and progress.last_completed_date=null. Zero POST /api/daily-verse/complete requests observed during passive viewing."
+    },
+    {
+      "id": 2,
+      "name": "Tap Mark Today's Reading Complete advances",
+      "result": "PASS",
+      "evidence": "Opened passage via scripture-passage-toggle, clicked scripture-mark-complete-button. Completion card (scripture-completion-card) appeared. Headline stayed 'Day 1' pre-reload (spec: keep completed passage visible until next visit). Exactly one POST /api/daily-verse/complete with body {\"day\":1,\"local_date\":\"2026-07-29\"} returned 200. After page.reload(), headline advanced to 'Today's Reading · Day 2'."
+    },
+    {
+      "id": 3,
+      "name": "Save reflection also advances",
+      "result": "PASS",
+      "evidence": "Fresh signed-in user typed 39-char reflection into scripture-reflection-input, clicked scripture-save-reflection-button. Completion card appeared. Exactly one POST /api/daily-verse/complete observed (200). After page.reload(), headline advanced to 'Today's Reading · Day 2'."
+    },
+    {
+      "id": 4,
+      "name": "Guests never write server progress",
+      "result": "PASS",
+      "evidence": "Fresh incognito context (no auth). Headline 'Today's Reading · Day 1', progress label 'Your journey has begun'. Tapped passage toggle, clicked Mark Complete — completion card appeared locally. POST /api/daily-verse/complete fired once and response body was { status: 'guest', progress: null }. Unauthenticated GET /api/daily-verse afterwards returned progress: null (no phantom server row created)."
+    }
+  ],
+  "notes": [
+    "In Scenario 4 the RN-web Pressable did not respond to the first Playwright force-click on the passage toggle for the guest run; a JS-dispatched click sequence (pointerdown/mousedown/pointerup/mouseup/click) was used as a fallback. This is a test-harness quirk on react-native-web + Playwright, not an app bug — signed-in scenarios 2 & 3 clicked the same toggle successfully on first try. The test now retries via dispatchEvent when the first click fails, so it is deterministic.",
+    "Auth was seeded via window.localStorage['prayersloft_auth_v1'] as documented in /app/frontend/src/lib/auth-store.ts; UI sign-in was not required for these functional checks.",
+    "The mark-complete API request payload uses `local_date` (YYYY-MM-DD) with no `tz` (client omits `tz` when it is undefined — this matches api.ts:completeDailyReading)."
+  ],
+  "test_report_links": [
+    "/app/test_reports/scripture_selfpaced_test.py",
+    "/app/test_reports/scripture_selfpaced_results.json",
+    "/app/test_reports/screenshots/s4_no_mark.jpg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "scripture.tsx (line ~172): api.completeDailyReading(...) is fire-and-forget with catch → console.warn. This is intentional per the code comments and matches the spec ('keep the completed passage visible until next visit'). No change needed.",
+    "api.ts:completeDailyReading — request body is JSON.stringify({day, local_date, tz}); tz is passed as undefined in scripture.tsx call, so it's omitted from the JSON payload. Backend must remain tolerant of missing tz (server-side pytest coverage already confirms this)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (backend not tested this iteration)", "frontend": "100% (4/4 scenarios pass)" },
+  "seed_data_creation": "3 fresh users registered via POST /api/auth/register with pattern canonprog_<uuid>@prayersloft-qa.com and password TestPass123!. Emails are randomised per run so no cleanup is required.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Playwright installed via pip + `playwright install chromium`. Reusable regression script at /app/test_reports/scripture_selfpaced_test.py — runs headless and prints PASS/FAIL for each of the 4 scenarios plus writes /app/test_reports/scripture_selfpaced_results.json. Register endpoint returns tokens nested under `tokens.{access_token,refresh_token}`; helper flattens this. The auth-store localStorage key is prayersloft_auth_v1.",
+  "rca_of_issue": "N/A — self-paced Scripture regression verified; no bugs found."
+}

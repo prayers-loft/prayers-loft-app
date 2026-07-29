@@ -164,7 +164,18 @@ export default function ScriptureScreen() {
       useNativeDriver: true,
       easing: Easing.out(Easing.cubic),
     }).start();
-  }, [readingComplete, completeFade]);
+    // Fire-and-forget: tell the server this day is complete. The response is
+    // intentionally ignored for UI — we keep the just-completed passage on
+    // screen until the user visits or refreshes next. Guests hit the same
+    // endpoint but the backend returns { status: "guest" } and writes nothing.
+    if (data) {
+      api.completeDailyReading(data.day, data.local_date).catch((e) => {
+        // Idempotent guarantees on the server mean a retry-on-focus later
+        // will land the same result. We surface nothing to the user.
+        console.warn("scripture: completion POST failed (safe to ignore)", e);
+      });
+    }
+  }, [readingComplete, completeFade, data]);
 
   // Track the local date we last rendered so a midnight-crossing rollover
   // triggers a fresh request on next focus.

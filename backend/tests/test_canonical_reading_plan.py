@@ -66,6 +66,17 @@ def _get_daily(token: str | None, local_date: str) -> dict:
     return r.json()
 
 
+def _complete_daily(token: str | None, day: int, local_date: str) -> tuple[int, dict]:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    r = requests.post(
+        f"{API}/daily-verse/complete",
+        headers=headers,
+        json={"day": day, "local_date": local_date},
+        timeout=TIMEOUT,
+    )
+    return r.status_code, (r.json() if r.headers.get("content-type", "").startswith("application/json") else {})
+
+
 def _get_mongo_progress(email: str) -> dict | None:
     """Peek into the DB from the test to inspect the stored progress row.
 
@@ -118,7 +129,7 @@ def _set_progress(email: str, current_day: int, last_view_local_date: str) -> No
                 "owner_key": owner_key,
                 "plan_id": "canonical-web-v1",
                 "current_day": current_day,
-                "last_view_local_date": last_view_local_date,
+                "last_completed_date": last_view_local_date,
                 "updated_at": "2026-07-28T00:00:00Z",
                 "created_at": "2026-07-28T00:00:00Z",
             }},
@@ -167,73 +178,146 @@ class TestPayloadContract:
 # Progression contract
 # --------------------------------------------------------------------------
 
-class TestProgressionContract:
+class TestSelfPacedProgression:
+    """Progress advances only on explicit completion — never on view."""
+
     def test_first_time_signed_in_user_receives_day_1(self):
         _, token = _register_user()
         body = _get_daily(token, "2026-06-01")
         assert body["day"] == 1
         assert body["progress"]["current_day"] == 1
-        assert body["progress"]["last_view_local_date"] == "2026-06-01"
+        # last_completed_date must be None on first view (no auto-complete).
+        assert body["progress"]["last_completed_date"] is None
 
-    def test_same_local_day_does_not_advance(self):
+    def test_get_never_advances_across_days(self):
         _, token = _register_user()
-        a = _get_daily(token, "2026-06-02")
-        b = _get_daily(token, "2026-06-02")
-        c = _get_daily(token, "2026-06-02")
-        assert a["day"] == 1 and b["day"] == 1 and c["day"] == 1
+        d0 = _get_daily(token, "2026-06-01")
+        d1 = _get_daily(token, "2026-06-02")
+        d2 = _get_daily(token, "2026-06-10")
+        d3 = _get_daily(token, "2027-01-15")
+        # Every GET must return the same current day (Day 1) because the
+        # user has NOT explicitly completed anything.
+        assert d0["day"] == d1["day"] == d2["day"] == d3["day"] == 1
+        for d in (d0, d1, d2, d3):
+            assert d["progress"]["last_completed_date"] is None
 
-    def test_next_local_day_advances_exactly_one(self):
+    def test_repeat_get_same_day_never_advances(self):
         _, token = _register_user()
-        d1 = _get_daily(token, "2026-06-03")
-        d2 = _get_daily(token, "2026-06-04")
-        d3 = _get_daily(token, "2026-06-05")
-        assert d1["day"] == 1
-        assert d2["day"] == 2
-        assert d3["day"] == 3
+        a = _get_daily(token, "2026-06-01")
+        b = _get_daily(token, "2026-06-01")
+        c = _get_daily(token, "2026-06-01")
+        assert a["day"] == b["day"] == c["day"] == 1
 
-    def test_skipped_local_days_still_advance_one(self):
+    def test_complete_advances_by_exactly_one(self):
         _, token = _register_user()
-        a = _get_daily(token, "2026-06-10")   # day 1
-        # jump 40 calendar days forward
-        b = _get_daily(token, "2026-07-20")   # should still be day 2 (not 41)
-        # jump 200 more days
-        c = _get_daily(token, "2027-02-05")   # should be day 3
-        assert a["day"] == 1
-        assert b["day"] == 2, f"expected day 2, got {b['day']}"
-        assert c["day"] == 3
+        assert _get_daily(token, "2026-06-01")["day"] == 1
+        status, body = _complete_daily(token, day=1, local_date="2026-06-01")
+        assert status == 200 and body["status"] == "advanced"
+        assert body["current_day"] == 2
+        # Subsequent GET reflects the new current day.
+        assert _get_daily(token, "2026-06-01")["day"] == 2
+
+    def test_repeated_complete_same_day_is_idempotent(self):
+        _, token = _register_user()
+        _get_daily(token, "2026-06-01")
+        first = _complete_daily(token, day=1, local_date="2026-06-01")
+        second = _complete_daily(token, day=1, local_date="2026-06-01")
+        third = _complete_daily(token, day=1, local_date="2026-06-01")
+        # First advances 1→2 with status advanced; second/third are stale
+        # (submitted day 1 no longer equals current day 2) OR
+        # already_completed — either way current_day must not exceed 2.
+        assert first[1]["current_day"] == 2
+        assert second[1]["current_day"] == 2
+        assert third[1]["current_day"] == 2
+        assert _get_daily(token, "2026-06-01")["day"] == 2
+
+    def test_stale_completion_does_not_skip_days(self):
+        """POSTing a completion for a day the user already left behind must not
+        skip the plan forward. This models the case where the client sends a
+        delayed completion request from a stale in-memory state."""
+        email, token = _register_user()
+        # Simulate: user is on day 5.
+        _get_daily(token, "2026-06-01")  # creates row
+        _set_progress(email, current_day=5, last_view_local_date=None)
+        # Client naively posts completion for day 2 (stale).
+        status, body = _complete_daily(token, day=2, local_date="2026-06-05")
+        assert status == 200
+        assert body["status"] == "stale"
+        assert body["current_day"] == 5, "stale completion must not skip forward"
+
+    def test_future_day_completion_rejected_or_noop(self):
+        email, token = _register_user()
+        _get_daily(token, "2026-06-01")
+        _set_progress(email, current_day=3, last_view_local_date=None)
+        # Client posts completion for day 100 (way ahead).
+        status, body = _complete_daily(token, day=100, local_date="2026-06-05")
+        assert status == 200
+        assert body["status"] == "ahead"
+        assert body["current_day"] == 3, "ahead completion must not jump forward"
+
+    def test_day_995_is_capped(self):
+        email, token = _register_user()
+        _get_daily(token, "2026-07-01")
+        _set_progress(email, current_day=995, last_view_local_date=None)
+        status, body = _complete_daily(token, day=995, local_date="2026-07-05")
+        assert status == 200
+        # Stays at 995 forever — user has reached the end of the plan.
+        assert body["current_day"] == 995
+        assert body["last_completed_date"] == "2026-07-05"
+        # Another completion attempt after several days still stays at 995.
+        status2, body2 = _complete_daily(token, day=995, local_date="2026-07-10")
+        assert body2["current_day"] == 995
 
     def test_invalid_stored_progress_falls_back_safely(self):
         email, token = _register_user()
-        # First call creates a valid row on today.
         _get_daily(token, "2026-08-01")
-        # Corrupt: current_day = "banana" (non-int), plus a stale date so we
-        # trigger the advance path where clamp_day is used.
-        _set_progress(email, current_day="banana", last_view_local_date="2026-07-30")
+        # Corrupt current_day to a non-int value.
+        _set_progress(email, current_day="banana", last_view_local_date=None)
         body = _get_daily(token, "2026-08-15")
-        # clamp_day("banana") -> 1, then we advance by 1 → day 2
-        assert body["day"] == 2, f"expected fallback to day 2, got {body['day']}"
-
-    def test_day_995_does_not_advance_past_end(self):
-        email, token = _register_user()
-        _get_daily(token, "2026-09-01")
-        _set_progress(email, 995, "2026-09-01")  # user is at final day
-        body = _get_daily(token, "2026-09-02")   # next day
-        assert body["day"] == 995, f"must clamp at 995, got {body['day']}"
-        # And one more day still does not advance
-        body2 = _get_daily(token, "2026-09-15")
-        assert body2["day"] == 995
+        assert body["day"] == 1, f"expected fallback to day 1, got {body['day']}"
 
     def test_two_users_maintain_independent_progress(self):
         _, tok_a = _register_user()
         _, tok_b = _register_user()
-        _get_daily(tok_a, "2026-06-01")   # A: day 1
-        _get_daily(tok_a, "2026-06-02")   # A: day 2
-        _get_daily(tok_a, "2026-06-03")   # A: day 3
-        _get_daily(tok_b, "2026-06-01")   # B: day 1
-        a_now = _get_daily(tok_a, "2026-06-04")   # A: day 4
-        b_now = _get_daily(tok_b, "2026-06-04")   # B: day 2
+        _get_daily(tok_a, "2026-06-01")
+        _get_daily(tok_b, "2026-06-01")
+        # A completes across three separate calendar days.
+        _complete_daily(tok_a, day=1, local_date="2026-06-01")
+        _complete_daily(tok_a, day=2, local_date="2026-06-02")
+        _complete_daily(tok_a, day=3, local_date="2026-06-03")
+        a_now = _get_daily(tok_a, "2026-06-04")
+        b_now = _get_daily(tok_b, "2026-06-04")
         assert a_now["day"] == 4
-        assert b_now["day"] == 2
+        assert b_now["day"] == 1
+
+    def test_guest_completion_writes_no_server_state(self):
+        # No Authorization header: /complete must return a no-op body and NOT
+        # create a reading_progress row.
+        import asyncio
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+
+        r = requests.post(
+            f"{API}/daily-verse/complete",
+            json={"day": 1, "local_date": "2026-06-01"},
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "guest"
+        assert body["progress"] is None
+
+        async def _count_rows():
+            c = AsyncIOMotorClient(os.environ["MONGO_URL"])
+            db = c[os.environ["DB_NAME"]]
+            # A pure anonymous completion cannot have created any row keyed
+            # to a real user; there is no owner_key to write.
+            n = await db.reading_progress.count_documents({"owner_key": None})
+            c.close()
+            return n
+
+        assert asyncio.new_event_loop().run_until_complete(_count_rows()) == 0
 
 
 # --------------------------------------------------------------------------
