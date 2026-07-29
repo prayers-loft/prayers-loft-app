@@ -304,15 +304,17 @@ export default function ScriptureScreen() {
           excerpt: data.key_verse.text,
           fullText: `${data.key_verse.text}\n\n— ${data.key_verse.reference}`,
           reference: data.key_verse.reference,
-          question: null,
+          question: undefined,
+          style: "Devotional",
         });
       } else {
         const excerpt = await getShareExcerpt(data.summary, "Devotional");
         setSharePayload({
-          kind: "devotional",
+          kind: "qa",
           excerpt,
           fullText: data.summary,
           reference: data.reference,
+          style: "Devotional",
         });
       }
       setShareOpen(true);
