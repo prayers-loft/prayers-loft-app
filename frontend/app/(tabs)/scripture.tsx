@@ -141,6 +141,19 @@ export default function ScriptureScreen() {
 
   // Completion transition ------------------------------------------------
   // Declared here (early) so callbacks below can safely reference it.
+  // Reading-plan progress % — subtle, non-dominant.
+  //   Below 1%   → round to 1 decimal ("0.1%", "0.7%")
+  //   1% and up  → whole numbers ("1%", "10%", "100%")
+  // Guests never see a %-through-Bible figure; they see an encouragement line.
+  const progressLabel = useMemo(() => {
+    if (!data) return null;
+    // Guest payload = server-side progress absent (progress === null).
+    if (data.progress === null) return "Your journey has begun";
+    const pct = (data.day / data.total_days) * 100;
+    const formatted = pct < 1 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`;
+    return `You're ${formatted} through the Bible`;
+  }, [data]);
+
   const markReadingComplete = useCallback(() => {
     if (readingComplete) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -447,7 +460,7 @@ export default function ScriptureScreen() {
             <>
               <Text style={styles.dayLine} testID="scripture-day-headline">
                 Today&rsquo;s Reading{" "}
-                <Text style={styles.dayLineMuted}>· Day {data.day} of {data.total_days}</Text>
+                <Text style={styles.dayLineMuted}>· Day {data.day}</Text>
               </Text>
               <Text style={styles.passageRefHero} testID="scripture-passage-reference">
                 {data.reference}
@@ -468,6 +481,11 @@ export default function ScriptureScreen() {
                   </Text>
                 </View>
               </View>
+              {progressLabel && (
+                <Text style={styles.progressLabel} testID="scripture-progress-label">
+                  {progressLabel}
+                </Text>
+              )}
               {isGuestPayload && auth.ready && !auth.user && (
                 <Text style={styles.guestHint} testID="scripture-guest-hint">
                   Sign in to continue your Scripture journey across devices.
@@ -854,6 +872,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     letterSpacing: 0.2,
     lineHeight: 18,
+  },
+  progressLabel: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.textTertiary,
+    marginTop: 10,
+    letterSpacing: 0.6,
+    opacity: 0.75,
   },
   authHint: {
     fontFamily: fonts.sans,
