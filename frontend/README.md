@@ -1,50 +1,50 @@
-# Welcome to your Expo app 👋
+# Prayers Loft — Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A quiet place to pray, reflect, and remember. Prayers Loft is a discipleship
+companion built with Expo (SDK 55), FastAPI, and MongoDB. This directory
+holds the Expo mobile frontend.
 
 ## Get started
 
 1. Install dependencies
 
    ```bash
-   npm install
+   yarn install
    ```
 
-2. Start the app
+2. Start the Metro bundler
 
    ```bash
-   npx expo start
+   yarn start
    ```
 
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- Android emulator or connected device
+- iOS simulator or connected device
+- Expo Go (limited — some features such as background audio and push
+  notifications require a full development build)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Project layout
 
-## Get a fresh project
+- `app/` — screens (file-based routing via `expo-router`)
+  - `(tabs)/` — Prayer, Scripture, Bible Assistant, Walk
+  - `reflections-history.tsx` — the Journal
+  - `settings.tsx`, `privacy.tsx`, `terms.tsx`
+- `src/components/` — shared UI (share cards, primer sheets, etc.)
+- `src/lib/` — non-UI helpers (auth store, streak ledger, upgrade prompts)
+- `src/theme/` — colors, fonts, spacing
 
-When you're ready, run:
+## Backend
 
-```bash
-npm run reset-project
-```
+The FastAPI backend lives in `/app/backend`. The frontend talks to it via
+`EXPO_PUBLIC_BACKEND_URL` (see `app.json → expo.extra`). All routes are
+prefixed with `/api` so the ingress can route them cleanly.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Branding
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- App name: **Prayers Loft**
+- Bundle identifier / Android package: `com.prayersloft.app`
+- Icons + splash live in `assets/images/` (leaf & quill mark on
+  midnight-blue).

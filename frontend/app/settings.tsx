@@ -436,7 +436,16 @@ export default function SettingsScreen() {
           <Row
             title="My Journal"
             subtitle="Reflections and saved prayers"
-            onPress={() => router.push("/reflections-history" as any)}
+            onPress={() => {
+              // Journal is authenticated-only (see reflections-history.tsx).
+              // Guest taps surface the AuthSheet via the upgrade-prompt host
+              // instead of routing into the walled Journal screen.
+              if (auth.ready && !isAuthed) {
+                forceUpgradePrompt("journal_entry_guest");
+                return;
+              }
+              router.push("/reflections-history" as any);
+            }}
             right={<Chev />}
             testID="my-reflections-row"
           />

@@ -86,6 +86,51 @@ class AuthExpiredError extends Error {
 }
 export { AuthExpiredError };
 
+// Response shape for GET /api/daily-verse (canonical-web-v1 plan).
+// Back-compat legacy fields (`verse`, `verse_id`, `bible_link`, `devotional`,
+// `devotional_structured`) are preserved but `devotional` is intentionally
+// an empty string in this plan — the client renders `summary` instead.
+export type DailyVersePassageVerse = { chapter: number; verse: number; text: string };
+export type DailyVerseKeyVerse = {
+  reference: string;
+  chapter: number;
+  verse_start: number;
+  verse_end: number;
+  text: string;
+};
+export type DailyVerseProgress = {
+  current_day: number;
+  last_completed_date: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+export type DailyVerseResponse = {
+  // Canonical reading-plan fields
+  plan_id: string;
+  plan_version: string;
+  day: number;
+  total_days: number;
+  section: string;
+  book: string;
+  book_name: string;
+  reference: string;
+  passage: DailyVersePassageVerse[];
+  key_verse: DailyVerseKeyVerse;
+  summary: string;
+  summary_word_count: number;
+  editorial_note: string | null;
+  // Back-compat legacy fields
+  verse: string;
+  verse_id: string;
+  bible_link: string;
+  local_date: string;
+  tz_sample: string | null;
+  devotional: string;
+  devotional_structured: null;
+  // Progress metadata — null for guests / anonymous callers.
+  progress: DailyVerseProgress | null;
+};
+
 /** Called by the auth flow (sign-in / register / social) after a fresh
  *  session is established, so subsequent owner-scoped requests are allowed
  *  through the interceptor again. */
@@ -418,28 +463,36 @@ export const api = {
     if (tz) params.set("tz", tz);
     if (!includeDevotional) params.set("include_devotional", "false");
     const qs = params.toString();
-    return request<{
-      verse: string;
-      reference: string;
-      verse_id: string;
-      bible_link: string;
-      devotional: string;
-      // New structured payload. Null when the backend could not parse the LLM
-      // response into the expected 5-section shape, or when this is the fast
-      // verse-only fetch. Frontend falls back to plain-text devotional in
-      // either case.
-      devotional_structured: {
-        title: string;
-        key_scripture: string;
-        reflection: string;
-        application: string;
-        prayer: string;
-      } | null;
-      local_date: string;
-    }>(
+    return request<DailyVerseResponse>(
       `/daily-verse${qs ? `?${qs}` : ""}`
     );
   },
+
+  /**
+   * Idempotent "I've finished today's reading" signal.
+   *
+   * Sends the day the client believes it's completing plus the caller's
+   * local date. The backend advances current_day by exactly one iff the
+   * submitted day matches server state AND today's completion hasn't
+   * already been recorded. Repeated / stale / future requests are safe
+   * no-ops.
+   *
+   * For anonymous callers the server returns { status: "guest", progress: null }
+   * and writes nothing — guests complete purely client-side.
+   */
+  completeDailyReading: (day: number, localDate?: string, tz?: string) =>
+    request<{
+      plan_id: string;
+      status: "advanced" | "already_completed" | "stale" | "ahead" | "completed_final" | "guest";
+      current_day: number;
+      last_completed_date: string | null;
+      total_days: number;
+      local_date: string;
+      progress: { current_day: number; last_completed_date: string | null } | null;
+    }>("/daily-verse/complete", {
+      method: "POST",
+      body: JSON.stringify({ day, local_date: localDate, tz }),
+    }),
 
   reactToVerse: (verse_id: string, reaction: string) =>
     request<{ verse_id: string; reaction: string; count: number }>("/react-to-verse", {

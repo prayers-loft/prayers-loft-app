@@ -75,7 +75,10 @@ class TestPrayerRequestAI:
 
 # ---------------- Daily verse ----------------
 class TestDailyVerse:
-    REQUIRED = ("verse", "reference", "verse_id", "bible_link", "devotional", "local_date")
+    # Legacy back-compat fields still populated for older clients + new
+    # canonical-web-v1 required fields. `devotional` is intentionally an
+    # empty string in the new plan (client renders `summary` instead).
+    REQUIRED = ("verse", "reference", "verse_id", "bible_link", "local_date", "summary", "plan_id", "day")
 
     def test_daily_verse_default(self):
         r = requests.get(f"{API}/daily-verse", timeout=TIMEOUT)
@@ -83,6 +86,7 @@ class TestDailyVerse:
         body = r.json()
         for k in self.REQUIRED:
             assert k in body and body[k], f"missing/empty {k}"
+        assert body["plan_id"] == "canonical-web-v1"
         assert "_id" not in body
 
     def test_daily_verse_with_local_date_and_tz(self):

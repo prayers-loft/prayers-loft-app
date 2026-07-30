@@ -1,0 +1,349 @@
+{
+  "at": "2026-07-28T21:42:49Z",
+  "replaced_count": 46,
+  "preserved_count": 3,
+  "llm_calls": 60,
+  "retries": 11,
+  "results": [
+    {
+      "day": 6,
+      "reference": "Genesis 5:1-6:8",
+      "action": "replaced",
+      "old": "The text records Adam's descendants through 10 generations, each living centuries and producing children. As humanity multiplies, wickedness becomes prevalent and evil dominates human hearts. The Lord grieves over creating mankind and determines to destroy all people and animals, yet Noah finds favor in the Lord's eyes.",
+      "new": "Descendants of Adam are traced through 10 generations from Seth to Noah, each living centuries before dying. Enoch alone walks with the Lord and is taken without experiencing death. As humanity multiplies, wickedness spreads and the Lord grieves his creation, determining to destroy mankind. Noah alone finds favor in the Lord's eyes."
+    },
+    {
+      "day": 147,
+      "reference": "Deuteronomy 25:1-26:19",
+      "action": "replaced",
+      "old": "The passage establishes laws governing disputes, property, family obligations, and honest commerce, then commands the offering of firstfruits and tithes to the Lord at the chosen place. The Lord declares the people his own possession and promises to exalt them above all nations if they keep his commandments.",
+      "new": "Laws regulate judicial beatings, levirate marriage, fair weights and measures, and remembrance of Amalek. Instructions direct firstfruits offerings and tithe distribution. The Lord declares the people his possession, commanding obedience to all statutes and promising to exalt them above all nations as a holy people."
+    },
+    {
+      "day": 145,
+      "reference": "Deuteronomy 21:1-22:30",
+      "action": "replaced",
+      "old": "When an unsolved murder occurs, the nearest city's elders perform a ritual with a heifer to cleanse the land. The passage then details laws governing captive women, inheritance rights, rebellious sons, proper burial, lost property, clothing distinctions, agricultural practices, and sexual conduct within marriage and betrothal.",
+      "new": "Laws address unsolved murders, captive women, inheritance rights, rebellious sons, executed criminals, lost property, clothing distinctions, bird nests, roof safety, mixed seeds and animals, garment fringes, false accusations of virginity, adultery, sexual assault, and forbidden family relations."
+    },
+    {
+      "day": 30,
+      "reference": "Genesis 36",
+      "action": "replaced",
+      "old": "Esau takes his wives from Canaan and bears 3 sons through them. His possessions grow so great that he separates from Jacob and settles in the hill country of Seir, becoming Edom. The passage records Esau's descendants, the Horite inhabitants, and the kings who reign in Edom before any king rules Israel.",
+      "new": "Descendants of Esau are traced through his 3 wives and their sons, establishing the Edomite clans and chiefs. The Horite inhabitants of Seir are also listed with their lineages. A succession of 8 kings reigns in Edom before any king rules Israel, followed by a final enumeration of Edomite chiefs by family and dwelling place."
+    },
+    {
+      "day": 275,
+      "reference": "1 Chronicles 1:1-2:55",
+      "action": "replaced",
+      "old": "The passage traces genealogies from Adam through Noah's sons and their descendants, including the line of Abraham and Isaac, the kings of Edom, and the 12 sons of Israel. It then details the descendants of Judah, including the line leading to David, along with genealogies of Caleb and other tribal families.",
+      "new": "Descendants from Adam through Noah and his sons are traced, followed by the lineages of Japheth, Ham, and Shem. The genealogy extends through Abraham and Isaac to the 12 sons of Israel, with particular attention to Judah's line leading to David, and detailed family records of Hezron, Jerahmeel, and Caleb."
+    },
+    {
+      "day": 167,
+      "reference": "Joshua 15",
+      "action": "replaced",
+      "old": "The tribe of Judah receives its territorial allotment with borders extending from the Salt Sea to the Mediterranean, encompassing southern and central regions. Caleb drives out the 3 sons of Anak from Hebron, and Othniel captures Debir and receives Caleb's daughter as wife. The passage lists Judah's numerous cities across different regions, though the Jebusites remain in Jerusalem.",
+      "new": "Judah's territorial boundaries are traced from the Salt Sea through the Negev, along the Jordan, and westward to the Mediterranean. Caleb receives Hebron and drives out the 3 sons of Anak. Othniel captures Debir and receives Caleb's daughter Achsah, who requests springs of water. The tribe's cities are enumerated by region."
+    },
+    {
+      "day": 276,
+      "reference": "1 Chronicles 3:1-5:26",
+      "action": "replaced",
+      "old": "The passage records the descendants of David through Solomon and subsequent kings of Judah, genealogies of Judah and Simeon with their settlements, and the lineages of Reuben, Gad, and half-Manasseh east of the Jordan. Jabez prays for blessing and protection, which God grants. The eastern tribes later face exile to Assyria for unfaithfulness.",
+      "new": "David's sons born in Hebron and Jerusalem are listed, followed by his royal descendants through Solomon to the captivity. Genealogies of Judah and Simeon trace their settlements and military victories. Reuben, Gad, and half-Manasseh's lineages are recorded; these tribes wage war successfully against enemies but later turn to idolatry and face deportation by Assyrian kings."
+    },
+    {
+      "day": 277,
+      "reference": "1 Chronicles 6",
+      "action": "replaced",
+      "old": "The passage traces the genealogy of Levi's descendants through 3 main lines: Kohath, Gershom, and Merari. It identifies the singers David appointed for temple service, lists Aaron's priestly line, and details the cities and pasture lands distributed to the Levites throughout Israel's tribes.",
+      "new": "Descendants of Levi are traced through 3 sons and their families. Aaron's priestly line is detailed from Eleazar to Jehozadak, who enters captivity. Levite singers appointed by David—Heman, Asaph, and Ethan—serve in the Lord's house. Cities and pasture lands are distributed among Aaron's sons and the Levite families throughout Israel's tribes."
+    },
+    {
+      "day": 273,
+      "reference": "2 Kings 22:1-23:30",
+      "action": "preserved",
+      "reason": "no natural rewrite available"
+    },
+    {
+      "day": 278,
+      "reference": "1 Chronicles 7:1-9:44",
+      "action": "replaced",
+      "old": "The text records genealogies of the tribes of Israel, listing descendants of Issachar, Benjamin, Manasseh, Ephraim, Asher, and others with their military numbers and settlements. It documents inhabitants returning to Jerusalem after captivity, including priests, Levites, and gatekeepers who served in God's house, each assigned specific duties.",
+      "new": "Descendants of Israel's northern tribes are traced through their genealogies, listing Issachar, Benjamin, Manasseh, Ephraim, and Asher with their military numbers and settlements. Benjamin's line extends to Saul and his descendants. After the Babylonian exile, returning inhabitants including priests, Levites, and gatekeepers resettle Jerusalem and serve in the Lord's house."
+    },
+    {
+      "day": 285,
+      "reference": "1 Chronicles 26:1-27:34",
+      "action": "replaced",
+      "old": "The passage lists divisions of doorkeepers from Korahite and Merarite families assigned to gates of the Lord's house, Levites appointed over treasuries and dedicated items, 12 military commanders each leading 24,000 troops rotating monthly, tribal leaders, and officials overseeing the king's property, treasures, and agricultural resources.",
+      "new": "Doorkeeper divisions from Korahite and Merarite families are assigned to temple gates by lot. Levites oversee treasuries and dedicated items. Military commanders lead monthly rotations of 24,000 soldiers each. Tribal leaders and royal administrators manage the kingdom's resources, army, and affairs."
+    },
+    {
+      "day": 236,
+      "reference": "2 Samuel 23",
+      "action": "preserved",
+      "reason": "no natural rewrite available"
+    },
+    {
+      "day": 309,
+      "reference": "Nehemiah 8",
+      "action": "replaced",
+      "old": "The people gather to hear Ezra read the law of Moses. Levites help them understand the text, and the people weep upon hearing it. Leaders tell them the day is holy and instruct them to celebrate with food and joy. The people then observe the Feast of Booths for 7 days as commanded in the law.",
+      "new": "Ezra reads the law of Moses to the assembled people, who weep upon hearing it. Leaders direct them to celebrate with food and joy instead, declaring the day holy. The people then construct temporary shelters and observe the feast for 7 days, experiencing great gladness."
+    },
+    {
+      "day": 353,
+      "reference": "Psalm 13:1-14:7",
+      "action": "replaced",
+      "old": "A psalmist cries out to the Lord about prolonged suffering and enemies' triumph, then expresses trust in God's loving kindness and rejoices in salvation. The passage describes fools denying God and acting corruptly while the Lord observes humanity from heaven, ultimately protecting the righteous and promising restoration of Israel's fortunes.",
+      "new": "David laments prolonged abandonment by the Lord, fearing death and enemy triumph, yet declares trust in divine kindness and salvation. The psalmist then condemns fools who deny God's existence and describes the Lord surveying humanity, finding corruption everywhere except among the righteous whom the Lord protects and preserves."
+    },
+    {
+      "day": 354,
+      "reference": "Psalm 15:1-16:11",
+      "action": "replaced",
+      "old": "The passage describes the character of one who dwells in the Lord's sanctuary: one who walks blamelessly, speaks truth, avoids slander, honors the faithful, keeps oaths, and refuses bribery. A speaker then expresses trust in God as refuge, declares the Lord as supreme good, and affirms that the Lord provides security, counsel, and eternal joy in divine presence.",
+      "new": "David describes the righteous person who dwells in the Lord's sanctuary—one who walks blamelessly, speaks truth, avoids slander, honors those who fear the Lord, and refuses bribes. David then declares his refuge in the Lord, rejecting other gods, finding his portion secure, and rejoicing in the lord's counsel and presence, which offers fullness of joy and eternal pleasures."
+    },
+    {
+      "day": 467,
+      "reference": "Psalm 150",
+      "action": "replaced",
+      "old": "The passage calls for praise of God in his sanctuary and heavens, celebrating his mighty acts and excellent greatness. Praise occurs through various instruments including trumpet, harp, lyre, tambourine, stringed instruments, flute, and cymbals, accompanied by dancing. Everything that has breath is summoned to praise God.",
+      "new": "The psalmist calls for praise of God in his sanctuary and heavens, celebrating his mighty acts and excellent greatness. Praise rises through trumpet, harp, lyre, tambourine, dancing, stringed instruments, flute, and cymbals. Everything that breathes praises the Lord."
+    },
+    {
+      "day": 388,
+      "reference": "Psalm 52:1-53:6",
+      "action": "replaced",
+      "old": "A speaker condemns a deceitful person who boasts in evil and trusts in riches rather than God, contrasting this with personal trust in the Lord's kindness. The passage then describes widespread human corruption and the Lord's examination of humanity, concluding with hope for Israel's restoration and rejoicing.",
+      "new": "David denounces a deceitful man who boasts in wickedness and trusts in riches rather than God, declaring the Lord will destroy him while the righteous witness his downfall. The psalmist then laments widespread corruption and foolishness, noting the Lord surveys humanity seeking those who understand and seek him, yet all have turned away. Hope emerges in Israel's future restoration."
+    },
+    {
+      "day": 477,
+      "reference": "Proverbs 11",
+      "action": "replaced",
+      "old": "The passage contrasts the righteous with the wicked across numerous dimensions: integrity guides the upright while treachery destroys them, righteousness delivers from death while wickedness causes ruin, and the righteous gain wisdom and life while the wicked face shame, poverty, and death. The Lord abhors false dealings and perverse hearts but delights in accurate weights and blameless ways.",
+      "new": "Sayings contrast the righteous and the wicked across matters of honesty, humility, integrity, wealth, speech, counsel, mercy, and generosity. The righteous receive wisdom, deliverance, and honor, while the wicked face shame, destruction, and death. The Lord abhors pride and perversity but delights in humility and blameless ways."
+    },
+    {
+      "day": 479,
+      "reference": "Proverbs 13",
+      "action": "replaced",
+      "old": "The passage contrasts wise and foolish behavior across numerous domains: speech, work, wealth, relationships, and discipline. Wise sons heed instruction, the diligent prosper, the righteous shine with integrity, and those who accept correction gain honor. Fools despise guidance, scoffers reject rebuke, the lazy remain unsatisfied, and the wicked face ruin and hunger.",
+      "new": "Sayings contrast the righteous and the wicked across matters of speech, labor, wealth, discipline, and companionship. The wise son heeds instruction, the diligent prospers, and those who walk with wise men grow wise. The wicked face ruin through pride, dishonesty, and rejection of discipline."
+    },
+    {
+      "day": 297,
+      "reference": "2 Chronicles 34:1-35:27",
+      "action": "preserved",
+      "reason": "no natural rewrite available"
+    },
+    {
+      "day": 481,
+      "reference": "Proverbs 15",
+      "action": "replaced",
+      "old": "The passage describes contrasts between wise and foolish speech, righteous and wicked behavior. Gentle answers turn away anger while harsh words provoke it. The Lord observes all people, delights in the prayers of the upright, and detests wickedness. Wisdom involves accepting correction, seeking counsel, and fearing the Lord, while folly brings trouble and destruction.",
+      "new": "Sayings contrast the wise and the foolish, addressing speech, discipline, wealth, relationships, and the Lord's omniscience. Gentle answers and measured words bring peace, while harsh speech and folly stir conflict. The righteous gain treasure and divine favor; the wicked face trouble and the Lord's distance. Humility and the fear of the Lord lead to wisdom and life."
+    },
+    {
+      "day": 480,
+      "reference": "Proverbs 14",
+      "action": "replaced",
+      "old": "The passage contrasts wise and foolish behavior across personal, relational, and national dimensions. Wisdom builds households and brings understanding, while folly tears down and leads to destruction. Righteousness exalts nations; sin disgraces them. Fear of the Lord provides security and refuge, while various forms of foolishness, deceit, and anger produce ruin.",
+      "new": "Sayings contrast the wise and the foolish across matters of speech, conduct, relationships, and character. The righteous build up while the wicked tear down. Fearing the Lord brings security and life, while folly leads to ruin. Righteousness exalts nations; sin brings disgrace."
+    },
+    {
+      "day": 484,
+      "reference": "Proverbs 18",
+      "action": "replaced",
+      "old": "The chapter describes the consequences of isolation, foolishness, and careless speech, while highlighting the power of words and wisdom. The Lord's name provides safety for the righteous, and a person's words ultimately determine satisfaction or ruin. Humility precedes honor, and genuine friendship proves more valuable than many shallow relationships.",
+      "new": "Sayings contrast the foolish and the wise, addressing isolation, gossip, hasty speech, and the destructive power of words. The Lord's name stands as a strong tower for the righteous, while wealth deceives the rich into false security. A discerning heart pursues knowledge, and the tongue holds power over life and death."
+    },
+    {
+      "day": 485,
+      "reference": "Proverbs 19",
+      "action": "replaced",
+      "old": "Proverbs 19 contrasts the righteous poor with the foolish wealthy, emphasizing integrity over riches and wisdom over haste. The passage warns against false testimony, laziness, and hot temper while praising discretion, kindness, and obedience to the Lord's commandments. Though many plans exist in human hearts, the Lord's counsel ultimately prevails.",
+      "new": "Sayings contrast the righteous and the wicked, addressing integrity, wisdom, false witness, anger, laziness, and obedience. The Lord's counsel prevails over human plans, and fearing the Lord leads to life and contentment. Kindness, discretion, and receiving instruction bring honor, while foolishness, deceit, and contempt bring ruin."
+    },
+    {
+      "day": 486,
+      "reference": "Proverbs 20",
+      "action": "replaced",
+      "old": "The passage offers observations about human conduct and character. Wine leads astray, provoking kings brings danger, and strife dishonors a person. Laziness results in poverty while diligence brings satisfaction. Faithfulness is rare, integrity blesses descendants, and the Lord establishes human steps. Dishonest dealings displease the Lord, while wise counsel and careful vows matter greatly.",
+      "new": "Sayings contrast the wise and foolish, addressing intoxication, conflict, laziness, faithfulness, integrity, justice, and honesty. The Lord establishes human steps and searches the spirit. Kings who judge wisely scatter evil, while the righteous walk with integrity and bless their children."
+    },
+    {
+      "day": 483,
+      "reference": "Proverbs 17",
+      "action": "replaced",
+      "old": "The passage presents observations about wisdom and folly across relationships, speech, and character. Peace with simplicity surpasses luxury with conflict. The Lord tests hearts as fire tests metals. Fools lack understanding despite resources, while the wise recognize that friends show loyalty and restraint in speech demonstrates knowledge.",
+      "new": "Sayings contrast the righteous and the wicked across matters of speech, friendship, justice, and family. The Lord tests hearts as fire tests metal. Wisdom dwells with the discerning while folly brings grief. A cheerful heart heals, and restraint in speech demonstrates understanding."
+    },
+    {
+      "day": 489,
+      "reference": "Proverbs 23",
+      "action": "replaced",
+      "old": "The passage offers practical counsel on restraint and wisdom. It warns against pursuing wealth, coveting another's food, or speaking to fools. It instructs on disciplining children, honoring parents, and acquiring truth and understanding. It cautions against envy, excessive drinking, gluttony, and sexual immorality, describing their destructive consequences.",
+      "new": "Sayings warn against gluttony, greed, and excessive wine; counsel restraint at rulers' tables, respect for parents, pursuit of wisdom and truth, and avoidance of prostitutes. The Lord's protection extends to the fatherless, and discipline benefits children."
+    },
+    {
+      "day": 490,
+      "reference": "Proverbs 24",
+      "action": "replaced",
+      "old": "The passage contrasts wisdom with folly, advising against envy of evil men whose hearts plot violence. Wisdom builds houses and brings strength through knowledge and counsel. The righteous rise after falling while the wicked face calamity. Justice requires rescuing the endangered and convicting the guilty. Laziness brings poverty like an armed robber.",
+      "new": "Sayings contrast the righteous and the wicked, warning against envy of evildoers while affirming that wisdom builds strength and security. The righteous rise repeatedly despite hardship, whereas the wicked face ruin. Justice demands impartiality, honest speech, and diligence; laziness brings poverty."
+    },
+    {
+      "day": 492,
+      "reference": "Proverbs 26",
+      "action": "replaced",
+      "old": "The passage describes the foolish, the sluggard, and the deceitful through vivid comparisons. Honor befits not fools, whose folly spreads harm. Sluggards make excuses and lack diligence. Deceivers disguise malice with charming speech, yet their wickedness surfaces. Those who dig pits and roll stones experience their own schemes returning upon them.",
+      "new": "Sayings contrast fools, sluggards, and deceitful people with the wise and righteous. Fools receive undeserved honor, misuse proverbs, and repeat folly like dogs returning to vomit. Sluggards make excuses and lack diligence. Deceitful and contentious people spread discord through gossip and flattery, yet their wickedness eventually surfaces and their schemes rebound upon them."
+    },
+    {
+      "day": 493,
+      "reference": "Proverbs 27",
+      "action": "replaced",
+      "old": "The passage offers observations about human conduct and relationships. Boasting about tomorrow, self-praise, foolish provocation, and jealousy bring trouble. Open rebuke surpasses hidden love, and a friend's wounds prove faithful. Genuine counsel brings joy, while close neighbors matter more than distant relatives. Iron sharpens iron as friends sharpen each other's character.",
+      "new": "Sayings address boasting, self-praise, foolishness, wrath, jealousy, friendship, contentment, prudence, and domestic life. Friends sharpen one another; a prudent person avoids danger while the simple suffer. Wealth proves temporary; diligent care of flocks and herds sustains households across generations."
+    },
+    {
+      "day": 496,
+      "reference": "Proverbs 30",
+      "action": "replaced",
+      "old": "Agur confesses his ignorance and affirms that God's words are flawless and shield those who trust in him. He requests freedom from falsehood and moderate provision. The passage catalogs generations marked by disrespect, insatiable desires, amazing natural phenomena, and small creatures displaying wisdom.",
+      "new": "Agur declares the Lord's words flawless and offers sayings contrasting foolish and wise conduct. Observations address insatiable desires, disrespectful generations, mysterious phenomena, and small creatures displaying wisdom. The sayings conclude with warnings against pride and folly."
+    },
+    {
+      "day": 495,
+      "reference": "Proverbs 29",
+      "action": "replaced",
+      "old": "The passage describes contrasts between righteous and wicked conduct. The righteous bring joy, pursue justice, and find safety in trusting the Lord, while the wicked face ruin through sin and poor leadership. Wisdom, self-control, and obedience to law produce stability and honor, whereas pride, anger, and fear of people lead to downfall.",
+      "new": "Sayings contrast the righteous and the wicked across matters of justice, speech, anger, and trust. The righteous pursue justice for the poor, exercise self-control, and find safety in trusting the Lord, while the wicked face snares of their own making. Wise rulers establish stable kingdoms through fair judgment; fools and mockers bring disorder and strife."
+    },
+    {
+      "day": 497,
+      "reference": "Proverbs 31",
+      "action": "replaced",
+      "old": "King Lemuel's mother instructs him to avoid women and strong drink, which destroy kings, while calling leaders to defend the mute and poor. The passage then describes a worthy woman of great value who works diligently, manages her household, helps the needy, and gains praise for fearing the Lord rather than relying on charm or beauty.",
+      "new": "King Lemuel's mother instructs him to avoid women and strong drink, to defend the mute and poor, and to seek a worthy woman of virtue. Such a woman works diligently, manages her household, shows generosity, and fears the Lord—qualities far exceeding mere charm or beauty."
+    },
+    {
+      "day": 641,
+      "reference": "Daniel 12",
+      "action": "replaced",
+      "old": "Michael stands up to deliver the people whose names appear in the book during unprecedented trouble. Many sleepers awake to everlasting life or shame. The wise shine like stars forever. Daniel receives instruction to seal the words until the end times, and a heavenly figure reveals that these events will conclude after a specific period.",
+      "new": "Michael stands to protect the Lord's people through unprecedented trouble and deliverance. Many rise from death to everlasting life or shame. The wise shine like stars forever. Daniel receives sealed words until the end times, when the wicked remain ignorant but the wise understand."
+    },
+    {
+      "day": 857,
+      "reference": "Romans 3",
+      "action": "replaced",
+      "old": "The passage establishes that all humanity has sinned and falls short of God's glory, yet God offers justification freely through grace and redemption in Christ Jesus. This righteousness comes through faith rather than works of the law, applying equally to both Jews and Gentiles who believe.",
+      "new": "Paul argues that Jews and Gentiles alike stand under sin and cannot achieve righteousness through law. God's righteousness comes freely through faith in Christ's redemptive sacrifice, justifying all believers regardless of circumcision or ethnic background."
+    },
+    {
+      "day": 866,
+      "reference": "Romans 12",
+      "action": "replaced",
+      "old": "The passage describes how believers present themselves as living sacrifices through transformed minds, avoid worldly conformity, and exercise diverse spiritual gifts within the body of Christ. It outlines conduct marked by genuine love, mutual affection, diligence, hospitality, blessing of persecutors, empathy with others, humility, peacemaking, and overcoming evil with good.",
+      "new": "Paul exhorts believers to present themselves as living sacrifices and avoid conforming to the world's pattern. Members of Christ's body possess different gifts and serve according to their measure of faith. Love operates without hypocrisy, believers show affection and honor to one another, and they bless persecutors, rejoice with the rejoicing, weep with the weeping, and overcome evil with good."
+    },
+    {
+      "day": 868,
+      "reference": "Romans 14",
+      "action": "replaced",
+      "old": "The passage addresses divisions over dietary practices and observance of days. Believers with different convictions about eating meat or observing certain days each act according to their faith toward the Lord. Those with stronger faith should not despise the weaker, nor should the weaker judge the stronger, since all stand accountable to God alone.",
+      "new": "Paul urges believers to accept those with differing convictions about food and holy days without judgment, since each person answers to the Lord. Christ's death and resurrection establish his lordship over all. Believers should prioritize peace and mutual edification rather than causing stumbling blocks through their choices."
+    },
+    {
+      "day": 881,
+      "reference": "1 Corinthians 14",
+      "action": "replaced",
+      "old": "The text contrasts speaking in other languages with prophesying, establishing that prophecy builds up the assembly while speaking in other languages requires interpretation to benefit others. Specific guidelines govern the use of these gifts in gatherings, prioritizing clarity and mutual edification while maintaining orderly conduct.",
+      "new": "Paul argues that prophecy surpasses speaking in other languages because it edifies the assembly rather than only the speaker. He establishes guidelines for orderly worship: speakers in other languages need interpreters, prophets speak in turn, and all things proceed decently and in order to build up the congregation."
+    },
+    {
+      "day": 904,
+      "reference": "Ephesians 2:1-10",
+      "action": "replaced",
+      "old": "The passage describes how God makes alive those who were dead in transgressions and sins. God, rich in mercy and great in love, raises believers up with Christ and seats them in heavenly places. Salvation comes by grace through faith, not by works, so that no one boasts. Believers are God's workmanship, created for good works.",
+      "new": "Paul describes how the Lord makes spiritually dead people alive through Christ, raising them to heavenly places by grace through faith. This salvation comes as a gift, not from human effort, so no one may boast. The Lord creates believers for good works prepared beforehand."
+    },
+    {
+      "day": 914,
+      "reference": "Philippians 4",
+      "action": "replaced",
+      "old": "The passage calls believers to stand firm in the Lord, rejoice always, and present requests to God through prayer with thanksgiving rather than anxiety. God's peace guards hearts and minds in Christ Jesus. Believers think on virtuous things, practice contentment in all circumstances, and share in one another's needs.",
+      "new": "Paul exhorts the Philippians to stand firm, rejoice always, and bring all anxieties to God through prayer and thanksgiving, promising divine peace. He urges them to think on virtuous things, live out what they have learned, and remain content in all circumstances through Christ's strength."
+    },
+    {
+      "day": 926,
+      "reference": "2 Thessalonians 2",
+      "action": "replaced",
+      "old": "The passage describes the coming of Jesus Christ and warns against deception regarding the day of Christ. A rebellion and the man of sin must come first before the Lord destroys the lawless one. God chooses believers for salvation through the Spirit and truth, and they are called to stand firm in the traditions taught to them.",
+      "new": "Paul warns against deception regarding the Lord's coming, explaining that the man of sin must be revealed first. The lawless one will oppose God and deceive those who reject truth, while the Lord destroys him at his coming. The Thessalonians, chosen for salvation, are urged to hold fast to the traditions taught them."
+    },
+    {
+      "day": 907,
+      "reference": "Ephesians 4",
+      "action": "replaced",
+      "old": "The passage describes the unity of the body of Christ, established through one Spirit, one Lord, and one God. Christ ascended and distributed gifts to people through apostles, prophets, evangelists, and teachers who build up the body. Members are called to walk worthily, speak truth in love, and put away falsehood, anger, and malice while showing kindness and forgiveness.",
+      "new": "Paul urges believers to walk worthily of their calling with humility, patience, and love, maintaining the unity of the Spirit. He explains that Christ ascended and distributed gifts to build up the body through apostles, prophets, evangelists, and teachers. Believers are to speak truth in love, put away falsehood and corrupt speech, and extend kindness and forgiveness to one another."
+    },
+    {
+      "day": 944,
+      "reference": "Hebrews 4",
+      "action": "replaced",
+      "old": "The passage describes God's rest as an ongoing promise available to believers through faith. The word of God penetrates human hearts and thoughts, discerning intentions. Jesus, the great high priest, has experienced temptation without sin and stands ready to offer mercy and grace to those who approach God's throne.",
+      "new": "The writer argues that believers enter the Lord's rest through faith, contrasting them with those who disobeyed and failed to enter. The Lord's word pierces hearts and discerns thoughts, and all creation stands naked before the Lord's sight. Jesus, the great high priest, sympathizes with human weakness while remaining sinless."
+    },
+    {
+      "day": 952,
+      "reference": "Hebrews 13",
+      "action": "replaced",
+      "old": "The passage exhorts believers to maintain brotherly love, show hospitality, honor marriage, and remain free from greed. Jesus Christ remains constant throughout all time. Believers are encouraged to avoid strange teachings, offer praise to God, do good works, and obey their leaders. The Lord God of peace strengthens believers to accomplish his will.",
+      "new": "The writer exhorts believers to maintain brotherly love, show hospitality, remember the imprisoned, honor marriage, and avoid greed. Jesus Christ remains unchanging; his sacrifice outside the gate sanctifies the people. Believers offer praise and good works as spiritual sacrifices, obey their leaders, and seek the coming city rather than an earthly one."
+    },
+    {
+      "day": 969,
+      "reference": "1 John 4",
+      "action": "replaced",
+      "old": "The passage instructs believers to test spirits by whether they confess Jesus Christ in the flesh, identifying false prophets in the world. God's love is revealed through sending his Son as an atoning sacrifice, and those who love one another remain in God and possess perfect love that casts out fear.",
+      "new": "Believers are instructed to test spirits by whether they confess Jesus Christ in the flesh. The Lord is love, and those who love are born of God and know him. God's love is revealed through sending his Son as an atoning sacrifice, and believers are called to love one another."
+    },
+    {
+      "day": 954,
+      "reference": "James 2",
+      "action": "replaced",
+      "old": "The passage describes how faith without works is dead. It illustrates this through examples of partiality toward the wealthy, the insufficiency of mere belief, and the necessity of action. Abraham and Rahab demonstrate that faith becomes complete through works, just as a body requires a spirit to live.",
+      "new": "James argues that faith without works is dead, using examples of partiality toward the wealthy, neglect of the poor, and mere intellectual belief. Abraham and Rahab demonstrate that genuine faith produces obedient action, and works perfect faith rather than contradict it."
+    },
+    {
+      "day": 923,
+      "reference": "1 Thessalonians 4",
+      "action": "replaced",
+      "old": "The passage instructs believers to pursue sanctification by abstaining from sexual immorality and treating others with honor. It describes the Lord's descent from heaven with a shout and God's trumpet, when the dead in Christ rise first, followed by the living caught up together in the clouds to meet the Lord in the air forever.",
+      "new": "Paul exhorts the Thessalonians to pursue sanctification by abstaining from sexual immorality and conducting themselves honorably. He affirms their brotherly love and encourages quiet, industrious living. Regarding the dead in Christ, Paul assures that the Lord descends to raise them first, then gathers the living to meet him in the air forever."
+    },
+    {
+      "day": 993,
+      "reference": "Revelation 20",
+      "action": "replaced",
+      "old": "An angel binds Satan for a thousand years, during which martyrs reign with Christ. After Satan's release and subsequent defeat, the dead stand before a great white throne where they are judged according to their works and the book of life, with the unwritten cast into the lake of fire.",
+      "new": "An angel binds Satan for 1,000 years. Martyrs reign with Christ during this period. After Satan's release and final defeat, the dead stand before a great white throne where books are opened and they are judged according to their works. Death itself is cast into the lake of fire."
+    },
+    {
+      "day": 978,
+      "reference": "Revelation 5",
+      "action": "replaced",
+      "old": "A sealed book rests in the hand of the one on the throne, and no creature proves worthy to open it until a Lamb standing amid the throne and elders takes the book. The four living creatures and 24 elders, along with countless angels and all creation, sing praises to the Lamb for its worthiness and redemptive work.",
+      "new": "A sealed book rests in the hand of the one on the throne, and no creature proves worthy to open it until a Lamb standing before the throne takes it. The 4 living creatures and 24 elders, along with countless angels and all creation, sing praises to the Lamb for its redemptive work."
+    }
+  ]
+}

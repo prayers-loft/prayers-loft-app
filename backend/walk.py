@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Literal, Optional
@@ -49,6 +50,42 @@ WALK_PROVIDER = "anthropic"
 WALK_MODEL = "claude-sonnet-4-5-20250929"
 
 _EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+
+# Build 26B: prompt architecture version flag. `v4` keeps the shipping
+# monolithic SYSTEM_PROMPT; `v5` activates the identity-free voice prompt +
+# per-turn directive builder in walk_v5.py. Default is v4 in production —
+# beta cohort flips this to v5 via env.
+WALK_PROMPT_VERSION = os.environ.get("WALK_PROMPT_VERSION", "v4").strip().lower()
+if WALK_PROMPT_VERSION not in ("v4", "v5"):
+    logger.warning(
+        "Unknown WALK_PROMPT_VERSION=%r; falling back to v4", WALK_PROMPT_VERSION
+    )
+    WALK_PROMPT_VERSION = "v4"
+
+# V5 architecture — imported lazily so V4-only deployments never load it.
+if WALK_PROMPT_VERSION == "v5":
+    from walk_v5 import (  # noqa: F401
+        build_v5_messages,
+        STANCE_TOKEN_BUDGET,
+        detect_depth_surfaced as _v5_detect_depth,
+    )
+    logger.info("Walk prompt architecture: V5 active")
+else:
+    build_v5_messages = None  # type: ignore[assignment]
+    STANCE_TOKEN_BUDGET = None  # type: ignore[assignment]
+    _v5_detect_depth = None  # type: ignore[assignment]
+    logger.info("Walk prompt architecture: V4 active (default)")
+
+# Lightweight beta monitoring. Metrics emissions are fire-and-forget and
+# never propagate failures back to the Walk response path.
+try:
+    from walk_metrics import emit as _metrics_emit, sanitizer_rule_category as _metrics_rule_category
+except Exception:  # noqa: BLE001
+    def _metrics_emit(*_a, **_kw):  # type: ignore[misc]
+        return None
+    def _metrics_rule_category(*_a, **_kw):  # type: ignore[misc]
+        return "other"
+    logger.debug("walk_metrics import failed; metrics disabled", exc_info=True)
 
 
 def _now() -> datetime:
@@ -471,6 +508,9 @@ class SessionStartResponse(BaseModel):
     opening_message: str
     memory_context_count: int
     is_first_session: bool
+    # V5 (Phase 4 revision): opener context label so the frontend can show
+    # the correct static invitation copy. None for V4 sessions.
+    opener_context: Optional[str] = None
 
 
 class UserMessageRequest(BaseModel):
@@ -545,8 +585,54 @@ async def ensure_walk_indexes(db: AsyncIOMotorDatabase) -> None:
             [("owner_key", 1), ("status", 1), ("updated_at", -1)]
         )
         await db.walk_memory.create_index("id", unique=True)
+        # V5 (Phase 4): per-owner state
+        await db.walk_owner_state.create_index("owner_key", unique=True)
+        # V5 beta monitoring: metrics event log.
+        try:
+            from walk_metrics import ensure_metrics_indexes
+            await ensure_metrics_indexes(db)
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics index setup non-fatal", exc_info=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("ensure_walk_indexes non-fatal: %s", e)
+
+
+# =============================================================================
+# V5 (Phase 4) — per-owner closing shape rotation persisted across sessions
+# =============================================================================
+async def _load_owner_closing_shapes(
+    db: AsyncIOMotorDatabase, owner_key: str
+) -> List[str]:
+    """Load the per-owner closing-shape rotation log. Bounded at ~10 entries.
+    Missing document → empty list (first-time-user rotation start)."""
+    doc = await db.walk_owner_state.find_one(
+        {"owner_key": owner_key},
+        {"_id": 0, "recent_closing_shapes": 1},
+    )
+    if not doc:
+        return []
+    return list(doc.get("recent_closing_shapes") or [])
+
+
+async def _push_owner_closing_shape(
+    db: AsyncIOMotorDatabase, owner_key: str, shape: str
+) -> None:
+    """Append a closing shape to the per-owner rotation log, capped at 10.
+    Upserts so first-time users create their state doc on first close."""
+    try:
+        await db.walk_owner_state.update_one(
+            {"owner_key": owner_key},
+            {
+                "$push": {
+                    "recent_closing_shapes": {"$each": [shape], "$slice": -10}
+                },
+                "$set": {"updated_at": _now_iso()},
+                "$setOnInsert": {"owner_key": owner_key},
+            },
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist per-owner closing shape")
 
 
 # =============================================================================
@@ -576,49 +662,104 @@ _SANITIZE_RHETORICAL_SENTENCES = [
 ]
 
 
-# Prefix patterns to strip from the start of any sentence.
-_SANITIZE_PREFIXES = [
+# Prefix patterns to strip (or rewrite) from the start of any sentence.
+# Each entry is a (compiled_pattern, replacement) tuple. Replacement is
+# usually "" (strip) — a small number rewrite to a natural equivalent
+# rather than dropping content that carries meaning ("Last time" preserves
+# temporal framing that "" would erase).
+_SANITIZE_PREFIXES: List[Tuple[re.Pattern[str], str]] = [
     # "Can I ask — X?" / "Can I ask, X?" / "Can I ask you — X?"
     # Preserves the question, drops the preamble.
-    re.compile(
+    (re.compile(
         r"^\s*Can\s+I\s+ask(?:\s+you)?(?:\s+something)?\s*[,\-\u2014\u2013:—]+\s*",
         re.IGNORECASE,
-    ),
+    ), ""),
     # "Can I ask what/why/how ..." — drop just the "Can I ask " lead-in.
-    re.compile(
+    (re.compile(
         r"^\s*Can\s+I\s+ask(?:\s+you)?\s+(?=what|why|how|when|where|who|whether|if\b)",
         re.IGNORECASE,
-    ),
+    ), ""),
     # "May I ask —" variants
-    re.compile(
+    (re.compile(
         r"^\s*May\s+I\s+ask(?:\s+you)?\s*[,\-\u2014\u2013:—]+\s*",
         re.IGNORECASE,
-    ),
+    ), ""),
+    # V5 (post-Phase 6): narrow CRM-recall opener strippers/rewrites.
+    # Sentence-START only. We do NOT try to rewrite embedded "you said" /
+    # "you told me" mid-sentence — that path leads to an ever-growing
+    # rewrite engine. Kept deliberately narrow.
+    #
+    # "Last time you said X" -> "Last time, X" (temporal framing preserved).
+    (re.compile(
+        r"^\s*Last\s+time\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), "Last time, "),
+    # "Earlier you said X" -> "Earlier, X"
+    (re.compile(
+        r"^\s*Earlier\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), "Earlier, "),
+    # "Previously you said X" -> "" (drop entirely; the sentence stands alone).
+    (re.compile(
+        r"^\s*Previously\s+you\s+(?:said|mentioned|told\s+me|shared)(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    # Plain "You said X" / "You mentioned X" / "You told me X" -> drop the
+    # preamble; the substantive content that follows stands on its own.
+    (re.compile(
+        r"^\s*You\s+said(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r"^\s*You\s+mentioned(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r"^\s*You\s+told\s+me(?:\s+that)?\s*[,\-\u2014\u2013:—]?\s*",
+        re.IGNORECASE,
+    ), ""),
 ]
 
 
-def _sanitize_assistant_sentence(sentence: str) -> str:
+def _sanitize_assistant_sentence(
+    sentence: str,
+    rule_categories_hit: Optional[set] = None,
+) -> str:
     """Apply the V4 mechanical cleanup to a single sentence-ish chunk.
 
     Sentence-level scope so we can safely run this per-sentence during
     streaming without breaking cross-sentence structure.
+
+    Optional ``rule_categories_hit`` set is populated with the coarse
+    category name (e.g. "soft_question", "crm_recall_plain") whenever a
+    prefix rule fires. Sentence content is never stored — category only.
     """
     if not sentence:
         return sentence
     changed = False
-    for pat in _SANITIZE_PREFIXES:
-        new_sentence, n = pat.subn("", sentence, count=1)
+    used_replacement = ""
+    for pat, replacement in _SANITIZE_PREFIXES:
+        new_sentence, n = pat.subn(replacement, sentence, count=1)
         if n:
             sentence = new_sentence
+            used_replacement = replacement
             changed = True
+            if rule_categories_hit is not None:
+                try:
+                    rule_categories_hit.add(_metrics_rule_category(pat.pattern))
+                except Exception:  # noqa: BLE001
+                    pass
             break  # only one prefix strip per sentence
     if changed:
         # Re-capitalize the first non-whitespace letter, since we likely
         # stripped a preamble like "Can I ask — have you…" -> " have you…".
-        stripped = sentence.lstrip()
-        if stripped and stripped[0].islower():
-            lead = sentence[: len(sentence) - len(stripped)]
-            sentence = lead + stripped[0].upper() + stripped[1:]
+        # For rewrites that inject a natural prefix ("Last time, "), skip
+        # re-capitalization — the injected prefix is already capitalized.
+        if not used_replacement.strip():
+            stripped = sentence.lstrip()
+            if stripped and stripped[0].islower():
+                lead = sentence[: len(sentence) - len(stripped)]
+                sentence = lead + stripped[0].upper() + stripped[1:]
     return sentence
 
 
@@ -630,12 +771,18 @@ def _sanitize_assistant_sentence(sentence: str) -> str:
 _SENTENCE_SPLIT = re.compile(r"([.!?]+[\s\n]+|\n{2,})")
 
 
-def _sanitize_assistant_reply(text: str) -> str:
+def _sanitize_assistant_reply(
+    text: str,
+    rule_categories_hit: Optional[set] = None,
+) -> str:
     """Sanitize a full assistant reply. Idempotent — safe to call twice.
 
     Applies _sanitize_assistant_sentence to each sentence-ish chunk. Also
     removes whole rhetorical-question opener sentences ("Can I share an
     observation?", "Can I tell you something true?") before sentence-splitting.
+
+    Optional ``rule_categories_hit`` set is populated with rule categories
+    that fired. Never contains sentence content.
     """
     if not text:
         return text
@@ -658,7 +805,7 @@ def _sanitize_assistant_reply(text: str) -> str:
         if i % 2 == 1:
             out.append(p)
         else:
-            out.append(_sanitize_assistant_sentence(p))
+            out.append(_sanitize_assistant_sentence(p, rule_categories_hit))
     return "".join(out)
 
 
@@ -674,11 +821,17 @@ class _StreamSanitizer:
       * feed(delta) -> yields zero or more strings ready to be sent to the client
       * flush()     -> yields any remaining buffered text (call once at end)
       * final_text  -> the sanitized full accumulated reply
+      * rule_categories_hit -> set of coarse rule categories fired during this
+                               stream (e.g. "soft_question", "crm_recall_plain")
     """
 
     def __init__(self) -> None:
         self._buffer: str = ""
         self._final_parts: List[str] = []
+        # Aggregate of rule categories that fired across every sentence
+        # sanitize call on this stream. Used by metrics; never contains
+        # any sentence content.
+        self.rule_categories_hit: set = set()
 
     def feed(self, delta: str) -> List[str]:
         if not delta:
@@ -692,7 +845,7 @@ class _StreamSanitizer:
             end = m.end()
             completed = self._buffer[:end]
             self._buffer = self._buffer[end:]
-            clean = _sanitize_assistant_reply(completed)
+            clean = _sanitize_assistant_reply(completed, self.rule_categories_hit)
             if clean:
                 released.append(clean)
                 self._final_parts.append(clean)
@@ -703,7 +856,7 @@ class _StreamSanitizer:
         self._buffer = ""
         if not remaining:
             return []
-        clean = _sanitize_assistant_reply(remaining)
+        clean = _sanitize_assistant_reply(remaining, self.rule_categories_hit)
         if clean:
             self._final_parts.append(clean)
             return [clean]
@@ -1055,38 +1208,98 @@ def build_walk_router(
             {"owner_key": _owner_key(owner)}
         )
         is_first = prior_count == 0
-        if is_first:
-            opener = FIRST_SESSION_OPENER
-        elif active_memory:
-            opener = _returning_opener_with_memory(active_memory)
+
+        # -------------------------------------------------------------------
+        # V5 (Phase 4 revision): session/start performs ZERO LLM calls.
+        # No assistant opener is stored in the transcript. The frontend
+        # renders a static invitation and the first Claude call happens only
+        # after the user submits their first message. The first-message
+        # classifier will then choose the right stance (crisis / witness /
+        # offer / arrive) and the opener_context is passed as metadata so
+        # the model can add a natural arrival flavor without a separate call.
+        # -------------------------------------------------------------------
+        opener_context_label: Optional[str] = None
+        opener: str = ""
+        if WALK_PROMPT_VERSION == "v5":
+            # Compute opener context label for the frontend (a hint for its
+            # static invitation copy) and for the first-turn directive.
+            last_ended = await db.walk_sessions.find_one(
+                {
+                    "owner_key": _owner_key(owner),
+                    "ended_at": {"$ne": None},
+                    "session_summary": {"$ne": None},
+                },
+                {"_id": 0, "session_summary": 1},
+                sort=[("ended_at", -1)],
+            )
+            last_summary = (
+                last_ended.get("session_summary") if last_ended else None
+            )
+            try:
+                from walk_v5 import derive_opener_context as _derive_ctx
+                opener_context_label = _derive_ctx(
+                    session_count=prior_count,
+                    last_session_summary=last_summary,
+                    active_memory=active_memory,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("derive_opener_context failed (non-fatal)")
+                opener_context_label = None
         else:
-            opener = RETURNING_NO_MEMORY_OPENER
+            # V4 fallback path unchanged — hardcoded openers, stored as
+            # first assistant message on the session.
+            if is_first:
+                opener = FIRST_SESSION_OPENER
+            elif active_memory:
+                opener = _returning_opener_with_memory(active_memory)
+            else:
+                opener = RETURNING_NO_MEMORY_OPENER
 
         sid = str(uuid.uuid4())
-        session_doc = {
+        session_doc: Dict[str, Any] = {
             "id": sid,
             "owner_key": _owner_key(owner),
             **_owner_fields(owner),
             "started_at": _now_iso(),
             "ended_at": None,
-            # Persist the opener as the first assistant message so the client
-            # can render it and history stays honest.
-            "messages": [
+            "messages": [],
+            "session_summary": None,
+        }
+        # V4: persist the hardcoded opener as the first assistant message so
+        # the client renders it and history stays honest.
+        # V5: transcript stays EMPTY until the user speaks.
+        if WALK_PROMPT_VERSION != "v5" and opener:
+            session_doc["messages"] = [
                 {
                     "id": str(uuid.uuid4()),
                     "role": "assistant",
                     "content": opener,
                     "at": _now_iso(),
                 }
-            ],
-            "session_summary": None,
-        }
+            ]
+        # V5: persist the opener context label on the session so the first
+        # send_message call can use it as directive metadata.
+        if WALK_PROMPT_VERSION == "v5" and opener_context_label:
+            session_doc["opener_context"] = opener_context_label
+
         await db.walk_sessions.insert_one(session_doc)
+
+        # V5 beta monitoring — session started event. Fire-and-forget.
+        _metrics_emit(
+            db, "session_started",
+            version=WALK_PROMPT_VERSION,
+            session_id=sid,
+            is_first_session=is_first,
+            opener_context=opener_context_label,
+            memory_context_count=len(active_memory),
+        )
+
         return SessionStartResponse(
             id=sid,
-            opening_message=opener,
+            opening_message=opener,  # empty string for V5
             memory_context_count=len(active_memory),
             is_first_session=is_first,
+            opener_context=opener_context_label,
         )
 
     # --------------------------- Send message (SSE) ---------------------------
@@ -1170,6 +1383,71 @@ def build_walk_router(
         transcript = _condense_transcript(fresh.get("messages", []))
         combined_system = system_msg + "\n\n===\nCONVERSATION SO FAR\n" + transcript
 
+        # -------------------------------------------------------------------
+        # V5 turn-directive architecture (Build 26B).
+        # When WALK_PROMPT_VERSION=v5, we replace the monolithic system
+        # message with a two-message structure: identity-free voice prompt
+        # + per-turn directive (stance / memory recap / closing shape /
+        # variety hint). V4 remains the default and is unmodified.
+        # -------------------------------------------------------------------
+        v5_messages: Optional[List[Dict[str, str]]] = None
+        v5_stance: Optional[str] = None
+        v5_closing_shape: Optional[str] = None
+        v5_max_tokens: Optional[int] = None
+        # v5_new_depth is referenced unconditionally in the persistence
+        # `finally` block below. Initializing here (V4 default) prevents a
+        # silent NameError from breaking assistant-reply persistence on the
+        # V4 code path. Fix is shared by V4 and V5 so both honor the same
+        # persistence contract.
+        v5_new_depth: bool = False
+        if WALK_PROMPT_VERSION == "v5" and build_v5_messages is not None:
+            all_msgs = fresh.get("messages", []) or []
+            user_turns_so_far = [m for m in all_msgs if m.get("role") == "user"]
+            turn_index = max(0, len(user_turns_so_far) - 1)
+            prior_stance = fresh.get("current_stance")
+            stance_history = list(fresh.get("stance_history") or [])
+            depth_surfaced_before = bool(fresh.get("depth_surfaced", False))
+            # Prior user texts EXCLUDE the current turn (we just pushed it,
+            # so it's already in messages). Take everything up to but not
+            # including the current user turn.
+            prior_user_texts = [
+                (m.get("content") or "") for m in user_turns_so_far[:-1]
+            ] if user_turns_so_far else []
+            recent_assistant_msgs = [
+                (m.get("content") or "")
+                for m in all_msgs
+                if m.get("role") == "assistant"
+            ][-3:]
+            recent_closing_shapes = await _load_owner_closing_shapes(
+                db, _owner_key(owner)
+            )
+            tenure_hint = _tenure_hint(
+                first_session["started_at"] if first_session else None
+            )
+            # Last completed-session summary powers the returning-after-X
+            # opener context; None on fresh users.
+            _last_summary = recent_summaries[0] if recent_summaries else None
+            v5_messages, v5_stance, v5_closing_shape, v5_max_tokens = build_v5_messages(
+                user_text=payload.text,
+                turn_index=turn_index,
+                prior_stance=prior_stance,
+                session_count=prior_count,
+                tenure_hint=tenure_hint,
+                recent_summaries=recent_summaries,
+                active_memory=active_memory,
+                recent_closing_shapes=recent_closing_shapes,
+                recent_assistant_messages=recent_assistant_msgs,
+                owner_key=_owner_key(owner),
+                transcript_block=transcript,
+                stance_history=stance_history,
+                prior_user_texts=prior_user_texts,
+                depth_surfaced_before=depth_surfaced_before,
+                last_session_summary=_last_summary,
+            )
+            # Determine whether THIS turn surfaced new depth. Persisted on
+            # the session so subsequent turns see it as history.
+            v5_new_depth = _v5_detect_depth(payload.text) if _v5_detect_depth else False
+
         assistant_msg_id = str(uuid.uuid4())
         assistant_at = _now_iso()
 
@@ -1189,18 +1467,30 @@ def build_walk_router(
             reaches the client. Persistence uses the sanitized final_text.
             """
             sanitizer = _StreamSanitizer()
+            # V5 beta monitoring: timing + token accounting for this turn.
+            _turn_t0 = time.time()
+            _turn_ttfc_ms: Optional[int] = None
+            _turn_input_tokens: Optional[int] = None
+            _turn_output_tokens: Optional[int] = None
+            _turn_failed = False
             try:
                 # Build litellm params matching emergentintegrations proxy setup.
-                params: Dict[str, Any] = {
-                    "model": WALK_MODEL,
-                    "messages": [
+                if v5_messages is not None:
+                    call_messages = v5_messages
+                    call_max_tokens = v5_max_tokens or 800
+                else:
+                    call_messages = [
                         {"role": "system", "content": combined_system},
                         {"role": "user", "content": payload.text},
-                    ],
+                    ]
+                    call_max_tokens = 800
+                params: Dict[str, Any] = {
+                    "model": WALK_MODEL,
+                    "messages": call_messages,
                     "api_key": _EMERGENT_LLM_KEY,
                     "stream": True,
-                    "temperature": 0.75,
-                    "max_tokens": 800,
+                    "temperature": 0.75 if v5_messages is None else 0.9,
+                    "max_tokens": call_max_tokens,
                 }
                 if _EMERGENT_LLM_KEY.startswith("sk-emergent-"):
                     proxy_url = get_integration_proxy_url()
@@ -1213,41 +1503,146 @@ def build_walk_router(
                         delta = chunk.choices[0].delta.content
                     except Exception:  # noqa: BLE001
                         delta = None
+                    # Capture provider usage metadata when it arrives on
+                    # the stream (usually the final chunk).
+                    try:
+                        usage = getattr(chunk, "usage", None)
+                        if usage:
+                            u_in = getattr(usage, "prompt_tokens", None) or \
+                                (usage.get("prompt_tokens") if isinstance(usage, dict) else None)
+                            u_out = getattr(usage, "completion_tokens", None) or \
+                                (usage.get("completion_tokens") if isinstance(usage, dict) else None)
+                            if u_in is not None:
+                                _turn_input_tokens = int(u_in)
+                            if u_out is not None:
+                                _turn_output_tokens = int(u_out)
+                    except Exception:  # noqa: BLE001
+                        pass
                     if not delta:
                         continue
                     for cleaned in sanitizer.feed(delta):
+                        if _turn_ttfc_ms is None:
+                            _turn_ttfc_ms = int((time.time() - _turn_t0) * 1000)
                         safe = cleaned.replace("\r", "").replace("\n", "\\n")
                         yield f"data: {safe}\n\n"
                 # End-of-stream: flush any remaining buffered text (this is
                 # the tail after the last sentence terminator — often the
                 # closing sentence with no trailing period).
                 for cleaned in sanitizer.flush():
+                    if _turn_ttfc_ms is None:
+                        _turn_ttfc_ms = int((time.time() - _turn_t0) * 1000)
                     safe = cleaned.replace("\r", "").replace("\n", "\\n")
                     yield f"data: {safe}\n\n"
             except Exception as e:  # noqa: BLE001
                 logger.exception("Walk stream failure: %s", e)
+                _turn_failed = True
                 yield 'event: error\ndata: {"detail":"stream_failed"}\n\n'
+                # V5 beta monitoring: LLM failure event.
+                _metrics_emit(
+                    db, "llm_failure",
+                    version=WALK_PROMPT_VERSION,
+                    session_id=session_id,
+                )
             finally:
                 # Persist the SANITIZED text — future memory recall and
                 # extraction see clean prose.
                 final_text = sanitizer.final_text.strip()
                 if final_text:
                     try:
+                        update_doc: Dict[str, Any] = {
+                            "$push": {
+                                "messages": {
+                                    "id": assistant_msg_id,
+                                    "role": "assistant",
+                                    "content": final_text,
+                                    "at": assistant_at,
+                                }
+                            }
+                        }
+                        # V5: record the stance we held for this turn, and
+                        # append the closing shape to a per-session rotation
+                        # log so pick_closing_shape can avoid recent repeats.
+                        # Also append to stance_history (bounded) and set
+                        # depth_surfaced sticky flag once any turn has
+                        # revealed emotional depth — Phase 2 classifier
+                        # reads both back on the next turn.
+                        set_ops: Dict[str, Any] = {}
+                        if v5_stance is not None:
+                            set_ops["current_stance"] = v5_stance
+                        # depth_surfaced is sticky: once True, stays True for
+                        # the rest of the session. Only $set to True, never
+                        # to False (so a subsequent light turn doesn't erase
+                        # what has been revealed).
+                        if v5_new_depth:
+                            set_ops["depth_surfaced"] = True
+                        if set_ops:
+                            update_doc["$set"] = set_ops
+                        push_ops = update_doc.setdefault("$push", {})
+                        # Closing shape now persists on the per-owner state
+                        # so rotation works ACROSS sessions (Phase 4).
+                        if v5_closing_shape is not None:
+                            await _push_owner_closing_shape(
+                                db, _owner_key(owner), v5_closing_shape
+                            )
+                        if v5_stance is not None:
+                            # Bound stance_history at 40 entries — plenty for
+                            # classifier logic without unbounded doc growth.
+                            push_ops["stance_history"] = {
+                                "$each": [v5_stance],
+                                "$slice": -40,
+                            }
                         await db.walk_sessions.update_one(
                             {"id": session_id, "owner_key": _owner_key(owner)},
-                            {
-                                "$push": {
-                                    "messages": {
-                                        "id": assistant_msg_id,
-                                        "role": "assistant",
-                                        "content": final_text,
-                                        "at": assistant_at,
-                                    }
-                                }
-                            },
+                            update_doc,
                         )
                     except Exception:  # noqa: BLE001
                         logger.exception("Failed to persist assistant reply")
+
+                # V5 beta monitoring: emit aggregate events AFTER persistence
+                # so the write happens on the safe side. Fire-and-forget.
+                if not _turn_failed:
+                    _turn_total_ms = int((time.time() - _turn_t0) * 1000)
+                    # Token fallback estimates if provider metadata is
+                    # unavailable (LiteLLM's streaming usage support varies
+                    # by provider).
+                    if _turn_input_tokens is None and call_messages:
+                        _turn_input_tokens = sum(
+                            len((m.get("content") or "")) for m in call_messages
+                        ) // 4
+                    if _turn_output_tokens is None:
+                        _turn_output_tokens = len(final_text) // 4
+                    _metrics_emit(
+                        db, "turn_completed",
+                        version=WALK_PROMPT_VERSION,
+                        session_id=session_id,
+                        stance=v5_stance,
+                        closing_shape=v5_closing_shape,
+                        input_tokens=_turn_input_tokens,
+                        output_tokens=_turn_output_tokens,
+                        ttfc_ms=_turn_ttfc_ms,
+                        total_ms=_turn_total_ms,
+                        reply_char_len=len(final_text) if final_text else 0,
+                    )
+                    # Crisis-route event (safety-critical metric).
+                    if v5_stance == "crisis":
+                        _metrics_emit(
+                            db, "crisis_route",
+                            version=WALK_PROMPT_VERSION,
+                            session_id=session_id,
+                        )
+                    # Sanitizer activation events — CATEGORY ONLY, no
+                    # sentence content, deduped within this turn.
+                    try:
+                        cats = set(getattr(sanitizer, "rule_categories_hit", []) or [])
+                        for cat in cats:
+                            _metrics_emit(
+                                db, "sanitizer_activated",
+                                version=WALK_PROMPT_VERSION,
+                                session_id=session_id,
+                                rule_category=cat,
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
                 yield f'event: done\ndata: {{"message_id":"{assistant_msg_id}"}}\n\n'
 
         return StreamingResponse(
@@ -1281,6 +1676,34 @@ def build_walk_router(
             )
 
         ended_at = _now_iso()
+        # Defense-in-depth (Build 26A #1): if the session has no user
+        # turns, there is nothing to extract or summarize. Mark it ended
+        # so it stops occupying "active session" state, but do NOT run
+        # extraction and do NOT write session_summary — otherwise a
+        # returning-user's prior "Last time, ..." callback would be
+        # clobbered by an empty summary. Client also gates this on Back
+        # (walk-conversation.tsx fireEndInBackground); this is the
+        # server-side belt-and-braces.
+        msgs = session.get("messages", []) or []
+        has_user_turn = any(m.get("role") == "user" for m in msgs)
+        if not has_user_turn:
+            await db.walk_sessions.update_one(
+                {"id": session_id, "owner_key": _owner_key(owner)},
+                {"$set": {"ended_at": ended_at}},
+            )
+            _metrics_emit(
+                db, "session_ended",
+                version=WALK_PROMPT_VERSION,
+                session_id=session_id,
+                empty=True,
+            )
+            return SessionEndResponse(
+                id=session_id,
+                ended_at=ended_at,
+                candidates_saved=[],
+                candidates_pending=[],
+            )
+
         # Extraction — best effort. Errors do not fail the close.
         candidates: List[MemoryCandidate] = []
         session_summary: Optional[str] = None
@@ -1293,14 +1716,16 @@ def build_walk_router(
         except Exception as e:  # noqa: BLE001
             logger.exception("summary failed (non-fatal): %s", e)
 
+        # Never write a null/empty summary — that would clobber the prior
+        # returning-user callback. Only $set session_summary if we
+        # actually produced one.
+        session_set: Dict[str, Any] = {"ended_at": ended_at}
+        if session_summary:
+            session_set["session_summary"] = session_summary
+
         await db.walk_sessions.update_one(
             {"id": session_id, "owner_key": _owner_key(owner)},
-            {
-                "$set": {
-                    "ended_at": ended_at,
-                    "session_summary": session_summary,
-                }
-            },
+            {"$set": session_set},
         )
 
         # Auto-save rule: extraction can only produce explicit_statement or
@@ -1327,12 +1752,50 @@ def build_walk_router(
             else:
                 pending.append(c)
 
+        _metrics_emit(
+            get_db_fn(),
+            "session_ended",
+            version=WALK_PROMPT_VERSION,
+            session_id=session_id,
+        )
         return SessionEndResponse(
             id=session_id,
             ended_at=ended_at,
             candidates_saved=saved,
             candidates_pending=pending,
         )
+
+    # --------------------------- Beta metrics summary (admin) -----------
+    # Read-only aggregate of the walk_metrics_events collection. Contains
+    # NO user content — only counters and averages. Safe to expose to
+    # authenticated users for beta monitoring.
+    @router.get("/metrics/summary")
+    async def metrics_summary(
+        hours: int = 168,
+        owner: dict = Depends(get_owner_dep),  # auth gate; response is aggregate only
+    ):
+        db = get_db_fn()
+        try:
+            from walk_metrics import summarize_beta
+            return await summarize_beta(db, since_hours=max(1, min(hours, 24 * 30)))
+        except Exception as e:  # noqa: BLE001
+            logger.exception("metrics_summary failed")
+            raise HTTPException(status_code=500, detail=f"metrics_summary failed: {e}")
+    # Read-only aggregate of the walk_metrics_events collection. Contains
+    # NO user content — only counters and averages. Safe to expose to
+    # authenticated users for beta monitoring.
+    @router.get("/metrics/summary")
+    async def metrics_summary(
+        hours: int = 168,
+        owner: dict = Depends(get_owner_dep),  # auth gate; response is aggregate only
+    ):
+        db = get_db_fn()
+        try:
+            from walk_metrics import summarize_beta
+            return await summarize_beta(db, since_hours=max(1, min(hours, 24 * 30)))
+        except Exception as e:  # noqa: BLE001
+            logger.exception("metrics_summary failed")
+            raise HTTPException(status_code=500, detail=f"metrics_summary failed: {e}")
 
     # --------------------------- Get a single session ---------------------------
     @router.get("/session/{session_id}")

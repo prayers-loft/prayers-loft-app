@@ -233,6 +233,22 @@ export default function WalkConversationScreen() {
   // during the /end call whether or not the client sticks around.
   const fireEndInBackground = useCallback(() => {
     if (!sessionId) return;
+    // Guard: never persist / extract / summarize a session that contains
+    // no user turns. The messages array is seeded with one assistant
+    // opener at session start (line ~73), so "the user has actually
+    // participated" is defined as "at least one message with role='user'".
+    //
+    // Root cause of Build 26A bug #1: previously we called /end
+    // unconditionally on Back. For an empty session the server's
+    // summarization LLM produces an empty/fallback string that then
+    // overwrites the returning-user's previous session_summary. Result:
+    // the Walk landing "Last time, ..." callback disappears after the
+    // user opens Walk, sees the greeting, and backs out without typing.
+    //
+    // Fix: skip /end entirely when there is nothing to extract. No
+    // network call, no state overwrite, no risk of clobbering data.
+    const hasUserTurn = messages.some((m) => m.role === "user");
+    if (!hasUserTurn) return;
     // Abort any live stream first to avoid a race with /end.
     try {
       abortRef.current?.();
@@ -241,7 +257,7 @@ export default function WalkConversationScreen() {
     endWalkSession(sessionId).catch(() => {
       /* extraction is best-effort by design */
     });
-  }, [sessionId]);
+  }, [sessionId, messages]);
 
   // Decide what to do when the header back button OR Android hardware back
   // is pressed. Design principle: the Back button represents the user's
@@ -574,15 +590,113 @@ type Segment = { voice: Voice; body: string; reference: string | null };
 // product wants to avoid.
 const SCRIPTURE_MARKER = /(^|\n\s*)Scripture says[,\s—:-]+/i;
 
-// Try to pull "(Book Chapter[:verse[-verse]])" out of a Scripture body so we
-// can render the reference cleanly below the quotation. Falls back to null.
-const REFERENCE_RE =
-  /\(((?:\d\s*)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+\d{1,3}(?::\d{1,3}(?:[-\u2013]\d{1,3})?)?)\)/;
+// -----------------------------------------------------------------------------
+// Phase 5 (Build 26B): comprehensive canonical-book reference extraction.
+// Matches all 66 canonical books + common abbreviations + numbered books
+// (1/2/3 with or without space, Roman numeral variants) + verse ranges
+// (hyphen / en-dash / em-dash). Mirrors backend walk_scripture.py so both
+// paths agree on what counts as a valid reference. No LLM calls.
+// -----------------------------------------------------------------------------
+const BOOK_ALIASES: string[] = [
+  // Old Testament (longest first per group).
+  "Genesis", "Gen", "Gn",
+  "Exodus", "Exod", "Exo", "Ex",
+  "Leviticus", "Lev", "Lv",
+  "Numbers", "Num", "Nm", "Nu",
+  "Deuteronomy", "Deut", "Dt",
+  "Joshua", "Josh", "Jos",
+  "Judges", "Judg", "Jdg", "Jgs",
+  "Ruth", "Ru",
+  "1 Samuel", "1Samuel", "1 Sam", "1Sam", "1 Sa", "1Sa", "First Samuel", "I Samuel",
+  "2 Samuel", "2Samuel", "2 Sam", "2Sam", "2 Sa", "2Sa", "Second Samuel", "II Samuel",
+  "1 Kings", "1Kings", "1 Kgs", "1Kgs", "1 Ki", "1Ki", "First Kings", "I Kings",
+  "2 Kings", "2Kings", "2 Kgs", "2Kgs", "2 Ki", "2Ki", "Second Kings", "II Kings",
+  "1 Chronicles", "1Chronicles", "1 Chr", "1Chr", "1 Ch", "1Ch", "First Chronicles", "I Chronicles",
+  "2 Chronicles", "2Chronicles", "2 Chr", "2Chr", "2 Ch", "2Ch", "Second Chronicles", "II Chronicles",
+  "Ezra", "Ezr",
+  "Nehemiah", "Neh",
+  "Esther", "Est",
+  "Job", "Jb",
+  "Psalms", "Psalm", "Pss", "Psa", "Ps",
+  "Proverbs", "Prov", "Prv", "Pr",
+  "Ecclesiastes", "Eccles", "Eccl", "Ecc", "Ec", "Qoh",
+  "Song of Solomon", "Song of Songs", "Canticles", "Song", "SoS",
+  "Isaiah", "Isa", "Is",
+  "Jeremiah", "Jer",
+  "Lamentations", "Lam",
+  "Ezekiel", "Ezek", "Eze", "Ezk", "Ez",
+  "Daniel", "Dan", "Dn",
+  "Hosea", "Hos",
+  "Joel", "Jl",
+  "Amos", "Am",
+  "Obadiah", "Obad", "Ob",
+  "Jonah", "Jon", "Jnh",
+  "Micah", "Mic",
+  "Nahum", "Nah", "Na",
+  "Habakkuk", "Hab", "Hb",
+  "Zephaniah", "Zeph", "Zep",
+  "Haggai", "Hag", "Hg",
+  "Zechariah", "Zech", "Zec",
+  "Malachi", "Mal",
+  // New Testament
+  "Matthew", "Matt", "Mt",
+  "Mark", "Mk", "Mrk",
+  "Luke", "Lk", "Luk",
+  "John", "Jn", "Jhn",
+  "Acts", "Ac", "Act",
+  "Romans", "Rom", "Ro", "Rm",
+  "1 Corinthians", "1Corinthians", "1 Cor", "1Cor", "1 Co", "1Co", "First Corinthians", "I Corinthians",
+  "2 Corinthians", "2Corinthians", "2 Cor", "2Cor", "2 Co", "2Co", "Second Corinthians", "II Corinthians",
+  "Galatians", "Gal", "Ga",
+  "Ephesians", "Eph", "Ephes",
+  "Philippians", "Phil", "Php", "Pp",
+  "Colossians", "Col", "Cl",
+  "1 Thessalonians", "1Thessalonians", "1 Thess", "1Thess", "1 Th", "1Th", "First Thessalonians", "I Thessalonians",
+  "2 Thessalonians", "2Thessalonians", "2 Thess", "2Thess", "2 Th", "2Th", "Second Thessalonians", "II Thessalonians",
+  "1 Timothy", "1Timothy", "1 Tim", "1Tim", "1 Ti", "1Ti", "First Timothy", "I Timothy",
+  "2 Timothy", "2Timothy", "2 Tim", "2Tim", "2 Ti", "2Ti", "Second Timothy", "II Timothy",
+  "Titus", "Tit", "Ti",
+  "Philemon", "Phlm", "Phm", "Philem",
+  "Hebrews", "Heb", "Hb",
+  "James", "Jas", "Jm",
+  "1 Peter", "1Peter", "1 Pet", "1Pet", "1 Pe", "1Pe", "First Peter", "I Peter",
+  "2 Peter", "2Peter", "2 Pet", "2Pet", "2 Pe", "2Pe", "Second Peter", "II Peter",
+  "1 John", "1John", "1 Jn", "1Jn", "1 Jo", "1Jo", "First John", "I John",
+  "2 John", "2John", "2 Jn", "2Jn", "2 Jo", "2Jo", "Second John", "II John",
+  "3 John", "3John", "3 Jn", "3Jn", "3 Jo", "3Jo", "Third John", "III John",
+  "Jude", "Jud",
+  "Revelation", "Rev", "Rv", "Apocalypse",
+];
 
-// Also match a dash-prefixed reference like "— Philippians 4:6-7" or
-// "— Philippians 4:6–7 (ESV)".
-const REFERENCE_DASH_RE =
-  /[\u2014\u2013-]+\s*((?:\d\s*)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+\d{1,3}(?::\d{1,3}(?:[-\u2013]\d{1,3})?)?)\s*(?:\(ESV\))?\s*$/;
+// Longest-first so "Song of Solomon" wins over "Song", "1 Corinthians" over "1 Cor".
+const _sortedAliases = [...new Set(BOOK_ALIASES)].sort(
+  (a, b) => b.length - a.length,
+);
+const _bookAlt = _sortedAliases
+  .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+
+// Full reference regex — book (+ optional trailing dot) + \s+ + chapter [+ :verse [-verse]].
+// Rejects letter/digit immediately following to prevent "Genesis 1:1a" or "5:301".
+const SCRIPTURE_REFERENCE_RE = new RegExp(
+  `(?<![A-Za-z])(${_bookAlt})\\.?\\s+(\\d{1,3})(?:[:\\.](\\d{1,3})(?:[-\u2013\u2014](\\d{1,3}))?)?(?![A-Za-z0-9])`,
+);
+// Global variant reserved for future bare-reference inline highlighting.
+// Not consumed yet — Phase 5 keeps card rendering behind the "Scripture
+// says" marker for backward compatibility.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const SCRIPTURE_REFERENCE_RE_G = new RegExp(SCRIPTURE_REFERENCE_RE.source, "g");
+
+// Reference extraction inside Scripture-says bodies — parenthesized form.
+// e.g. "...(Philippians 4:6-7)" or "(1 Peter 5:7)".
+const REFERENCE_RE = new RegExp(
+  `\\((${_bookAlt})\\.?\\s+(\\d{1,3})(?:[:\\.](\\d{1,3})(?:[-\u2013\u2014](\\d{1,3}))?)?\\s*(?:\\(ESV\\))?\\)`,
+);
+
+// Dash-prefixed trailing reference: "— Philippians 4:6-7 (ESV)".
+const REFERENCE_DASH_RE = new RegExp(
+  `[\u2014\u2013\\-]+\\s*(${_bookAlt})\\.?\\s+(\\d{1,3})(?:[:\\.](\\d{1,3})(?:[-\u2013\u2014](\\d{1,3}))?)?\\s*(?:\\(ESV\\))?\\s*$`,
+);
 
 function splitAssistantVoices(content: string): Segment[] {
   // Strip markdown wrappers (bold, italic, block-quote `> `, and stray
@@ -618,15 +732,28 @@ function splitAssistantVoices(content: string): Segment[] {
     //   2) — Book chapter:verse
     //   3) — Book chapter:verse (ESV)
     // We pick the LAST match (references usually come at the end).
+    // Phase 5: the reference regexes now capture groups (book, chap, vs, ve)
+    // instead of a single reference string — build the display string from
+    // the pieces so numbered/abbreviated books render cleanly.
     let bodyClean = bodyRaw;
     let reference: string | null = null;
     const parenMatch = bodyClean.match(REFERENCE_RE);
     const dashMatch = bodyClean.match(REFERENCE_DASH_RE);
+    const buildRef = (m: RegExpMatchArray): string => {
+      const book = m[1];
+      const chap = m[2];
+      const vs = m[3];
+      const ve = m[4];
+      let out = `${book} ${chap}`;
+      if (vs) out += `:${vs}`;
+      if (ve) out += `-${ve}`;
+      return out;
+    };
     if (dashMatch) {
-      reference = dashMatch[1].trim();
+      reference = buildRef(dashMatch);
       bodyClean = bodyClean.replace(dashMatch[0], "").trim();
     } else if (parenMatch) {
-      reference = parenMatch[1].trim();
+      reference = buildRef(parenMatch);
       bodyClean = bodyClean.replace(parenMatch[0], "").trim();
     }
     // Strip a trailing "(ESV)" / "ESV" note that might be left over.
@@ -878,7 +1005,7 @@ const styles = StyleSheet.create({
   },
   // Whisper of a horizon fade above the composer. Uses the same base bg
   // color so it just deepens the lower portion by ~35% — you'd never spot
-   // it consciously but it grounds the composer visually.
+  // it consciously but it grounds the composer visually.
   ambientHorizon: {
     ...StyleSheet.absoluteFillObject,
   },

@@ -25,18 +25,30 @@ import { addSavedPrayer, getSavedPrayers } from "@/src/lib/local-store";
 import { recordActiveDay } from "@/src/lib/streak-ledger";
 import { showToast } from "@/src/components/Toast";
 import { ConversionTrigger, track } from "@/src/lib/analytics";
-import { requestUpgradePrompt } from "@/src/components/UpgradePromptHost";
+import { requestUpgradePrompt, forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { ShareImageModal, ShareKind } from "@/src/components/ShareImageModal";
 import { getShareExcerpt } from "@/src/lib/share-excerpt";
 import { PRAYER_TEMPLATES, PrayerTemplate } from "@/src/components/PrayerShareCard";
 import { PrayerPromptChips } from "@/src/components/PrayerPromptChips";
 import { AIDisclosureModal } from "@/src/components/AIDisclosureModal";
 import { hasSeenAIDisclosure, markAIDisclosureSeen } from "@/src/lib/onboarding";
+import { useAuthState } from "@/src/hooks/use-auth-state";
 
 type Stage = "idle" | "reflection" | "prayer";
 
 export default function PrayerScreen() {
   const router = useRouter();
+  const auth = useAuthState();
+  // Guests should never be able to open the Journal from a "View My Journal"
+  // CTA — tapping instead surfaces the AuthSheet via the upgrade-prompt host
+  // (see docs/Journal auth gate contract). Signed-in users navigate normally.
+  const openJournal = () => {
+    if (auth.ready && !auth.user) {
+      forceUpgradePrompt("journal_entry_guest");
+      return;
+    }
+    router.push("/reflections-history" as any);
+  };
   const [message, setMessage] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
   const [loading, setLoading] = useState(false);
@@ -351,7 +363,7 @@ export default function PrayerScreen() {
               <IconAction icon={saved ? "checkmark" : "bookmark-outline"} label={saved ? "Saved" : "Save"} onPress={handleSave} disabled={saved} testID="save-prayer-button" />
               <IconAction icon="share-outline" label="Share" onPress={handleShare} testID="share-prayer-button" />
             </View>
-            <Pressable onPress={() => router.push("/reflections-history" as any)} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
+            <Pressable onPress={openJournal} style={styles.sitWithLink} testID="want-to-sit-with-this-button">
               <Text style={styles.sitWithText}>View My Journal</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>

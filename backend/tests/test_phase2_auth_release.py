@@ -182,7 +182,10 @@ class TestDailyVerse:
     def test_default(self, s):
         r = s.get(f"{API}/daily-verse", timeout=TIMEOUT)
         assert r.status_code == 200
-        for k in ("verse", "reference", "verse_id", "bible_link", "devotional", "local_date"):
+        # canonical-web-v1: legacy fields (`verse`, `reference`, ...) remain
+        # populated, but `devotional` is intentionally empty; the client
+        # now renders `summary` + `passage[]` instead.
+        for k in ("verse", "reference", "verse_id", "bible_link", "local_date", "summary", "plan_id"):
             assert r.json().get(k)
 
     def test_with_local_date_and_tz(self, s):

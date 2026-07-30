@@ -43,6 +43,8 @@ import {
   removeSavedPrayer,
   SavedPrayer,
 } from "@/src/lib/local-store";
+import { useAuthState } from "@/src/hooks/use-auth-state";
+import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 
 type Reflection = {
   id: string;
@@ -172,6 +174,22 @@ function StreakBlock({
 export default function MyReflectionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  // Build 26A #2 — Journal is authenticated-only. The gate lives on the
+  // route itself so every entry point (Prayer tab, Scripture tab, Settings,
+  // and any deep-link) is protected. The check must handle three states:
+  //
+  //   auth.ready === false        -> initial hydration; render a spinner
+  //   auth.ready && !auth.user    -> unauthenticated; render sign-in wall
+  //   auth.ready && auth.user     -> render the journal normally
+  //
+  // Signed-out users should never see journal content — including saved
+  // prayers stored locally on device — so we short-circuit BEFORE the
+  // journal load effect runs.
+  const auth = useAuthState();
+  const authReady = auth.ready;
+  const isAuthed = !!auth.user;
+
   const [entries, setEntries] = useState<Reflection[]>([]);
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -242,7 +260,19 @@ export default function MyReflectionsScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    // Auth-gated (Build 26A #2): only load when we have a signed-in user.
+    // Preserves the JOURNAL_AUTH_EXPIRED wall for the not-signed-in case
+    // via the top-of-component early-return below.
+    if (!authReady) return;
+    if (!isAuthed) {
+      setLoading(false);
+      setEntries([]);
+      setPrayers([]);
+      return;
+    }
+    load();
+  }, [authReady, isAuthed, load]));
 
   // Time-sorted merged feed: reflections + saved prayers on one timeline.
   // Both use ISO created_at strings so a string compare is a valid time sort.
@@ -384,6 +414,39 @@ export default function MyReflectionsScreen() {
         <View style={{ width: 32 }} />
       </View>
 
+      {/* Build 26A #2 — Auth gate. Runs BEFORE any journal content is
+          rendered so a signed-out user can never see reflections or
+          saved prayers. The three states:
+            - authReady === false           : hydration spinner
+            - authReady && !isAuthed        : sign-in wall
+            - authReady && isAuthed         : normal journal below
+      */}
+      {!authReady ? (
+        <View style={styles.authGate} testID="journal-auth-hydrating">
+          <ActivityIndicator size="small" color={colors.textSecondary} />
+        </View>
+      ) : !isAuthed ? (
+        <View style={styles.authGate} testID="journal-auth-required">
+          <Ionicons name="lock-closed" size={40} color={colors.textTertiary} />
+          <Text style={styles.authGateTitle}>Sign in to view your journal</Text>
+          <Text style={styles.authGateBody}>
+            Your journal keeps your reflections and prayers safe across
+            devices. Sign in to see what you&apos;ve saved.
+          </Text>
+          <Pressable
+            onPress={() => forceUpgradePrompt("journal_entry_guest")}
+            style={({ pressed }) => [
+              styles.authGateBtn,
+              pressed && { opacity: 0.85 },
+            ]}
+            testID="journal-auth-signin"
+            accessibilityRole="button"
+            accessibilityLabel="Sign in"
+          >
+            <Text style={styles.authGateBtnText}>Sign in</Text>
+          </Pressable>
+        </View>
+      ) : (
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 60 }]}
         showsVerticalScrollIndicator={false}
@@ -479,6 +542,7 @@ export default function MyReflectionsScreen() {
           </View>
         )}
       </ScrollView>
+      )}
     </ScreenBackground>
   );
 }
@@ -660,6 +724,47 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   scroll: { paddingHorizontal: 24, paddingTop: 8, gap: 14 },
+  // Build 26A #2 — auth-gate wall. Occupies the viewport when the user
+  // is not signed in so they never see any journal content, even
+  // client-cached saved prayers.
+  authGate: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 40,
+    paddingBottom: 80,
+    gap: 14,
+  },
+  authGateTitle: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 18,
+    color: colors.text,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  authGateBody: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  authGateBtn: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    minHeight: 44,
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  authGateBtnText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 15,
+    color: colors.bg,
+    letterSpacing: 0.2,
+  },
   // Hero with just the JOURNAL eyebrow — the large "My Journal" title
   // was removed to eliminate the duplicate with the nav header (Apple/
   // Notion/Headspace pattern: each piece of text has a unique purpose).
