@@ -1,0 +1,57 @@
+ backend/reading_plans/AUTHORING_RULES.md           |  254 ++++
+ backend/reading_plans/CORPUS_ATTRIBUTION.md        |   78 +
+ backend/reading_plans/__init__.py                  |    1 +
+ backend/reading_plans/bible_structure.py           |  162 +++
+ backend/reading_plans/loader.py                    |  104 ++
+ backend/reading_plans/summaries_report.json        |  456 ++++++
+ backend/requirements.txt                           |    1 +
+ backend/scripts/eval_walk_v5_phase6.py             |  537 +++++++
+ backend/server.py                                  |  363 ++++-
+ backend/tests/test_bible_assistant.py              |    4 +-
+ backend/tests/test_canonical_reading_plan.py       |  451 ++++++
+ backend/tests/test_critical_user_flows.py          |   10 +-
+ .../tests/test_iteration6_health_and_regression.py |    6 +-
+ backend/tests/test_phase2_auth_release.py          |    5 +-
+ backend/tests/test_prayers_loft_api.py             |   13 +-
+ backend/tests/test_walk_discipleship.py            |  148 +-
+ backend/tests/test_walk_scripture.py               |  316 ++++
+ backend/tests/test_walk_v5_classifier.py           |  795 +++++++++++
+ backend/tests/test_walk_v5_phase4.py               |  514 +++++++
+ backend/walk.py                                    |  571 +++++++-
+ backend/walk_metrics.py                            |  175 +++
+ backend/walk_scripture.py                          |  217 +++
+ backend/walk_v5.py                                 | 1443 +++++++++++++++++++
+ docs/followups/walk-v5-eval-phase6.md              |  615 ++++++++
+ docs/followups/walk-v5-eval-phase7.md              |  583 ++++++++
+ frontend/README.md                                 |   56 +-
+ frontend/app.json                                  |    2 +-
+ frontend/app/(tabs)/prayer.tsx                     |   16 +-
+ frontend/app/(tabs)/scripture.tsx                  | 1506 +++++++++++++-------
+ frontend/app/(tabs)/walk.tsx                       |   54 +
+ frontend/app/reflections-history.tsx               |  107 +-
+ frontend/app/settings.tsx                          |   11 +-
+ frontend/app/walk-conversation.tsx                 |  404 +++++-
+ frontend/app/walk-memory.tsx                       |  395 +++++
+ frontend/assets/images/adaptive-icon.png           |  Bin 255372 -> 806895 bytes
+ frontend/assets/images/app-image.png               |  Bin 118129 -> 0 bytes
+ frontend/assets/images/favicon.png                 |  Bin 255372 -> 2474 bytes
+ frontend/assets/images/icon.png                    |  Bin 255372 -> 656141 bytes
+ frontend/assets/images/partial-react-logo.png      |  Bin 5075 -> 0 bytes
+ frontend/assets/images/react-logo.png              |  Bin 6341 -> 0 bytes
+ frontend/assets/images/react-logo@2x.png           |  Bin 14225 -> 0 bytes
+ frontend/assets/images/react-logo@3x.png           |  Bin 21252 -> 0 bytes
+ frontend/assets/images/splash-icon.png             |  Bin 118129 -> 806895 bytes
+ frontend/assets/images/splash-image.png            |  Bin 118129 -> 0 bytes
+ frontend/src/lib/api.ts                            |   91 +-
+ frontend/src/lib/upgrade-prompts.ts                |   16 +-
+ scripts/build_canonical_artifact.py                |  439 ++++++
+ scripts/generate_summaries.py                      |  482 +++++++
+ scripts/import_web_corpus.py                       |  224 +++
+ scripts/plan_boundaries.py                         | 1157 +++++++++++++++
+ scripts/rewrite_flagged_summaries.py               |  167 +++
+ scripts/summaries_report.py                        |  266 ++++
+ scripts/test_web_corpus.py                         |  182 +++
+ scripts/validate_boundaries.py                     |  139 ++
+ scripts/validate_plan.py                           |  242 ++++
+ test_result.md                                     |   29 +
+ 56 files changed, 13035 insertions(+), 772 deletions(-)

@@ -1,0 +1,6 @@
+frontend/assets/images/app-image.png
+frontend/assets/images/partial-react-logo.png
+frontend/assets/images/react-logo.png
+frontend/assets/images/react-logo@2x.png
+frontend/assets/images/react-logo@3x.png
+frontend/assets/images/splash-image.png

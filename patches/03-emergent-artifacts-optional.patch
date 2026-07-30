@@ -1,0 +1,1252 @@
+diff --git a/.emergent/cron/applied.hash b/.emergent/cron/applied.hash
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/.emergent/cron/dispatch_webhook.sh b/.emergent/cron/dispatch_webhook.sh
+new file mode 100755
+index 00000000..849c601b
+--- /dev/null
++++ b/.emergent/cron/dispatch_webhook.sh
+@@ -0,0 +1,74 @@
++#!/bin/sh
++# Pod-local webhook-cron dispatcher: one crontab line per enabled cron, run by
++# crond inside the preview/env pod. The full endpoint URL is substituted at
++# render time; this fires a single request with the .env secret and exits 0.
++set -eu
++
++: "${CRON_NAME:?}" "${METHOD:?}" "${ENDPOINT_URL_B64:?}"
++JOB_ID="${JOB_ID:-}"
++WEBHOOK_ENV_FILE="${WEBHOOK_ENV_FILE:-/app/backend/.env}"
++AT_DATE="${AT_DATE:-}"
++END_DATE="${END_DATE:-}"
++
++# AT_DATE (one-time trigger): crond can't express the year, so the "M H D Mo *"
++# line re-fires this minute every year. Fire only when the current UTC minute
++# (first 16 chars of RFC3339) matches AT_DATE's minute.
++if [ -n "$AT_DATE" ]; then
++	now_min="$(date -u +%Y-%m-%dT%H:%M)"
++	at_min="$(printf '%s' "$AT_DATE" | cut -c1-16)"
++	[ "$now_min" = "$at_min" ] || exit 0
++fi
++
++# END_DATE (recurring cutoff): both sides use the same fixed %Y-%m-%dT%H:%M:%SZ
++# layout, so comparing their digit-only forms numerically preserves chronological
++# order. Stop firing once now is strictly past END_DATE.
++if [ -n "$END_DATE" ]; then
++	now_num="$(date -u +%Y%m%d%H%M%S)"
++	end_num="$(printf '%s' "$END_DATE" | tr -cd '0-9')"
++	[ "$now_num" -le "$end_num" ] || exit 0
++fi
++
++ENDPOINT="$(printf '%s' "$ENDPOINT_URL_B64" | base64 -d)"
++
++strip_quotes() {
++	# Strip a single matching pair of surrounding quotes.
++	v="$1"
++	case "$v" in
++		\"*\") v="${v#\"}"; v="${v%\"}" ;;
++		\'*\') v="${v#\'}"; v="${v%\'}" ;;
++	esac
++	printf '%s' "$v"
++}
++
++# Read the per-app secret from the dotenv at dispatch time (never from cron env).
++read_secret() {
++	[ -f "$WEBHOOK_ENV_FILE" ] || return 0
++	line="$(grep -E '^WEBHOOK_CRON_SECRET=' "$WEBHOOK_ENV_FILE" | tail -n 1 || true)"
++	value="$(strip_quotes "${line#WEBHOOK_CRON_SECRET=}")"
++	printf '%s' "$value"
++}
++WEBHOOK_CRON_SECRET="$(read_secret)"
++
++# RUN_ID is the idempotency key: cron name + fire time (minute granularity
++# matches the schedule floor).
++RUN_ID="${CRON_NAME}-$(date -u +%Y%m%dT%H%M)"
++DISPATCH_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
++ENVELOPE="{\"event\":\"schedule.triggered\",\"schedule_id\":\"$CRON_NAME\",\"run_id\":\"$RUN_ID\",\"dispatch_time\":\"$DISPATCH_TIME\",\"job_id\":\"$JOB_ID\",\"data\":null}"
++
++# Fire-and-forget: one request, no retries, no run reporting. `|| true` keeps
++# `set -e` happy on a curl transport failure (000, non-zero exit).
++# --location-trusted: internal-cluster pods get a cross-host 307 to the
++# internal.<preview-host>; the Bearer must survive that same-platform redirect.
++HTTP_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
++	--max-time 10 \
++	--location-trusted --max-redirs 2 \
++	-X "$METHOD" \
++	-H "Authorization: Bearer $WEBHOOK_CRON_SECRET" \
++	-H "Content-Type: application/json" \
++	-H "X-Webhook-Id: $RUN_ID" \
++	-H "X-Webhook-Timestamp: $DISPATCH_TIME" \
++	-d "$ENVELOPE" \
++	"$ENDPOINT" 2>/dev/null || true)"
++
++echo "dispatch complete (cron=$CRON_NAME http=${HTTP_STATUS:-000})"
++exit 0
+diff --git a/.emergent/cron/watch_crons.sh b/.emergent/cron/watch_crons.sh
+new file mode 100755
+index 00000000..d692eca3
+--- /dev/null
++++ b/.emergent/cron/watch_crons.sh
+@@ -0,0 +1,37 @@
++#!/bin/sh
++# Pod-local crons.yml change watcher: runs every minute from the same crontab.
++# When the live .emergent/crons.yml hash differs from the last-applied hash it
++# asks agent-service to reconcile PREVIEW crons (scope=preview keeps prod/AWS
++# untouched). It never writes applied.hash (the install does, so a failed
++# reconcile retries next minute) and never exits non-zero.
++set -u
++
++YAML="${CRONS_YAML_FILE:-/app/.emergent/crons.yml}"
++APPLIED="${APPLIED_HASH_FILE:-/app/.emergent/cron/applied.hash}"
++JOB_ID="${JOB_ID:-}"
++CRON_API_URL="${CRON_API_URL:-}"
++
++# sha256 of $1, or empty when the file is absent (matches the install writer).
++hash_file() {
++	if [ -f "$1" ]; then
++		sha256sum "$1" 2>/dev/null | cut -d' ' -f1
++	else
++		printf ''
++	fi
++}
++
++current="$(hash_file "$YAML")"
++applied="$(cat "$APPLIED" 2>/dev/null || printf '')"
++
++# Converged: nothing to do.
++[ "$current" = "$applied" ] && exit 0
++# No API URL baked (older pod) — can't reconcile; retry once one is present.
++[ -n "$CRON_API_URL" ] || exit 0
++
++# Fire-and-forget preview reconcile; silent on any transport failure.
++curl -sS -o /dev/null --max-time 15 \
++	-X POST \
++	-H "Content-Type: application/json" \
++	-d "{\"job_id\":\"$JOB_ID\",\"scope\":\"preview\"}" \
++	"$CRON_API_URL/internal/crons/reconcile" >/dev/null 2>&1 || true
++exit 0
+diff --git a/.emergent/cron/webhook-crons b/.emergent/cron/webhook-crons
+new file mode 100644
+index 00000000..94d025ec
+--- /dev/null
++++ b/.emergent/cron/webhook-crons
+@@ -0,0 +1,8 @@
++# Managed by Emergent webhook-cron (pod-local syscron). DO NOT EDIT.
++SHELL=/bin/sh
++PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
++JOB_ID=31ae838c-cc50-49ab-a7d7-3172d2474d69
++WEBHOOK_ENV_FILE=/app/backend/.env
++CRON_API_URL=https://ea.int.apis.emergentagent.com
++
++* * * * * root JOB_ID=31ae838c-cc50-49ab-a7d7-3172d2474d69 CRON_API_URL=https://ea.int.apis.emergentagent.com /bin/sh /app/.emergent/cron/watch_crons.sh >> /var/log/webhook-cron.log 2>&1
+diff --git a/.emergent/cron/webhook_crond.sh b/.emergent/cron/webhook_crond.sh
+new file mode 100755
+index 00000000..d82b5998
+--- /dev/null
++++ b/.emergent/cron/webhook_crond.sh
+@@ -0,0 +1,46 @@
++#!/bin/sh
++# supervisord program entrypoint for the pod-local webhook-cron daemon.
++#
++# Runs in the FOREGROUND so supervisord supervises it; declared autostart=true
++# so it comes back automatically on every pod resume. Before exec'ing the cron
++# daemon it self-heals the live crontab from the persistent workspace copy
++# (/app is a PVC, /etc/cron.d is not) so a freshly resumed pod schedules the
++# last-rendered crons even before agent-service reconciles.
++set -eu
++
++CRON_DIR=/app/.emergent/cron
++PERSIST="$CRON_DIR/webhook-crons"
++CRON_D=/etc/cron.d/webhook-crons
++DISPATCH="$CRON_DIR/dispatch_webhook.sh"
++LOG=/var/log/webhook-cron.log
++
++# Restore the live /etc/cron.d entry from the persistent copy when present.
++if [ -f "$PERSIST" ]; then
++	mkdir -p "$(dirname "$CRON_D")" 2>/dev/null || true
++	cp "$PERSIST" "$CRON_D" 2>/dev/null || true
++	chmod 0644 "$CRON_D" 2>/dev/null || true
++fi
++[ -f "$DISPATCH" ] && chmod 0755 "$DISPATCH" 2>/dev/null || true
++touch "$LOG" 2>/dev/null || true
++
++# If the base image predates the `cron` package, install it at runtime
++# (best-effort; a failure falls through to the error below). Debian base + sudo.
++if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
++	echo "webhook_crond: no cron daemon found, attempting runtime install" >&2
++	if command -v apt-get >/dev/null 2>&1; then
++		SUDO=""
++		[ "$(id -u)" -eq 0 ] || SUDO="sudo"
++		$SUDO apt-get update >/dev/null 2>&1 &&
++			$SUDO apt-get install -y --no-install-recommends cron >/dev/null 2>&1 ||
++			echo "webhook_crond: runtime cron install failed" >&2
++	fi
++fi
++
++# Prefer Debian/cronie `cron` (-f foreground), fall back to busybox `crond`.
++if command -v cron >/dev/null 2>&1; then
++	exec cron -f -L 15
++elif command -v crond >/dev/null 2>&1; then
++	exec crond -f -l 8
++fi
++echo "webhook_crond: no cron daemon (cron/crond) installed in image" >&2
++exit 127
+diff --git a/test_reports/iteration_10.json b/test_reports/iteration_10.json
+new file mode 100644
+index 00000000..01de5626
+--- /dev/null
++++ b/test_reports/iteration_10.json
+@@ -0,0 +1,44 @@
++{
++  "summary": "Journey Through Scripture (canonical-web-v1) frontend regression — 8/8 PASS. All 8 review-request scenarios verified against http://localhost:3000/scripture at mobile viewport 390x844. Signed-in canonical response, guest Day 1 response (with correct 'sign in to save your place' hint and no 'progress was reset' language), expired-token fallback to Day 1 without a scary error card, long multi-chapter passage rendering (25 verse lines, 22px gap, GENESIS 1 heading), Key Verse card (verse text + uppercase reference + solid 3px gold accent border rgb(200,169,107)), Passage Overview label ('Passage Overview', prose, no APPLICATION/PRAYER sections), offline retry state (error card + retry button + no blank screen + successful reload after coming online), and reflection/journal navigation (guest → 'Save your spiritual journey' upgrade prompt, signed-in → /reflections-history) all behave per spec. No source-code changes were made.",
++  "backend_issues": {
++    "critical": [],
++    "minor": []
++  },
++  "frontend_issues": {
++    "ui_bugs": [],
++    "integration_issues": [],
++    "design_issues": [],
++    "react_native_issues": []
++  },
++  "test_report_links": [
++    "/app/test_reports/iteration_10.json",
++    "/app/test_reports/screenshots/t1_signedin.png",
++    "/app/test_reports/screenshots/t2_guest.png",
++    "/app/test_reports/screenshots/t3_expired.png",
++    "/app/test_reports/screenshots/t4_fullpassage.png",
++    "/app/test_reports/screenshots/t7_offline_spa.png",
++    "/app/test_reports/screenshots/t7_offline_after_retry.png",
++    "/app/test_reports/screenshots/t8_guest_journal_click.png",
++    "/app/test_reports/screenshots/t8_signedin_journal.png"
++  ],
++  "action_items": [
++    "None — ship it. All 8 Scripture regression scenarios pass."
++  ],
++  "critical_code_review_comments": [
++    "scripture.tsx correctly gates the guest hint on `isGuestPayload && auth.ready && !auth.user` (line ~388) — the exact language 'Reading Day 1 · sign in to save your place.' never mixes with 'progress was reset' phrasing.",
++    "AuthExpired handling in scripture.tsx (lines ~161-175) does the right thing: after refresh fails, it still calls api.dailyVerse a second time (guest path, since clearAuth already ran) so the UI has a Day 1 payload and no red error card. Verified by injecting an invalid token blob into localStorage under 'prayersloft_auth_v1' and reloading — the tab rendered Day 1 with the guest hint (not the auth hint), which is the expected user-facing outcome after the session is fully cleared.",
++    "Key Verse card left border resolves to a solid 3px rgb(200,169,107) accent — visually distinct against the surface1 background. Passes contrast/prominence.",
++    "Full-passage toggle expands to reveal a chapter-grouped view with a 22px row-gap on chapterBlock and an 8px inner gap on the verse list container — no wall of text, matches the design spec.",
++    "Offline error card uses the shared EmptyState variant='error' with testID='scripture-error-card' and testID='scripture-retry-button' on the CTA. Clicking retry after context.setOffline(false) correctly refetched Day 1 without a page reload."
++  ],
++  "updated_files": [],
++  "success_rate": {
++    "backend": "not-tested (frontend-only scope per review request)",
++    "frontend": "100% (8/8 Scripture scenarios)"
++  },
++  "seed_data_creation": "Test 1 registered one fresh user via POST /api/auth/register with a random canonui_<uuid>@prayersloft-qa.com email + password TestPass123!. Auth blob was persisted to localStorage under key 'prayersloft_auth_v1' (from /app/frontend/src/lib/auth-store.ts STORAGE_KEY). No other data mutated.",
++  "retest_needed": false,
++  "should_main_agent_self_test": false,
++  "context_for_next_testing_agent": "auth-store's localStorage key is 'prayersloft_auth_v1' (see /app/frontend/src/lib/auth-store.ts:30). The persisted shape is {user, tokens: {access_token, refresh_token}, provider}. POST /api/auth/register returns {user, tokens} — plug directly into that blob. For offline-path testing, DON'T `page.reload()` while offline (the web preview serves HTML from network and the reload navigation itself fails at the browser layer with ERR_INTERNET_DISCONNECTED before the app can render its cached-in-memory state). Instead: (1) load /scripture, (2) SPA-navigate away to another tab route like /walk, (3) `page.context.set_offline(True)`, (4) SPA-navigate back to /scripture by clicking the Scripture tab — this triggers the in-app loadDaily fetch which fails cleanly and shows the scripture-error-card + scripture-retry-button without needing a full page reload. Verse-row counting inside scripture-full-passage: a reliable heuristic is `Array.from(scope.querySelectorAll('div')).filter(d => /^[0-9]{1,3}\\s/.test((d.textContent||'').trim()))` — Day 1 (Genesis 1:1-25) yields exactly 25.",
++  "rca_of_issue": "N/A — no regressions found. The scripture tab implementation cleanly handles: (a) signed-in canonical payload with progress metadata and no guest hint, (b) guest Day 1 payload with the correct sign-in nudge (no 'progress reset' language), (c) expired-token → refresh-fail → guest-fallback (renders Day 1 with the guest hint, no error card), (d) offline (renders scripture-error-card with scripture-retry-button, screen never blank), and (e) journal-link auth gating (guest → forceUpgradePrompt sheet, signed-in → router.push('/reflections-history'))."
++}
+diff --git a/test_reports/iteration_11.json b/test_reports/iteration_11.json
+new file mode 100644
+index 00000000..1d7cd1e0
+--- /dev/null
++++ b/test_reports/iteration_11.json
+@@ -0,0 +1,58 @@
++{
++  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://prayers-loft.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
++  "backend_issues": { "critical": [], "minor": [] },
++  "frontend_issues": {
++    "ui_bugs": [],
++    "integration_issues": [],
++    "design_issues": [],
++    "react_native_issues": []
++  },
++  "scenarios": [
++    {
++      "id": 1,
++      "name": "Opening tab does not advance progress",
++      "result": "PASS",
++      "evidence": "Fresh signed-in user; three page.reload() cycles — headline stays 'Today's Reading · Day 1' every load. Direct in-browser fetch of GET /api/daily-verse with Bearer token returned day=1 and progress.last_completed_date=null. Zero POST /api/daily-verse/complete requests observed during passive viewing."
++    },
++    {
++      "id": 2,
++      "name": "Tap Mark Today's Reading Complete advances",
++      "result": "PASS",
++      "evidence": "Opened passage via scripture-passage-toggle, clicked scripture-mark-complete-button. Completion card (scripture-completion-card) appeared. Headline stayed 'Day 1' pre-reload (spec: keep completed passage visible until next visit). Exactly one POST /api/daily-verse/complete with body {\"day\":1,\"local_date\":\"2026-07-29\"} returned 200. After page.reload(), headline advanced to 'Today's Reading · Day 2'."
++    },
++    {
++      "id": 3,
++      "name": "Save reflection also advances",
++      "result": "PASS",
++      "evidence": "Fresh signed-in user typed 39-char reflection into scripture-reflection-input, clicked scripture-save-reflection-button. Completion card appeared. Exactly one POST /api/daily-verse/complete observed (200). After page.reload(), headline advanced to 'Today's Reading · Day 2'."
++    },
++    {
++      "id": 4,
++      "name": "Guests never write server progress",
++      "result": "PASS",
++      "evidence": "Fresh incognito context (no auth). Headline 'Today's Reading · Day 1', progress label 'Your journey has begun'. Tapped passage toggle, clicked Mark Complete — completion card appeared locally. POST /api/daily-verse/complete fired once and response body was { status: 'guest', progress: null }. Unauthenticated GET /api/daily-verse afterwards returned progress: null (no phantom server row created)."
++    }
++  ],
++  "notes": [
++    "In Scenario 4 the RN-web Pressable did not respond to the first Playwright force-click on the passage toggle for the guest run; a JS-dispatched click sequence (pointerdown/mousedown/pointerup/mouseup/click) was used as a fallback. This is a test-harness quirk on react-native-web + Playwright, not an app bug — signed-in scenarios 2 & 3 clicked the same toggle successfully on first try. The test now retries via dispatchEvent when the first click fails, so it is deterministic.",
++    "Auth was seeded via window.localStorage['prayersloft_auth_v1'] as documented in /app/frontend/src/lib/auth-store.ts; UI sign-in was not required for these functional checks.",
++    "The mark-complete API request payload uses `local_date` (YYYY-MM-DD) with no `tz` (client omits `tz` when it is undefined — this matches api.ts:completeDailyReading)."
++  ],
++  "test_report_links": [
++    "/app/test_reports/scripture_selfpaced_test.py",
++    "/app/test_reports/scripture_selfpaced_results.json",
++    "/app/test_reports/screenshots/s4_no_mark.jpg"
++  ],
++  "action_items": [],
++  "critical_code_review_comments": [
++    "scripture.tsx (line ~172): api.completeDailyReading(...) is fire-and-forget with catch → console.warn. This is intentional per the code comments and matches the spec ('keep the completed passage visible until next visit'). No change needed.",
++    "api.ts:completeDailyReading — request body is JSON.stringify({day, local_date, tz}); tz is passed as undefined in scripture.tsx call, so it's omitted from the JSON payload. Backend must remain tolerant of missing tz (server-side pytest coverage already confirms this)."
++  ],
++  "updated_files": [],
++  "success_rate": { "backend": "n/a (backend not tested this iteration)", "frontend": "100% (4/4 scenarios pass)" },
++  "seed_data_creation": "3 fresh users registered via POST /api/auth/register with pattern canonprog_<uuid>@prayersloft-qa.com and password TestPass123!. Emails are randomised per run so no cleanup is required.",
++  "retest_needed": false,
++  "should_main_agent_self_test": false,
++  "context_for_next_testing_agent": "Playwright installed via pip + `playwright install chromium`. Reusable regression script at /app/test_reports/scripture_selfpaced_test.py — runs headless and prints PASS/FAIL for each of the 4 scenarios plus writes /app/test_reports/scripture_selfpaced_results.json. Register endpoint returns tokens nested under `tokens.{access_token,refresh_token}`; helper flattens this. The auth-store localStorage key is prayersloft_auth_v1.",
++  "rca_of_issue": "N/A — self-paced Scripture regression verified; no bugs found."
++}
+diff --git a/test_reports/iteration_9.json b/test_reports/iteration_9.json
+new file mode 100644
+index 00000000..7f0bac27
+--- /dev/null
++++ b/test_reports/iteration_9.json
+@@ -0,0 +1,36 @@
++{
++  "summary": "Focused Walk regression sweep (frontend-only, 12 scenarios) — 12/12 PASS. V5 static greeting hero renders correctly with local-time salutation ('Good evening.' + 'What\u2019s on your heart today?') outside the transcript; zero /api/walk/session/*/message calls and zero anthropic.com calls before the user hits Send; exactly 1 POST to /session/start per screen mount; first user send fires exactly 1 POST to /session/{id}/message, streams the assistant reply into the transcript (visible: 'What\u2019s happening at work that\u2019s pressing on you right now?'), and persists both turns server-side (confirmed indirectly via the ended-panel extraction which surfaced STRUGGLE = 'I\u2019m feeling anxious about work'). 'Close this conversation' is hidden before the user speaks and reappears after the first reply completes. Ended panel shows 'Take a breath.' + Done button + Saved-for-next-time list. Done returns to /walk (both normal push and cold-open deep-link) with the Walk hero visible and NO 'GO_BACK was not handled' error. Reopening Walk yields a brand-new session with the static greeting hero and empty transcript — no prior text leaks. V4 fallback restored the backend hardcoded opener ('Hi. I\u2019m glad you\u2019re here \u2014 take your time...') as an assistant MessageBubble and correctly suppressed the static-greeting hero (messages.length>0); GET /session/{id} returned messages[0].role='assistant' with non-empty content. Crisis routing works: sending 'I want to hurt myself.' produced a response citing '988 (the Suicide & Crisis Lifeline)' with ZERO scripture cards and no commitment prompt. Frozen Walk V5 backend files (walk.py, walk_v5.py, walk_scripture.py, walk_metrics.py) are untouched; /app/backend/.env restored to WALK_PROMPT_VERSION=v5 with zero remaining diff. GO for GitHub save.",
++  "backend_issues": {
++    "critical": [],
++    "minor": []
++  },
++  "frontend_issues": {
++    "ui_bugs": [],
++    "integration_issues": [],
++    "design_issues": [],
++    "react_native_issues": []
++  },
++  "test_report_links": [
++    "/app/test_reports/iteration_9.json"
++  ],
++  "action_items": [
++    "None. All 12 Walk regression scenarios pass. Safe to save to GitHub."
++  ],
++  "critical_code_review_comments": [
++    "walk-conversation.tsx: mount effect (line ~96) correctly gates opener insertion on s.opening_message.trim() so V5 empty opener no longer produces a phantom assistant bubble.",
++    "'Close this conversation' visibility is correctly driven by messages.some(m => m.role === 'user') (line ~490), not messages.length > 1 — matches the review-request spec.",
++    "handleDone (line ~353) resets sessionId/messages/streamBuffer/candidates/savedFromExtraction/savedIds/error/pendingText, refreshes greeting via getLocalTimeGreeting(), and calls router.replace('/(tabs)/walk') — deterministic navigation eliminates the GO_BACK error on cold-open/deep-link (verified in S7b).",
++    "Static-greeting hero gated on phase==='ready' && messages.length===0 && streamBuffer.length===0 (line ~412) — correctly disappears the moment the user sends their first message and remains hidden while V4's real opener is present.",
++    "streamWalkMessage in walk-api.ts uses XHR-based SSE parsing (React Native has no reliable Response.body reader) — Playwright's page.on('request') did still capture the /message XHR, confirming the request accounting used by S3/S4/S11 is accurate."
++  ],
++  "updated_files": [],
++  "success_rate": {
++    "backend": "not-tested (frontend-only scope per review request)",
++    "frontend": "100% (12/12 Walk scenarios)"
++  },
++  "seed_data_creation": "Each test session is namespaced by the per-browser localStorage guest id (prayersloft_guest_id). No shared/production data was mutated. Test-created walk_sessions/walk_memory rows remain scoped to their generated guest_id.",
++  "retest_needed": false,
++  "should_main_agent_self_test": false,
++  "context_for_next_testing_agent": "Frontend runs at http://localhost:3000 with EXPO_PUBLIC_BACKEND_URL pointing at https://prayers-loft.preview.emergentagent.com (so the frontend does NOT proxy /api through localhost:3000 — direct fetch('/api/...') from page.evaluate returns the Metro HTML). Always call the backend with the absolute preview URL when doing programmatic GET/POST from the browser context. Also, the guest identity key in localStorage is 'prayersloft_guest_id' (see /app/frontend/src/lib/guest-identity.ts) — do NOT iterate localStorage keys generically; grab that exact key. Scenario 9 requires flipping WALK_PROMPT_VERSION in /app/backend/.env and restarting backend via supervisorctl; be sure to restore v5 and verify `git diff /app/backend/.env` is empty at the end.",
++  "rca_of_issue": "N/A — no regressions found in this pass. The four frontend fixes made by the main agent (static greeting hero, opener gate, user-role close-session gate, deterministic router.replace on Done) all behave per spec across V5, V4-fallback, normal-push, and deep-link scenarios."
++}
+diff --git a/test_reports/screenshots/s4_no_mark.jpg b/test_reports/screenshots/s4_no_mark.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..0784ebf96d38956619ceeb23adf6fafa91dfb391
+GIT binary patch
+literal 20627
+zcmce;2Ut^E(<r<V8!Dn8ph(f9NbfZez;eJ7FoYI*Q6V6`_htbLRUz~c1f(QD5Rek;
+zkt&H0krJv1Ap}B^-pe1)dFy}Q^4;gT_fDR@_w1RKS!>Onwf3x;l^hNpeh1EJYeBRC
+zCME!2VtjzZNv1)_ojW#q1~4tiJ<UHEp8y6Nl?DJ;Hy<y9ySJ~HnweiY@%_(l{Nz2b
+z_4fFA{WrjnyD{)nIso)a{F^fWiOgb$@U~?XSYjO4y%?1<8he3(UvT&n7ygMq{1XTN
+z#Ql9dd>Cc)e&Sw626q^^9RnA3_y_#qKj5|=UO&snFv@^kU3`Dm^%H)!_zc1gZpgTv
+zWE{MJH(&tV1#bWBKjWSO?l}OUybb`&um4Vam<9mVkpOUU`0upqZvlWU0syK=f2aLj
+zCms*H9{eHhDC2y@-W~u}3IKrB3;;O30Kh4WKX{DOziHbQ28)-`E_cSq0dN5jz!d-j
+zxB<3+Bm<KLqyZT~@o)sV16(-E#?Hoif&CmiH|K?m{IXa1d3pKO#3irGLT=vExqDMf
+zQ_tM{p&s1TSX0aHCBoG|_{q~Jy7yyKVnUO>!=8lv6vD*G&CSoluX^>WYKWnhVaWeB
+z9R3cRKgoQL={YmgFTj!WOw8w*4qE{phPs)Vej4K6fawVH(PPIMyqo8MBS)B+j~qRE
+z^cXYqkz>ag&*lj8`J?PtW%Q46+<I`~7tbfMZ?emdU;EgzB!AnRQ_jF}`MTHB@(C^l
+z#XAof5-u_%|FiI)5{@!B{OA8*{H*$~bu*p6dPGK+U7zFD;V^K9nTgRz=JS9Cu<gNA
+zb@Okn`!9$#bnVyqu<=yRqaVmdfBhDl`JC9-M{BN*kIIIQPtkbagI@>L#-BBDnv2U6
+z%|sSiUOxm*&wK5$2c`D1YRZ20*A8xkZ!*8;^PdU9CiRb5Rk{sRdG|`kSY{-i*Q!`z
+zv`t%6w6Y3$AJa?ks7h7Ubf4mM2#uW-uB>IbLrC&#9xhI9Q{GYkd{)|jWWpOa_!Wm`
+z$n?`(N%3<Cdj&TtVAV9P0c*<yIM1TrdNCKZJh%+L{Zdy{-;1gqLo`78Dz=NUK;NbG
+zoq0ko_)_P%T3l7@<bKL9{M9a>xd5Bqvgll&c2&~_6ZpfHnG;Ahrv(L-bg4%F-bM*Q
+z;TuTfAcbdb|3*>wjKd;$B!6kx2AF2H9s3S}B(_Mn!{_0OI=&s6fA(FJfsVlKiB;}}
+zPnRD59DTrvQumib1wD>e^UE&{Zi<V@9|GA^fSMFrKWI*(+R$lC^j$TCGLM*elW+b?
+ztV*eD+lkanolShnG*4g9X`aUt<qsTE(<7B3Qq=~1HUc|7zU7BN!>@c|WA(1#c0-eV
+zN^?S?(gg@#GI!>CQ|RV>p8%_+$e?ulxtJ12+i(SMsg|p6Iab~Tkq*y5qC}z~g7jhV
+z;}hATZ&G4)JsM27?cqhpxLAi235oLl2KiD7F-dAVCFJ|^?|jymlv`SbkyE*xk`@8K
+zk>NSpi<M3v%FVnW<{9C(kC|q*qzAUb(5YiqeqX4mLlT($RiuweVLt!0>=KI;r>;=M
+z<X+O)`j&6<Cnq9?CG4}ha2%*y;UCEykWDaSlK7XvBl)nQM(&1`z)cnT%4T9hS>A<=
+zmV~&_^6t`U+QC4y!-4AD{%Tg=_hUTtqDX%Q3tb7JNI~&n#Kp#6_P4ITLx(-S2|WIn
+zqW?AVh@o@tN7eD_DI+F{>i*aNy3qfC%KTfu2wauJ;{MmrZ8?<!-_tN<gZ#`m35?{m
+zI1+e88(YFVtm6aj;3L%Ub=hj@KG(*mAl!@xJ2f|H8iRCmY{(#8AdRLa;@UhsYzhPI
+zOCvOswiOM%k+zEO@;FfnSung}>B-p}i?MEcQ1Uc_#^O3QQl?Yr>k^!+++{Bt=Wz(g
+z`4&a^hPgc4&}xztc{e^WTruN-=@Z*adr)w30coJE7Ak#Xwsj=Cs>l`R2EwV1z@Asc
+zooY}YeqgtVQ=Oz<Y#0iu9O2LGPMe!hz#7D)ml26!jN@Jx{ec9ZZ(y=!`&miR550lz
+zIBz;6q-nNYVb-PUTv9;t?0hplt7&`2L3tq~jw%jD_}JIF-hGWTOIQ{2H2ra4_j})%
+z*4k{+7i9g;M44Mc@_ZgDNXqL?UY9vVxYC>$I$%IqmC!81abtw`2ph%zgzzt!in$XM
+zKiNEG*Jzzw#=Xx3t2|AV-SZ&){05Epjaw%9WVc-8Yj?K?=mz|6W6p+k5JW~s-rk;M
+zn9K5ph+k<JHZQgU2c4ABmKs0Zmq9IRbI3(qI0(@8E$(Jn<q$GTlBpJRc{f?N9KYxb
+z)7P3SDKVS2OdtN*>P<$iZeQw0$o94ujlCICy8b<}+kh}PFId1C1Swj;5X1=G+e*zM
+zu96r{_n5w9qns`KLxA(LRG;=><>{RTY6q$m1BLbv&cQoQojz-E!7{6d1=FenRUQht
+z9Ononj<fNG*~3l5Tw*=Ukm<k8SGV#d_9HsUPEMy!#~GS|M3J_32#FCx;_%Wzvzt#%
+z<p=Cnr{Q@hh3Xz(A+?k+(v{R6?2jGUPM=$wu`nr&tZWuFEO)G$M;Qbxv`m?~p~t69
+zi&qteYu;5=CCi}>QZJiC^}b80Y_@jw7#BK;agbPEh&OWJK?pie1nS7b=qc+eKDC2A
+zR(hV@BZ4Aon0omXww@(htFj1%^TAnZe3(OEU5GTL;`!(iRb@gD5nRA6+=BX0u@HZk
+zZk#Dw%bt>DsVMQ)U<_FiueoS#-YF`IdzUkD;u56IA$dn5S1xCee7Z0301<4gO4XQA
+z@ihH9UE+x}FF`cUiFj@&KTr2gI<E_ATH5uF3;)GupqbxJVyyg=s~fnI5V+53oL}f9
+zk2~dtl_BcLZkKQEMmu@N*7{pHwb_Y3a|6W%gyMh8@Hx0=nADF~#<*BiJg*qxZy-7;
+zi0+6*TOe4#g>Awg_B|SO=)TgmsqKoUWhXmqOKe31$)NocCUMeC`8WRuqx`=WVXl>b
+z^evI()pW{<^?EHu<I9A~)xsG0Fk}8hK*6-`!HvfjIgRO~w4({_^AIK8HNu*FZp%E%
+za(>&EN^qVwn?QJykNxQH5yWI#+g9ig$m*P<NugHEoaGmFX9LkLm=%<PDa=g{wYI^W
+z@x64VZ=>TP?DBv?=w-8slaChs2pn;3mVGX+r72P;3<qW@1?8Mt`m3UP!$naoloZM0
+zfTR+AxPfV{qwZp;LG!^O-~r0bDJO&U5=$WMk_Hgs>}V_>=a`sPc|xo&zM&zgbkQ}Z
+z-w>)Q>4o%13`|_ovdPkN$nBSqUqpFxtBgK~^H^zm&*2s?nUe2Su5@Ga-TMI*+HM;0
+zZis7Su%WkEv;kD3=?*3!#yUS^I)A#zcc|GpU$&`Cc0gYYYYeimyny%BygrWWC-)Ze
+zHZg~%zRl%MT^xN^MQIG;A>E-4-Q%Ct_61dP)wBnxr+yy}+7T}?l#;V8X*Se@6x4~l
+ztLZ3%#pWn|`CjaSO*0{wxzf;$-@O~o<|wH0a`kg+v{qE^P|Cz^6($AuaVh?2r)D-R
+zqrUggIs0jwCi7<yX6LE}-jJ<_ZkuD;_1$$Rzfr4~CT!7-zXuGuXXi=BjE;_I%Zz>0
+zyixIdz?lDZuX0Ba+5qW^EI&$kN4aD)ibRhpJWo3t&7Bh(B){V;H4W!`t&c1+7!zN&
+zkD4dc^rvadxi1ywKc;#n#MqJ9XB??56Qg|@362VJT;BW7bM%vHUVMK#B9Lv`CF*e2
+zTSREvVfV@ZhAr|qPAvWY-|X@ypLsTf?bf@mTXuUEt@n$g4uR_9<+YT8BA4x4`Z{KO
+zk0U?H5<BWo8TxPt=))PV3j3qV+LyEI)_g|786)@)8~XuZjmtfT*<=Ebg)M^J;w?pD
+zBs8|3Z%e17rPZ;Pm<PUNALRLCblumQGv{mg`7J+m)JAhScyj8SC(3u{T%dXQL=#7!
+zK}qZ>k>Whi_3^>UAl7>dWj);mr>TORmpq9xp?723GeWd=$9aRyOkyiVsVkmivg!NQ
+z@n(}@=Oxs0l*UfmULwdii;3;fR(ZfdhrshaZ6eJePsmyc(rKH7vYQx~spL7mmkD>n
+zQ^fie#^gp1#K?5)vaglWkmc2rAF^-Y7kwFhyRA|f04|wxNl4rX_B!z*XNm0`*#MW1
+zEDC>am|)TP;zq@t!Y@`-C#)~&k{MNDo`gHN8p+X!by;?Q5^)9P6zjUPPH?WC@dy~G
+z*7T2X#Kx7YG(b6Q6bDc#xbR!K-M!&w1JL<NF2edT$+nFUr48u<o#HP6jcANsa<&=w
+zMcBne67Pn3qFLCB4%>UP%Vv)jqB>H9;=<A__s>cgXSK>7XiOBfN|{G2MB!Q!C}P5F
+z8Xd;faLQ$=-gcf>TA~UAn+|0Tds36whJ#-%4uLkP-P#_^!sf*xz}=$nV}Vn6H*8s)
+zU+$v=WesaIZ#uQyP_2_>i4GfF*kGn0F5PyM)0K^GfngoK1YBM!Q7{iyIKLH(*l>w;
+zPdbJ|pzppSV~ScOpI1(=OJ#0uUTX>8CqWJYd5zsS`t(D9OaEd(o9`@Lf6U19;@u+R
+z+TFC=uOGK!eVj)>tkbsRbeyBwLt)NaS%&uUTT!u^rsG!njOSJahOv`JCe86qQu+pt
+z*K=wh>|*rEJtf2MJll_a-pBeh>%~wx@eO!VxZz|xW=ZN0hziI$1Z)n0hv23&y<2Lv
+z4pQv>W6+Uw{Rj(-0NPTM2Pi}|Q$4p;wA9QA8&eHZiesP6@}7}6xY9FQ8GfSRi@trF
+zl&v$Hf9;Qb7<ZfFQf-pWS{JmsI&*hGrk6i@bgiDdMYKn+-l8o`JG%?sSRNKHP`>*l
+zD{c#}0^{j5DX?(vQ*Ova&uf&?x0+t*PYnNfUet_fI%nXjDek+W9&9*S?Hpp?;GR;e
+zm+sq7W&yto;$~>bIXj$~k40xtgzKA1Z-Pl&%fbOMa~@w!@(0tM_?vRTtFui}j@W(v
+z=+?QXIR7?xtCjNjG|_)Im`{{_Z&cY+<meqY$;zuJ7AOb_x9tEz!C;Hu<*P!pQd;Ky
+zakgmo@C=>#cy9P)dMxZ!h<Eac?e&ScHyyuv0_q9loJ;QPNVjDP!Ja<BS1RM|`?_j(
+zqh}YET_tl$u0P6!$uFNQS%Ki1-cTN^3Gk8oC#`>3zo6y$EXp(;vb^R1i`i=9+2@bK
+zUULyDu#rp9K?$}ClubTXkKH0Y-%3)Dy4Y*}qr~=e(f&B5ZL(1)uR-7V+1*pv?EF0C
+z0ukG$vZ=@F31LFt!>;nolON4vXCzACt>(LOeE#v|qGdJCGOXU$S^Ian?KA>uKH$pz
+zO@%Pfy*)pbox)X7eSMEAF{#auWVQ=Srz&mutW)$VFL~*&8H9%jNFP62%0579^&OzQ
+zL`7#ziuFjc%k_-#C?KumN1e-M9etYvWq{x?!O3AY|Ja_QBrX{2WMMZxFXj3EezyQu
+zpQEqJ>`-<=XWl!cM~d1~E$>Y>hn5iQSfQuR^2WD2Tz9K#@+$2`ygMnt37g2V{NA~_
+zY73*1{7Y^!5Gp0Ek@m&8-v9T#TW$2U^g2axO$U}xWIPfGN*{B3+F+c12%N|v2pWz_
+z$<U-?f||U0E84*vt>Uo<S92<@6S~RBLjayQ4e*!7ZFTG$5GYn*#^}74cgS?o&p^??
+zh0M}DTjxXI;yIS#L!e!;Y5588uSpNuN^f3a1jI6Cbjb(OS2!vUff(0t$`K}2o2~Z0
+zQIsoZenxZtEpY3c%+96%o@%1XFBXx%GbwgmTT<3D!4Zeat!S|{X~k>nTk8;Cz*nyY
+z6&IPfpgV^|vD&Bf$3*H^meE0LpZHDHgid9<<y+sj5H%Q5h|v-2)yU4nNZiPV-!tBV
+z+d>>J!88#2H&<@aM+zc?L<sP^zMc`eg2xkyW;6{YL+7HHO7pZ@rJ-8Yheczl^?QQ^
+zQXktnz8}!b53q6QeCp|ImFkwZ-Qn52erV}(XIOsZP?dgq_`Id<?A#}QEpnv}oAU(t
+zTu_h++l#Mcm2BmqLZtPNUpLmkbHC);<<#Ezav@>;7cud)Fai9z^&O^%OIRX@M?_v+
+zjoHUL{k_d2Vqf=E%S<k8Zo`tmjW)A=Y{L9)K3_+vJl_fwJ9YJ+hJ-oZB`5NUJHlss
+z^SJ`6Ye!P7>cc(2J$>u-Q4jJVh9V!^EvB<GOOy`gmuK5g_5La}LC`MD&zYhL)4)3r
+zb%6@z&qxG|a;I{qN3ZFlXCvm1bc0g0QfXc3<HCy&KSH=v-!kw@${;UqD~x*cuaAl=
+z);s<4!{H50-N=;6LV}*h$jXj}P2X9+_e(p^beb+0?m@f{LZ#i0Ieo<|cYbUuY?D+k
+zK6}$yJC2AD#<)f~D(>dy!Oii)9d0AGycqC@FT7V~;RAC~L#ryNO~ks{LAy`ke3d~|
+z@?d^q*eug))iD0*i-jNS7h3TxyNsDx@K^AskW@E`c`5>z8OR)SnLYr{t9Izz3ikT^
+zmqv2K#75s9p%mQC$nw*rjUC)K<s98@`s@}uK7Fiwd=NPt2s@^v{$urWmjCvX2MKkI
+zODw5w@Avm&_|5RNOYTKS>{gqvf~A3`FNmD9kE%b5`3%o|`pHiHDd{woa%m!_-d2h)
+z>Zj13vX0DtNQX|WU%@fzvqLl%vm}yEKK`rHfTP1ROMkgJ^LHxnh`#Obw(W^ro*O*#
+zF<dlIhqpSeG0*7w#zdG<#L*)J)-KI;_ue-=R6%5uo+!(Z<hQh4c5DXZ9iHm-xKM&h
+z^c(e#SwD*xr}~)DkKKASFotD&{_RAHcwQt)*BJO&!rRnReBE@f^$PXjvx(}*qNi1+
+z(oMUA9!zD4hNgs2ZC8&xu87DPc3vueUzF%-n?syB^%TL)#juEfXy@Ph@ejx`<nYsY
+zN4r918<2>-Oh*@<`eypwM3savcx5N;v6P{Hl|=pZm3!j)`k%cfSMYMcqY`ZqSE^<Q
+z=&D(a=T}LMrcGhstKtIETIH_0K~I^gzs^!2g_U;W%4scE^Zf0=&PS#>IVkU#gZ%rf
+zAyYIwMli;MfSK%9;B4tW1;`s0*38FUunt5dMTLuXkA~OU9Gtny)BR~Xfg<B5$**F&
+z%bAqsz3qt?Bxm0|+HFBa-TyB=Vg#&3AMha22ewJq8!b1O0jHV304Es;qI0M6&C=@U
+zM9;W^MAs*;rFh2EgdyNIaPh{kgjem7(2j@<$m;Xs_v@X;j0*4)CF1@!e6(w-My>gI
+zV9H_N?O8cxJ;qXti{Fh)ocOg*$+MXl7pPNn>6uAELYzhXufrq}#t8cGp-WpYdQ4E^
+z!aj(^sQl4PdONSVV|~F8;x#sLBqpS@l9Y1@44yjDTk^3@F`W_FJXZgTTI`iq&CjTU
+zkKKyb?)^4QjmzwOzQG^GQ)Zerjy!Jg#aNYf+M-P`j)rN4AGKxI4Jm*fD<`{ap6~<l
+zMbgD?mRL#8xNjxI<gE$2Gf&EU>mm4#Q>uwDk=3VYqjEB@CS;#qqvpc#gdF_};%7^I
+zx4=DrF_lpsB2?WF_Wanbir&s{$OAzkPW;LcOf)d6LpC~L*I}3G=A%L+Qks%>z=;m}
+z9?0?8W3rbdvQ*Z0=HojI(l8Jzh$`rJI3{$0#Wlt9#!=?GzYfS$nFWWLpdl-QctK$>
+zElE<De*ETuytWl@(1iC^R+-5?q>>Wn-1F`EV@!d46P!0F-TZPSL3%HK!OQVRh7S0{
+z@hiQbl1Hc2IGn+Gqp#q?i=$;#7B+pSm>mj|x3BjZBu0%%mT($%c7PGZd1!NHX=`6)
+zO-Rk^i<s5Un?J4l%DJ>FtP~$x?kZMDhx2yL&iCJ$dM{sdLfYq~5L=Q}#QnrVu?A(D
+z2yIBg8f-TeQ1G{(9jaay5qHQpX0DTTcb|M3Z#{U>ev|d8{h+pTx49!NSF^ZQHm2%h
+zTi3KDZAAufp1!T8?ct_x3IlWb=VuIV5>zcn0&gBOoA_CN8*e+t-%z$6y{Em(+o#e6
+zT^-RFr2(#1BfsQOkf;ih(Ey8i<fS`y=K9g`lT_OH;(g%j2)Mnhj>UF5*{q~`A=AP<
+z@rA5&ZusuCRHoWS>DC9wv%3vbq{Ns>I&Omxw9bMXw-2U))3*wVvT@YGkxBMpq{UO{
+zLj$5C>N~5|Yi-X69)mbgV5oQ2mj<qO5iOmUn8pUL+OQYO%;D;ysu%dXN_=TJ?;SRE
+zRh!OLZBdEEg?L!mV`fCK38AkHU;l1*_YG*fBI@(|n$Oh4D<|&#cvcQ=>lDFj7Q~hI
+zMHX6u?#MxkX?))M-5$rw>Re`%$9Kc_1KoEL;fpozQnW@KDcFxMne(}|OoVQ12!Gfl
+zO5|RG5;{O$BSc|fHn}vZO6rx!Lj!_!8|UljF5k))m@EnY?A-DGv5W1Z9$tg1yx=gq
+z?KvXS+_io^B-G<RFl-`XSiuJN4b+*rCl%v|zlGOyg@JAN>;YC<p?4`;*mT04WtgTb
+ze(-HsY(waH_?J&i^`#Lbe#YaUrxKD?cBCuWi2A|3I;Yv2cXNT`i(9pQymmXjDfj&5
+zAMPwMEXN)AP3-ki;FNf(sJ0#Zk-(p}^gjWYqWe0bFM+o|%bM3{cNUs(i$Ep>=|<}!
+zFMbbjZ}n-?Ul}+Amg9@$+{DwT%G1|=xTKf2k=dy6RiXDrEBd9%uW+9SpOI`m^F-O|
+zIroEvn=z6tr^~LKY@U~{V+a1P-JE&zTIgwM!YxhS-{eIEA7A;|0Y)m5p<}<<S)1pz
+z$=tL1Y`h!cFPq4B4g_~AxakUNCdiY=hg|s-Dn_aVq9h%uKGuz6CyQW+GGunOi#e3w
+zB$idQp)!z<adhs56c$(*q{BolG9a5aqa=u{XRn1N%?KgVRw^q|5V0#X+CESY>X%DN
+zs}!OZ6Is<&ci*VcjK}6K=i<F*95tg#>>The2CeCq$~(&=$9%a|-BBamh>qSb4SlyG
+zGIc+PyjpNq&yR*VSDIA1dyc)hUeg{n%GG0LfTZ{7xEc$l#7q<<?Ke_q`r6I6$DH*I
+z8LrKT@^qc}+ZI8d@ozK~6(q`0?-OEr_YJvv5D-w_D-V?2yC!+((^st<GkE8QE@@U<
+zn(LsuPOozg72p)|tZ$5F^RE6#R-`XyraL=DBPSDJZ0s<$@%QL-!bEK_yCc{=&SS?D
+zl|e7b_l4k_iI#~mxhJ^et-d{DBpv&?S-uWOa48bQ3?Qp9?B;f!k6FwA)cW7fT6*j!
+zJ1-q+wR;Mno-+OV6ktCIK+Jru>%9G$5@vu})}++>mqXxH*!*(5!&daZkH(};olID+
+zVSnHiW|zln^4~aBKlJpC6y`#WrYI~HH>xW~PIl<O?Q>j*K}ARBb;KOH@IeakH$k_G
+zeKsMTT1A(mTUu?{${;4nB)e=u`Q=KS_u7%SUyZC-3Ux8<?(Zzk-RE5kdUU%ieKy^*
+zKa6)-xJRO+vls&2J*x7pyJkc^xt<X17}|D$r0*kIA_S@zuV+eC1>e0T#a3HOb@kg$
+zD!Nb<Xc~CXwyw_UmU4^LD%rSi`t1aFnr0<BY`li|+I2uk-0tzwDO3_*aZT_h*QZXs
+zW93@E0lGgA)6PG;{?~KLO~Egx{=DHQEpzY8gts>N1$0#GX&%%HEK7~0HtA#N^{<(#
+ztk-2qTYY#glHJmk9F??u=t5O;P@3>Uf&SZw^`KA=9GCJy#pz7_vf{-Np~V9l;mG}+
+zP=}YoJ(IdcbESIyGP*@xQv+VT6V-7wV#~GeI|uRluJ4n5dJHQ34A2AR;{|K#kIo2~
+zNZ6L@XGd4uD~_4&EACg7X1w>y+CxENmwnc@@}C>_zoS@TJu>N^`d8{D4))`dnNRcv
+zAiktLcbxFU);gC!1Cz$9^tuC(JlpZ<SC|%^+>yn-A(Ggr(GV5s3}mvJw}4H?Aa#|o
+zd|RU>HL5$byA7c|D{!j(j~H41ziQ=wy|VZm)p^VLC;h*f4Snk}oZkgy%NOMinox?I
+zog+<ISiMb-k|&t-I%FQRGg5MJp4tBGtTX`l%&vJcjEP(8li;uZ+EO5AWy-Tu;DqKd
+z1pY49fW~s0CU~JDDaJt~mG?UUkYNSYh7KwB{9$KJ36_G%c8vD$j1*L*)5||iauo=J
+zamF5h&<vsJ(YA1D?{fF^QR^zX6A76Inn9W1AKl<eA>uq*X6H#W0G!Q`_b$C_jOjkh
+z)!8P9%CDuZf*$|TL-*XTL^I5DH2$_+Myq8-%#+6w%JZmP)Wr93&D`Xw&StLLXQjQj
+zD+oGL7jJt1@fF~_WW*cE$3}nN{C%Qp|3g{*hXBK@9`0)uU{`J)A99y)%Qvdc^T~7*
+zz3ko2L9j`i8@KXz-s39DZmg5<zpW$Tn`r$aqIOg5Qa~#;Ecr)dFUIj<uC)^7bbgro
+z?bBujy`;OPND(**>SAQ~?%Tr=(?I^C-%I;`V7Y9ewibz$^Y$9+B7rK{1Ab(stU<<h
+z`TLbJk~ixOY>-Ypq0hq8(=&mP;LIwmx+m)q6wZ;A#3}H?<`;K?SN?(fP?4ntb==rd
+ziolIJI%+;D(Rs>UnZDhDZ-Kp35$n6n<D@vwSKhtIjac<JV}!}zwK87=;r&J*@GH~{
+zE30IXJLrgS&zC)M!GcVibNPL_CaIH@IDzikO!ji@9(T(g{hE(e6&0iqxk9@b3RBfD
+zjQt^#gY{bJcU;}BjxYNF*6e`jqRoTEV`aS}^7D}6*75u=&u(w&W<lL*jm=J2u}3(s
+z`rA&M(VR#p<DY#QUFUjayDS&!;h7^DKnzG$f#h{e2d)Riu6J*nRjn5u0(F-;oUHK_
+z-u<)VXORVY{oR=oN>$&{X*a%sf@`U(ySvAnt>bU*J>-GwAQ6Vh-fC5$3O_EHo?>4I
+z{$#A+gi76fp6;-Nd9;`FD+dr{_wo>?w8cG#E}vwA@kl7gfE3P9{Ryr?a#1`q>$nB+
+zM+Jzl28r9{Wxc#RcGs%Rp-THUw~oP96!dYr4J7JVOAFn>J`1MC->8>oqNY%$pO6?B
+z?fPJ<YwN?eB52{3(}fQ``cEy&B6~HIvTb&d^_lQ+Hf{4X5$N8KX`m^shNC1u^^rU`
+z+#sSPW^~(KLPy}s4|6r%y}PhHbHqiuJRulKO@*`(#j-|M6?kZcy|Xhu@QeCMe0Al$
+zfq}$Dw|e`w;v%CD!@ep-E8ok+1!JT({f-Q?@=Elm<`x7Mg-}^c@FlO?y*tKJnm-aJ
+z;j^=33+p!o_^k;@r;dN4!QHU<;H4^h54<?0)D13pgFa!KO9CHQQ(c>2Ip{n`N|lLY
+zzX3*#AR8W?G9r+1MB~MP+kkNRw=D~BvF}(1EW~bVY2o^MZH*!H3wB`jgpy#&{MP{c
+z3s&~%nUQ;=;?F+YHJtslRh*46PhYDIutxj0>6C^z2)yOmGWTiZUsu%PNz<ko1tvU&
+zAeyv%V9hh$TQ5Z<G@3(TDQIt$E6HVN1H9wgi^~wn^c{mIe4CJ8${Tx-AA4=G_9eZ3
+zy<#cQ+Il?E;Xrx*gjSVD#qS?<Ikoa=rl^M_R@X=psr^v-02c*+qf$T1@3|uK2@s`T
+za-!<`;sUQc5eD^b*46hIV_0U%hL~2B&n&GV$#?ADw}oV(*1BT(Ugq-DnSvZL{o1=x
+zY&pL<irSnQ0#+EzR8P@af|+^cpD(AKygg)AsVTl5<qqE209`Bf_-a!ShfX>@>=mwP
+ztYVvW`-8KCE;=aC#Hz1rap+-)PHhWRT8&RKS~IMn1$u8?#osF$H4<TaA}(HJu{&tv
+z7wr;_XY|~q^`Q#W>@)|7ho(d*ug_NAhkhOkTvEEa`?=w^V2me8P0j1hvPfkJLQ@tu
+zTO@d*?vxc7v>x`>zk&P3Y!cjA94qOAA=rE#zod{9kv!@nHL(WIUJgHtg^P)o-R{(d
+zmf$RlA5h{$(3X3*{q(K;4dJ-Lg~$Y$k4etli+G<d$K_zBWVBa)hD)!w2?&Fb(rhvN
+zO^k=fT9EZi3}t$vUFSvTJX~3068g}n`IP9|Ms=FUZuJiTnFX(gk&D=o<f&Yg(59;G
+z<Z2wY3)bQ|RwW`*mDe5A)Ox-|g~xZ;m3QuGzMqp7$M6XB0eEE`{03Lll3mcK(47}@
+zBgv`S*2}ELU^IdBW!n0h^6b?D9Cl8xqAP|{=amxH_z72Py6%OfYD$;8%b_@QVNI4&
+z<u|<^GhBe9I@t`*=zsW%Td0HH3lW21o*x3TL_rorevM86KkeL~vp?f}cKr0${-WAX
+zRt>ILZwqtFcjH$)nYBeK^nIN2&-yWT23QvuN9#a$tX$^Dr}eG3CW?J^&}zR={2`#f
+z$4(SCCzgP9Eo{svi=nJCU-8?*C70a5D)cnj;yAXy*@y|Lr<ZCN!eM?w*U|mSuP-rI
+z*yI)5!>+g{#RX@H@ro#LZ(5@6|E)cLASY99|CVy|FJb;*jaHkvY(_$Ae~9vT&*yKi
+zs37|8hl69enH)&LWe&%V(%&*SO?0yiDO@I2XoPpPc3PpfOh^@)AN29Ngd67eIr9wU
+zmDP*e@#lA>Zmy>n_@ma90&6<b8WubHqSljhf~wuhYxa1r@=#Q>NOovznFxGX)17>i
+zN(%bwMBSJVef4N!bIh=5xPQw|mIj}7z8s2DSg9TU3R6#<8!i4(+u812<%ROd6}mCp
+zaqkTOx3~_6SB~;L(SmmJUmR~6OpH8VCh@9se{rl_-1mE)bz@y+U0;`2Jbpc+<;8?0
+z|Jhl$v6MPccVK57*=g)e8NJl+Zlsh9HME^gyR&=YM6}ibl?NB|Hf#5CB8)G3X7tC>
+zr`aOZ+CY1T(DSC05D+mmeRcz!72B`eEoJC8!f#*S@hUVp$vlIilV|l1v;H)3_~3V+
+zEh|4=VxC3B1yQf01ZXXpw>W4gl;kAq+_CmGCQnLEGmW6%lC?4};Xfgu03Ya)=o?a@
+z#@MqvejirZw=?(b|CVkFH9Z7s_>#3vwpa}tb#)sIBkZ=FBtact)*jCHZnYOd43R!X
+zP_@@Es^?J4CPP~i);UJovVG=scU9hRqw6!~4Pm%KVH0fQ`KV_7vUjifY+6=5mP;hB
+zQ_?0TDC+Gyr%RL6MG(nmV%M}Tyc=<*S&;;Ms(*}bI)F$ZrLBF3E=EpoeAQEGT0N}(
+z$-?XdKIpgeZh7wIzNQtD6-dh}YEv04;5pt&zAWF!vH%{xonqFgQy+dxdA{FCBH}7y
+zqg#6Kl%eb0*}>>aZaR<u7^1|-J26>9TFr{}_17)2zGfv=@Sd5diyqQg-Lj!HuE02|
+zbF8@3<l<dT=x||4nXX~kguPVG$lT_-dRV6Bu-_QhkfAecGZYaTeHUIBfw*YnV)V@p
+zIXt@iUM*;`8pfEQZg`d4-f|sjA5XVZ_0cl#vd$+le}#<Mjw7(2A*;PFcF-Y}!}!}C
+z$=J<H2iNBVQpkAib?*KXr*P%xQzW#YH%|0`hBSDJpf|=8AALos39MA~Ho`KJjI|0!
+zM5l@}7!UD9T#fzsI;(rybclU!m`q()vgZg$HgjX>7|RGqQ?U<m<EwiSv-BUEY5!s5
+z{bI%Pixp7#2Zd?=5I7%>d$Fgp=@9b|Loj-s2VK+&T>k03{tw{qB2O|_aixD>#WC`p
+z(fhvP|G03u6Z9c@XeOr&)%iWDB<4ZoG}|GdjDxx)V!1RC*Eb60ZtOG>85<`7U?3=1
+ztV9>`U?-@wFk47OF>!?JD}wSc%)m*O=mgn)5Blhscd1kI)rY@$x&N-AOzbld_8G>`
+z)8BsX1^(yNLWfP7efs*A3+BN=Q(xOoEDTNsSj)M~hs-W&nYJ3AzX<@xiZXD}32?Fe
+zzD`k2x>I_u6)0s>7SM668aHOJ|0Dc4#r<U+6ZC;Z*;AU>p)>XrC@>a0!aKPH2}`PF
+z-&|r$ib&}lMJHl3vxQ`--X>IZKGfVsykU99en8D+DCJkCq)~*wD1h+4WcB+WIB?v=
+zGiemKWYuos@qd;a^Y(f%`cBHjxBszY|AEPh(0mg&oh+Tvn&=pMCN85iUV9S%G&%(|
+z^SFbUl``$REf=$!c*^17XOm0KL>=+5F<3I4=Jwf*bZM@akI<v+qF?Sgf~p}%96*_3
+zL{Y1ik}A}^-AKzZwDowF^2ZXnC_{_M#PH{y1n1qCx~Wz!l*}5Z)48<AG9C#T&tP5w
+z9eBrH6-t_54COicQZepDE8NF>79T|A%u3=xTx9qRO9LkS+uu)Vr!}kQReGS6#1Ayt
+zUEd{Js7RrNj#a_ywZxVh#<<IpIN)O}l}X&MIr4prJ3Ubzy&w6FHs?oHZPh|$61C=V
+zMb|E07#(isFtzde=A$l9y6QK->i{}<jNow)cDFF{j=>A=M$t20)#ODijU?FMOT1sS
+z6oQQ3y&ETS?fPjtR@J}-l`+$v!PY@u$K5a`+wtG`tUtmPzb8zGzd+|>2ltFd^HO0V
+z^+7VzEtIR`hkzvO_5IhEnlW99Wq*paN@z_t)0=zl4t)(b;}*U#mHsWmx*@7ZS!-5|
+zXJsngRT9X}`Ba7S=<`<(J=0z1d%pZtI2}R}I0R5rQ~%*H{>eHmym?uV^H^1OC6k_o
+z)BknUto6@%2{^KBc|rcaw(hS5jCK0T{utpu39M(j0KPYF@oce`U^7IVq%#&GsaA`!
+z?{`ALy-M2Ua4<<ZONXZS#v6vdWyW;7+><7mbL?Jb&FfU^L4?k47;7J#Q)yDOXPkw*
+zdfEm;T`@%B^-7<jOG}FxDP&#XvJy8-Gk)N!HY@lppG<e?Z}R<yG{zPe(8xuCfjb|&
+z2%my%WTFYt?t*nlV<078TgL?CR8Tm=DMIrx2neL#?pwePQ{YaDwrT+#Za4cMr6d%H
+z<(?4!5tXPTreR5&ceH-qB-^k7X?6-Jq@)%vlkQ|p+Ra4>o`igSDC<a-Y%gEFENJII
+zB`1mKkozCt8UT21>}x}RVJ&DOXu^SSd%xVFuvgR>XE9p+Znc^k5~N{yu2PD)GUkEg
+z@QMoDwpbu7iuVx+N!sTk3`aK#i0yKHX9=R%OxIHw60Jyfw5~&~J78v$P%8Pk*~8l_
+zp<M>Gv+Ms0&ybcciGVY}UFHa++VZXrMwX!9+R_nl$BzC*7&h>}b!`&QzDi`2BSA_8
+z2bx(La+XKCcJ`}v6Z1|a#c0fXw=bkL50Z~nQtzU|w&k~m-c{W`=R}f$IDmHFi?4Z%
+zT_`m$Sc@`9_8wANr|W$Ah)}hoUarUFv9*xVjqRTOHJ}<pBclNx$R;V=J)6CMkmi#R
+z6Y`@y1-82Tr1*ngtZrBkq^(=jR99yfMSCjMqg81?Qmr!TZ?9|`?k)Aw3wtip1Kswr
+zlP2OvcU1E!n4ZR_q*behssufO8mBqV>y3U3we-lUU2N#eeXHwJs<2SmDdMs~XXG>=
+zxaAwqTU<T)vHD_%GIh7YeJ5rt$_<+llP9=U<6c_GX|5n-7@3CiM50h0ley%W<o-O-
+z4^CCI^kHbR(yF|H%FsvSY%53OceP4*bqp0*r?(L6XmYCGv2dOgvh!ZC`VP-G{+zSg
+zy0TF%A%2k65fsa#Y!<6&3t=qM<{TAc+pA7hSG4x7CX|LGjxHUz6f2SAtB$Uhqr{`J
+zP19O3t`1<Ib!Kxc7C%#r^BxC@Q$4rJMu{fc7PyGf#43Hq;s@&oc@MD2Yudie);gap
+zNFkILqZSxHqdDJZkuH)Lh`9TtU(?AvR86l6URRBI2!hR#%DQ;OJd$ujqKW$5-4<a(
+z8#fwUidH<~?w#GEG}Pu)cf%bV$Ma7Fe0>d38P<dII-$L^g()2J8<>aZXCqh2v#e36
+zHU*4dEL>W&7!^#4QHbwNI0OW2TatV`i@=}j*VkrtE>s&V6cK%!#e&hs-YJ{R*xJ=x
+ztiq76dkocq*rHQfT76u<=eE9~iH1b8A<RKT3LcZzVWzBA*nZC1+&OnUk)CzE!$P=#
+z(<<0cS$H)f%SKN^H=)P~LF*K;pq3^!-R-M13RIe%kBqbF9+H%Kp1u!~Ei$I#&cVqN
+ziK`re#PBo(E@5OZz0ra%YjJM-N%*r>gsPB>vjGa}FJJ3VwCRg{s|&yTIj~$caj1o&
+z98Hqy{nAO#6DG*v@S2^SLRm?THB;5?YEk@93%L|tuu_aeselVp<a_v#aQ-)e-DH6=
+zPAT8=#vwDXTgt=8n*i|2=lUz3BaeShTEOw=_KyJ-$KKn+4>T0b{Dh&x4sJo}Z@rnz
+z9_5NOpU3|wmxLFbL3qckwtI;8;$4vo2bPX8s4A~yk7PCL-*D2t0df2}5{kW8Hi-vK
+zNt|%w5BhaJ{f)L!&6J3&a1YSO8Rr>eo6y%8UNIDIURx~XOzFOgx{Gtr%SA6w#|M>>
+zWR^9`;MsGop)xp5T@J6<R}`5RDEM;6EpC;Zg@n~>c*q@@Su}s({E2g_*WMaFtx`M$
+z1oKDJA^GX1R0<g{aExm~9}ly$OngdcHlxzw$!~cd{}_PR)|OPcsbZhLAZC(ySG?(k
+zTNXyPASJS-GO3n^JPxe+dLS1D6u=MlKby~Ou8FZqwa}eWuHD3bS7i!nHU7Rb)96~|
+z5GEos!J~ZBve8n0b(VyG8o^aAjq}n8($-Z2ExeXK;q+C@E3te!1K-~&M+(am%#ZLH
+z@=D2^u3buDySTZ@jO0_Cy>QhzG9&L^nL;&x4dF+pOi#xrV>6%oqyB|duZs2Vu#dcN
+z7m|}}UGkc@HDn<lx1BFi&<$H1WoEO+Bd(bV!7fPaL5GX$A<J1eaX0-fa!Mz0k$wtR
+zHm^Db<2>ox`zOtLR=aaW28(oMMj3Y8clL_Up7;Y+vITY8AjXrI#@AV=g~=lrcYKB@
+zohfDv@Po%*&vH}{jBUh*-K`ngVDWleHR4zfyol2ePpG~yFzTQt^NIKIVtGw(PM=Y+
+zH&Wth3NZpLhyt(nu8CMj4q3^@j3kwwrf!?4UH(BoaYZ%kRK3zNOWp~gN)d(UbvmPW
+zTKX0uIPu2UzxM^UkR*a6fyv{GQIvcf*?G*~lds-mcj{XMYZxMUJ~5(iTfalbjDmjb
+z@eEhO>+&=Me_Ph|7U{I|57I)SnpT>jmDe|FgHUFZ7^P?D`x&P3rKJS7IlDd|x~Jz;
+z3d$Dq`_7WyA8Uale{p#q**^ll))g4J#0YTRb(RC%SrM-z*!8_i6j&-h8y*6q)g7=%
+zD!G~nubG(CDfLc0Z>31jbrGs96sc)HKb%EK>EAz(a`(*b^oYo<^Xm4>8cG9HT*$g4
+zrETA~;a*n<F+Q13=0jrr2T<K^i-3^Eeck)VtG>-+Yd3C-)=w1Evhd`bzQx8G<$f#A
+z&snO5!Jdpgo3<ptN5YP>B7BF~5}!hhx7;MzSSGT%WV61(HZ(EzqdT+uf*$jEEwd1+
+zEisrD7U702aUW-NzA>Gzjstf-;&SUXl-KsU4B)F{x{y>ihZCKyme0Dl(Ak4&6zy<^
+z6FkaP`dqxAp>iDswq1aan#&T>Il{c63+e#cBLp4-d$;i>M>pMuD`E};WdYw1pQbe@
+zMqGHBag<IQ1YvYJq9fEDw_g=cON}G~$2aISr*zK<t5{GC4iPsMa>w^J2aaQ~>=KwN
+zId<>nU8BmCgr`1zeb@6iS3??<E!Vym4d`sA;%W$=ry<~pbt_#D&Rz)@s>}3T>2@?n
+z9KYb=_WsM~WzFZK@{6^coR@v~80qfSe(g3vmG8ZY36^^$>m7oweX2Rgi4*b(<K5;~
+zYB7)RY7cZ8V0{ND6%HV(gW7JQeXaLuc#5S}D$$I>C(}tdQtLWE7@m*8VpMsM?-HSv
+zb7cPFsP!ttV?4Ph6`oHe5?ctQ>~3K3>&PYTZI#)lE9oP3r=XQ%2W?j;xjq)(ZsfHz
+z79hq&mo{NO0mEH7nZ6%QPGU!#FRkxXm<7Zpl*_Hm5s-Ov^!H@z7gv}Om@u2<xrnzJ
+zNJA1~+%4SGKHt~~s~7PLnpUZ9Et7ceeD88O;Q$^0-_`|BlzyHD-u_z4{%bAM%|GT`
+z<~wpXPx!qNp1qK5S5)pVY%fE)I7==NVrd8}u+l3ru|zsFNrBu~e<_s^zp$V^q-?lF
+ztspB;I3$oXPc|E7l8E{-iF!oGdY{gOeyD}Z#>XP>MmAL&kobDJFM%CbeMz|3yV;6;
+zily&Szf5KO*dnH|)3w8L0v8&+6)LJUTY?((AI`myn>kucE1&8fb18|%^qa4mdpWCT
+z%5+|E7W(x8-|KW-@C05XX+P^d`x?P$#0zZ+a=aUdh;hL86y&IcpNoYLiIAM3t{tY-
+zpi~_z5##UlQs=l)?_SW4(fHVuHnqD+*3)Hip1pj#Okxl=Sr5NX?HUl&WrhszOUnNI
+zP5i+8DSA2~APiOSu*lzNKul5qDF?d2{LD9L7?Y9==WXAGm3}wyB*cH}G)(iN38)C!
+zhlu%zkmQo>rIa?^QM1l;EY>qXHjFYHCmQmef?G}JZEVg|dbhycS#lPhixJ@(q8jHU
+z>O(YAq(El(ow?Qy1TH%TloNR^$wmp5!M<Go!WDlmPyZ)}y(~O7>$DxXk~KqmX~272
+z?dFFMPDwQFY3#P8&_!z1>TH(1h2fp1HidIgO%X`dKD*r3P)&_4XLnVCp5vtQY@9dU
+z*c{(rRC!9q0PU|S$shEj^!FBygu0+8*pxQZLCs@JhkyS!MkLh*Cta@N>jd)&W;owA
+z50mI)24hwVS~d&L8d7t+FX!y@SOR_Vw=c_)#4i5WW$KyIN>`8{vO^jb1&)wJ8q;<-
+zL=jMhUXh6o!^rF9wc_B=&-}Fph6ec<k-~iRkBwp}1O8gC_MN#z<G{2)>Om;*VXaGR
+zBr}%41qpdSLoQm#x?>f3iuj|P-Ay0$kP_o-`5-mKrNS0&oS8N{5TssISYf3K9;cGI
+zouQSeVxNvHPJ1e%ZEWh2W}cp=?jk|rtG&G6n;T>+jAjj-OHC*0B~yRQ2x7-=%YFJq
+zbe6#yX`6E$BS&=%MaIQkB5q8*pX}|}WG?+QmhFkmFT#;)b$L4?XV<08wa4_TyU?8?
+zh<O_^>&#HECfT{x1(>>(yF@jLk^5<(<xATyI^R{6coSP;pda1cSG%vKapf8$-#o3*
+zeRu>S$lFx<rNLZz$O_iw<cD#M>y~X;ameo{-77o!kuehn(xY1}ztcycI)v`=wz*Aa
+zD^6{UmSKirIi~a0-5A$Un~^op+780k587FhIw>=HP&(KUH2d+EN>N6H<-;koK_Fpb
+zw?aih3ikQx32`c<AoZZB=5i^Uj*CNxts*6LX}oIzwX-26!7EKYU2(Ci*({FV6U`O)
+zsX%X`uV-4TQkWnz_>G@C%(I8Xz8r3&U@1COYk6ZhkOCsPeLng@F9NqJfrM)_)((AT
+zjP3Nwv$hi8h1JV?kovnl^}avmo;s8uC+w`?jL5r8v@?iOfDyQ)ajnziSzK2dO}RUG
+zliAq^z6bw;YcDEV23;@fR<qH_){)nbG=^F=Xi}stQZ!@gm&v2Wl@&=98Mx|cab4wr
+zlsejm7@uK;&_%eVzYt$1cw)zw`H!E){~2m~`^Wsnl%3{r{haUY+Uv$bSXY8u8%s&r
+zaMoRN_6cE?`JQIHYf`!4m|$f~j~}h?!<sML>cEaxTg_S%f1m>{j`U<Mo4H_Qv>0Q*
+zF%4ECxp~hGzMPp5o5yl>>wZ{CVnoxG&1f~ek0F9L5(zL&zZ!e2S3;%R)93`x=IxY=
+zVcEQI7fbKhq*?D?pHNUY^89QZK+9GzIsL)6Z$2Tq&o$a}F(v<Y4HMb;g^!Y%i`ZwB
+z@pM_zy7SKKwIqzbfGT^X<|^;?tj3$v<EuHGbX#~L>X&6a;iBiR!%ik!OAbD%!nBes
+zMa6MzC|RSzzI!m|Io_YiEGw&NVckQ=QkrZmc}D&h7Yvv<VU@03g!A@a)JON1ixjj6
+zO_B8TjmVbOcy|cRov^hQR&(-qK1SX#A#NAV$^S4|jk`dfPY^QH*ja;xzjgwzkl|S#
+zxGTOUIflM1pWBk#2<JyyEGbgG$|425V%Tyws7uHBINEyH@AuDkJ~FyeJ$@2Kb(6qx
+z?9$@jnxE;CSZyi&tmDwV-7b^Wq^JCQf;LnLnPrH1)QjUVR?JiWSji7Eo7jo)dWJLS
+zCCKD=Eez8G<D_@jXLPe~1%ztj37*DXhz|ZYo2MuzvN3r!ufzn>c&;jO^B0{4Z;G+X
+zI}Nm_{|IyNH*cmeax^Eb{(r;kS05)MOkho7$<PaaX|&4bE)#)uod*H+C3+{Xq5bws
+z<L}Nr!w!>MZp&18=F7MHNi<l51g)(6zWQWvO)tg)G`d%Lv0LH}2ujJ<fy3c2O@udk
+zyVF4|zAf&%$FqWeUQZSX|J=#Lc&AD})&ul@+NGpk4YPS^rcAkXh#6n`&ZQ$~vtlbp
+zOA=z<WmljFJEnz-k$rtdC75;*T=+<HsP28vo@Fnu2pZfAC9?{qQt|`O_bY@f`WjP3
+z+*(L%APNfg{hITlakGHvc$&6XyX=UnRQcIrr4uKcC95xA{#-N1yF51&_*Sgk`kGyF
+z%wFwEo=DJ6u>v{!H)lT22wP}CB>Lf=Rk&O#)0cGvB;pd;GG}Tkk>N2|di}aC>5bLJ
+z9s((xoV;L#ADxexEf$kjq7(G>qoQ=cg6s0hwc8>>f~&?wAwg1e``z~$E=A%BIK`6J
+z&xHhP_a4W~4s;uLyVV{7X}o`q+>tL-CJUl|?F(((`RL^NVw#$2w1RATo<YRb3!7?~
+zmF1XJAg(kn<sjB(qrP<0XRo83=oJPJSlO%Q_aIMuJ;tTZiO1YWKB#3WgchV090GVN
+z^?dWN2PZ)eqEImI48U;2pt^N@zJyP<9F9K~CPc}rW$iWeFpUnbp{X4d2s8haz7)2$
+zD=*M76Ky-|QO)Zhz{I4(6d!SwC9u(rilVK~7%#vw3`z+&76^$-G9i-(X$;5KLgbdF
+ziFq)mn-0j6G4(f`XeUk{2oXyCRJ`L-7rh><6p^)?#9S4^#Z<lP$fcMs1r}e)EXsiv
+z{0mj`efWS8bf_AeJX1q@nwbG3BNr8n?%NJ%*J*GWu_2baCl`6r*matOgqicrI|=xK
+zi8I=w>P?~yXX&LA_2kz~kCcQ}uGMkniA~V&mq-37M3D+G5}WKZM;UJ1pN<^<_V=?`
+zpZ8U%u&!jQC=TsQBj|Vx!O^N0tEj~meXa7fPs5pz2EtZx8{w2`95oB)b*~=uLl4(4
+zG`$V;@g!B3J#7lPYW3!s{scqc#Rmn}*gfcQ9;cnSZoz3K@le_2*+J1aJzsJ`+MCyl
+zye#~x(jC2DEZXvkBMOolZJk(@UamnYxS*ZyFX>g?2C)i)$~6QLFnGUnt22<_B*l6x
+zLoJBmFF&bF4=};>ku?*v&n5fc0_V+=*X4q)S9g3qaJf3Its2lSM{YbBG^8qC)^9y`
+zwF-s~-C4gnC+?j3v9rS#&2JejEfE%{phdoHNi~d{Vr*g=jc3CtI)w#bgxd}E!xtSD
+zUsqU&apJL+(-dWfFB^9+X*DjFRHB6!Lgv)mbZ4QjE0|YI--*FMLh5nRy=7u8qcjzI
+znJ!^ETYi9@*lxIPCKps4eL)mg{je2f_yfIVbvh)J;O40pF^bF+E^Q@yNEGT>3mD+s
+z{yIk~$6=h6jOMn2jJ(EKmWEqGL*F3XhUdcI?hl<=!=wr?0Z0CLS^bOC5i3S&=GaX}
+zW`^<KDb&-Ce?Hg$3H&v2{Kq1bTiB9mE+AY*B?kuweH-BQu6wx@C|FH&ilarWBnQCo
+zSt4bK4j<9pPP%0I<%cCBJR{CdfpZbNJo?!=#@k-Rn0e2L3@1~oWDW19JkdpEL#G`s
+z5sQ&%)93kHn(f?X7rsp+(`on&N_bHjIR{%<qLzR&)+YMpqZKIvS%xa~$l6`ohi+ma
+z@6jqZx`TdHz3cbuK4oQOH=vE_gmgkMU@9#Iok#4ojwtNaZc4^z8DtNm_ZFPNVUZ5`
+zd0K?N>jhTYBsqU}f~9S>5O<oxf!CyJ(2m~@`;W>#tRHls_O5rwl!nrdi(iQ%+B}Lr
+z{1q;CeKSldMR~^CY2u!x;9baF3Gay2nPD^8RiOr0NVWJwGwOW{*A!T21(Ny=_KQw_
+zAt3+hKk4?*b&=km1L}iKw%)Oi@Ec0O=S(@r=9Pk(?wk0(ADch+#Ohm%|9h@u{=ux@
+ze*b^N5)(?e{QtFb?a^#yYy2=_7^M{q$+YMU4N_IwdRH;SOvIy&7HK@H5nZ0~sCuS1
+zT&l#VdL(2}uQZ<Z*6}C?4H2b-l6Z_2nrg%7!ibX6dziUv&HdxvzwTN4pKt%p_uKp1
+zXYI4s`W`!2`F~CQ|A`%5n&E(z^=nY<L!2f<1lxFnPR%SBiOX5*m5dNKfvqA1XV3{F
+z@c=o(Au3^ZfDQr9K6i}7O)`?a193R}FWvt{fg|0kgl#_nR0laVWkEfVSmuxjkUk)2
+z06;-gLd}JHufZdVpJ<H&?fXIVz(@%~AEdiP211su&MjjEPby*2uwZu7a_L-kMyrYQ
+zw2IpPiFpm;OC<I7qC!}9p{iR)ef2pDLd4T6_#}tQscAVmwf%#v5U7lnECeuq{K)uR
+zV0h+S)YjLxaZ&}gsOUk+yM3ZjJ$CRxwcyJq=g@cQA#4M>dJnDoGa#Tc-PIWxSa`LO
+zJ0K@nk*G<ABmwHHmXgL-WLYAH4s#^NaQwsZwL7siol2)c0e19gywg7Y(Y~D+_VyD1
+z7TNDq#9o@<JXy%!8B=~aXcK%A)?W3!WqGpbQre}-iBAA~&qeKz7+eD3iMMA7FarQ&
+zDPhx9F7r4c+S)5%1~q#DLsIVOX+-N4#YA8!@3e<+*|pemDoXLLtm}`g3WVM%p2&f(
+z=s$($(3}hSQekB9*Yma4FpUJW2A2=?w330(zJHa477l?4HgMMaJo_PC#;@IQ@x#|(
+z4S;saiG>?)>8>$8h|5Zyw~cM}jtR%Nb_=Ln(eqstU&)-|v)Cu7{d0@RC#3ycb*df9
+zie-gKqgpnK;U*uFXL5xZk9+2R!hTH0I@YYDay&0#z-VZ0+4zXtb?Y;e*vNhSn3?Bo
+zqw^btj)0%*if}iThht}!rUN;`-Vp_|rbL~25YcH`c|3s7(oRy<nsc+Bd8RFT%*VyV
+z#|A|5Zq*$7b%EgRcQSvY2g(`rHvjS7wUu>wF9$t%8bdv;t88Q43x~PV?ElW}Vht>q
+z1;^Fqexp`9YBA+UJHEMV^zx+;5maSEM4LvUk+a2jS&`4<hG%QLaZj3DX^!mIr3`vJ
+z5)*+|%%%jQYFi(D`@`EPXzpT3vusFq1iE-W_CgcF6HE?4GhCa4uet`kp}S;undB&T
+z0Fotgwh9pg;S-kBAJ4dQ8OQhH663ZoNdx6yL7nvH-RDL*OguIQUFNB!ViYQSe!B~i
+zjsK1*rTw&!e~YS;Z}6HEx@P?Qr~?EH(Zg)_GfKcO1}?R=xi&LBqtRHPrrWZVlKQ|?
+zT=-^6h`5Q?x6^7{&OD|<vN_|Bz_P%g@LJ$OLiA?(om4$i*&QovU)s89PVM-`vQ6+F
+zbfKjW?SxY(q53V8Js*{#ev2HTy`YVfEMVX;5Ge3Z_k=c<uCG?k_VTG4@{Fnl)8Wgb
+zJTvXARs&LG_)clDJIv>eBLJU>&g)rE;J{pt(6<!27R^SUTJ~&i8iFJWb?Rl+c%7N$
+zR<_BBhlPIK56ZXAY)(&1)cG)r!cx+Q^p<t)Y!JEYEZh<k^G8rkb*0TO0<&jar$Jrc
+z@?@n=Rj<4iWO7ZY0!}9{<U&8uYR^p9tsXwS)|$}3w?~$(X5yLH(oQ?U&g|W&ywrzT
+zGwJ$F{<4#JJkr%!)~dimATBz)4u93=d@Xb#u2~+DGPc5glbAqoioSRaGv2|_4V^ck
+zITAWew}_d=sWMVI@_>}x3O#w-cdr;09k==MxrQU&ifbr=bB{~9=S!2G^A0;1m+ZS?
+zqGLQUCao#A^MJka%p_EJ8Qe#om+M{kzF!F%e()&ligb|`R36Jv+^w<N%cu08-^;vj
+z<8CgbF9!<@*!6GyYbYD@fjIwS*Px8}6n~qF>Yz|~D5^Czn{16Z+N?&(KPKD1%F^(M
+zNQQ|GQ+bI%q1A}5=*Hi`q5jq0Bzq12v*NRVfi_YNVk1!0R7&M#SdGZ&TOj;RMlpST
+zoY61%BK*;2NeNR@e*bFUzh8j-y|<U_d`NZxW&y>N(;1AlZ(}7U$%iHZfa)F8R1Hz!
+zqN@x9AZzn72T!wWZ>e(?JHlpD2O^WF?}D{|Cq!oUSk&Ns{+TaWZ2R~rrQPry6(I0^
+zBj*lgDfDb(Cik1MX8(~|Jgjfj!f!;Pg4m>Zh2r65iuJK~ilZP=cJ;LKz7QCoFFOpy
+zQ2OoWMZ}C8)Zk+%ij+ZyJG^`G{OJd8H>ii+GUDRSKyx7@sYKqbY+%;evTI+Zf6ae3
+zq-}!-$k%m7Q%hdw1qq1tlW9JFjZ~_-8`Kj_Qwbo5JQ`0m7V@>)^_be9ANg3ftfmKy
+zNApa7&+#C|VE=(3RDqE}cH}EQVb75aAKu|@ykLB}so#jUT3jijRvCyYsNhtfvmyWe
+KS}2WAyng|%jTt)t
+
+literal 0
+HcmV?d00001
+
+diff --git a/test_reports/scripture_selfpaced_results.json b/test_reports/scripture_selfpaced_results.json
+new file mode 100644
+index 00000000..bb0afd47
+--- /dev/null
++++ b/test_reports/scripture_selfpaced_results.json
+@@ -0,0 +1,48 @@
++{
++  "scenario_1": {
++    "name": "S1: Opening tab does not advance",
++    "pass": true,
++    "details": [
++      "Load 0: headline='Today\u2019s Reading \u00b7 Day 1'",
++      "Load 1: headline='Today\u2019s Reading \u00b7 Day 1'",
++      "Load 2: headline='Today\u2019s Reading \u00b7 Day 1'",
++      "Final headline='Today\u2019s Reading \u00b7 Day 1'",
++      "GET /api/daily-verse: status=200 day=1 last_completed_date=None",
++      "POST /complete calls during viewing: 0"
++    ]
++  },
++  "scenario_2": {
++    "name": "S2: Mark Complete advances",
++    "pass": true,
++    "details": [
++      "Completion card appeared",
++      "Headline pre-reload='Today\u2019s Reading \u00b7 Day 1'",
++      "POST /complete calls: 1",
++      "  status=200 req_body={\"day\":1,\"local_date\":\"2026-07-29\"} resp_body_keys=['plan_id', 'status', 'current_day', 'last_completed_date', 'total_days']",
++      "req parsed: {'day': 1, 'local_date': '2026-07-29'}",
++      "Headline post-reload='Today\u2019s Reading \u00b7 Day 2'"
++    ]
++  },
++  "scenario_3": {
++    "name": "S3: Save reflection advances",
++    "pass": true,
++    "details": [
++      "Completion card appeared",
++      "POST /complete calls: 1",
++      "Headline post-reload='Today\u2019s Reading \u00b7 Day 2'"
++    ]
++  },
++  "scenario_4": {
++    "name": "S4: Guest never writes progress",
++    "pass": true,
++    "details": [
++      "Guest headline='Today\u2019s Reading \u00b7 Day 1'",
++      "progress_label='Your journey has begun'",
++      "First toggle click did not expand; dispatching JS click",
++      "Completion card appeared (guest)",
++      "POST /complete calls: 1",
++      "resp body: status=guest progress=None",
++      "GET /daily-verse guest progress=None"
++    ]
++  }
++}
+\ No newline at end of file
+diff --git a/test_reports/scripture_selfpaced_test.py b/test_reports/scripture_selfpaced_test.py
+new file mode 100644
+index 00000000..8b931cef
+--- /dev/null
++++ b/test_reports/scripture_selfpaced_test.py
+@@ -0,0 +1,437 @@
++"""
++Playwright test for Scripture tab self-paced progression regression.
++Tests 4 scenarios:
++  1. Opening tab does NOT advance progress
++  2. Mark Complete advances progress (visible after reload)
++  3. Save reflection also advances
++  4. Guests never write server progress
++"""
++import asyncio
++import json
++import os
++import uuid
++import requests
++from playwright.async_api import async_playwright
++
++BACKEND = "https://prayers-loft.preview.emergentagent.com"
++FRONTEND = "http://localhost:3000/scripture"
++
++results = {}
++
++
++def register_user():
++    email = f"canonprog_{uuid.uuid4().hex[:12]}@prayersloft-qa.com"
++    r = requests.post(
++        f"{BACKEND}/api/auth/register",
++        json={"email": email, "password": "TestPass123!"},
++        timeout=30,
++    )
++    r.raise_for_status()
++    data = r.json()
++    # Flatten tokens for convenience
++    if "tokens" in data:
++        data["access_token"] = data["tokens"]["access_token"]
++        data["refresh_token"] = data["tokens"]["refresh_token"]
++    return email, data
++
++
++async def seed_auth_localstorage(page, auth_data, email):
++    """Write the auth store key to localStorage before app loads."""
++    payload = {
++        "user": {
++            "id": auth_data.get("user", {}).get("id") or auth_data.get("id") or "unknown",
++            "email": email,
++            "name": auth_data.get("user", {}).get("name"),
++            "picture": None,
++            "providers": ["email"],
++            "createdAt": None,
++        },
++        "tokens": {
++            "access_token": auth_data.get("access_token"),
++            "refresh_token": auth_data.get("refresh_token"),
++        },
++        "provider": "email",
++    }
++    # If user object is nested differently, try to extract
++    user = auth_data.get("user")
++    if user:
++        payload["user"] = {
++            "id": user.get("id"),
++            "email": user.get("email", email),
++            "name": user.get("name"),
++            "picture": user.get("picture"),
++            "providers": user.get("providers", ["email"]),
++            "createdAt": user.get("created_at") or user.get("createdAt"),
++        }
++    await page.evaluate(
++        """(data) => { window.localStorage.setItem('prayersloft_auth_v1', JSON.stringify(data)); }""",
++        payload,
++    )
++    return payload
++
++
++async def run_scenario_1(page, token, email):
++    """Opening the tab does not advance progress."""
++    scenario = {"name": "S1: Opening tab does not advance", "pass": False, "details": []}
++    post_completions = []
++
++    def on_request(req):
++        if "/api/daily-verse/complete" in req.url and req.method == "POST":
++            post_completions.append(req.url)
++
++    page.on("request", on_request)
++
++    await page.goto(FRONTEND, wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++
++    for i in range(3):
++        headline = await page.text_content('[data-testid="scripture-day-headline"]')
++        scenario["details"].append(f"Load {i}: headline={headline!r}")
++        if "Day 1" not in (headline or ""):
++            scenario["details"].append(f"FAIL: Expected 'Day 1' in headline")
++            page.remove_listener("request", on_request)
++            results["scenario_1"] = scenario
++            return
++        await page.reload(wait_until="domcontentloaded")
++        await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++
++    # final check
++    final = await page.text_content('[data-testid="scripture-day-headline"]')
++    scenario["details"].append(f"Final headline={final!r}")
++
++    # Directly call GET /api/daily-verse from browser context with the Bearer token
++    resp = await page.evaluate(
++        """async (args) => {
++            const [backend, tok] = args;
++            const r = await fetch(backend + '/api/daily-verse', {
++                headers: { 'Authorization': 'Bearer ' + tok }
++            });
++            return { status: r.status, body: await r.json() };
++        }""",
++        [BACKEND, token],
++    )
++    scenario["details"].append(
++        f"GET /api/daily-verse: status={resp['status']} day={resp['body'].get('day')} "
++        f"last_completed_date={resp['body'].get('progress', {}).get('last_completed_date') if resp['body'].get('progress') else None}"
++    )
++
++    day_ok = resp["body"].get("day") == 1
++    progress = resp["body"].get("progress") or {}
++    lcd_ok = progress.get("last_completed_date") in (None, "")
++    no_post = len(post_completions) == 0
++    headline_ok = "Day 1" in (final or "")
++
++    scenario["details"].append(f"POST /complete calls during viewing: {len(post_completions)}")
++    scenario["pass"] = day_ok and lcd_ok and no_post and headline_ok
++    if not scenario["pass"]:
++        scenario["details"].append(
++            f"day_ok={day_ok} lcd_ok={lcd_ok} no_post={no_post} headline_ok={headline_ok}"
++        )
++    page.remove_listener("request", on_request)
++    results["scenario_1"] = scenario
++
++
++async def run_scenario_2(page, token):
++    """Tap Mark Complete advances progress."""
++    scenario = {"name": "S2: Mark Complete advances", "pass": False, "details": []}
++    completion_posts = []
++
++    async def on_response(resp):
++        if "/api/daily-verse/complete" in resp.url and resp.request.method == "POST":
++            try:
++                body = await resp.json()
++            except Exception:
++                body = {}
++            completion_posts.append({"status": resp.status, "body": body, "req_body": resp.request.post_data})
++
++    page.on("response", lambda r: asyncio.create_task(on_response(r)))
++
++    await page.goto(FRONTEND, wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++
++    # Expand passage
++    await page.click('[data-testid="scripture-passage-toggle"]', force=True)
++    await page.wait_for_timeout(500)
++
++    # Scroll to and click mark complete
++    btn = page.locator('[data-testid="scripture-mark-complete-button"]')
++    await btn.scroll_into_view_if_needed()
++    await btn.click(force=True)
++
++    # Wait for completion card
++    try:
++        await page.wait_for_selector('[data-testid="scripture-completion-card"]', timeout=8000)
++        scenario["details"].append("Completion card appeared")
++    except Exception as e:
++        scenario["details"].append(f"Completion card did NOT appear: {e}")
++        results["scenario_2"] = scenario
++        return
++
++    # Headline still on Day 1
++    headline_before_reload = await page.text_content('[data-testid="scripture-day-headline"]')
++    scenario["details"].append(f"Headline pre-reload={headline_before_reload!r}")
++    day1_stays = "Day 1" in (headline_before_reload or "")
++
++    # Wait for network POST
++    await page.wait_for_timeout(2500)
++    scenario["details"].append(f"POST /complete calls: {len(completion_posts)}")
++    for p in completion_posts:
++        scenario["details"].append(f"  status={p['status']} req_body={p['req_body']} resp_body_keys={list(p['body'].keys())[:5]}")
++
++    post_ok = (
++        len(completion_posts) == 1
++        and completion_posts[0]["status"] == 200
++    )
++    # Validate req body has day=1
++    req_ok = False
++    if completion_posts:
++        try:
++            rb = json.loads(completion_posts[0]["req_body"] or "{}")
++            req_ok = rb.get("day") == 1 and "local_date" in rb
++            scenario["details"].append(f"req parsed: {rb}")
++        except Exception:
++            pass
++
++    # Reload — expect Day 2
++    await page.reload(wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++    headline_after = await page.text_content('[data-testid="scripture-day-headline"]')
++    scenario["details"].append(f"Headline post-reload={headline_after!r}")
++    day2_after = "Day 2" in (headline_after or "")
++
++    scenario["pass"] = day1_stays and post_ok and req_ok and day2_after
++    if not scenario["pass"]:
++        scenario["details"].append(
++            f"day1_stays={day1_stays} post_ok={post_ok} req_ok={req_ok} day2_after={day2_after}"
++        )
++    results["scenario_2"] = scenario
++
++
++async def run_scenario_3(page):
++    """Save reflection advances."""
++    scenario = {"name": "S3: Save reflection advances", "pass": False, "details": []}
++    completion_posts = []
++
++    async def on_response(resp):
++        if "/api/daily-verse/complete" in resp.url and resp.request.method == "POST":
++            try:
++                body = await resp.json()
++            except Exception:
++                body = {}
++            completion_posts.append({"status": resp.status, "body": body})
++
++    page.on("response", lambda r: asyncio.create_task(on_response(r)))
++
++    await page.goto(FRONTEND, wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++
++    # Type reflection
++    ref_input = page.locator('[data-testid="scripture-reflection-input"]')
++    await ref_input.scroll_into_view_if_needed()
++    await ref_input.fill("This is my thoughtful reflection today.")
++
++    # Click save
++    await page.click('[data-testid="scripture-save-reflection-button"]', force=True)
++
++    # Wait for completion card
++    try:
++        await page.wait_for_selector('[data-testid="scripture-completion-card"]', timeout=10000)
++        scenario["details"].append("Completion card appeared")
++    except Exception as e:
++        scenario["details"].append(f"Completion card did NOT appear: {e}")
++
++    await page.wait_for_timeout(2500)
++    scenario["details"].append(f"POST /complete calls: {len(completion_posts)}")
++    post_ok = len(completion_posts) == 1 and completion_posts[0]["status"] == 200
++
++    # Reload — expect Day 2
++    await page.reload(wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++    headline_after = await page.text_content('[data-testid="scripture-day-headline"]')
++    scenario["details"].append(f"Headline post-reload={headline_after!r}")
++    day2_after = "Day 2" in (headline_after or "")
++
++    scenario["pass"] = post_ok and day2_after
++    if not scenario["pass"]:
++        scenario["details"].append(f"post_ok={post_ok} day2_after={day2_after}")
++    results["scenario_3"] = scenario
++
++
++async def run_scenario_4(page):
++    """Guest never writes server progress."""
++    scenario = {"name": "S4: Guest never writes progress", "pass": False, "details": []}
++    completion_posts = []
++
++    async def on_response(resp):
++        if "/api/daily-verse/complete" in resp.url and resp.request.method == "POST":
++            try:
++                body = await resp.json()
++            except Exception:
++                body = {}
++            completion_posts.append({"status": resp.status, "body": body})
++
++    page.on("response", lambda r: asyncio.create_task(on_response(r)))
++
++    await page.goto(FRONTEND, wait_until="domcontentloaded")
++    # Ensure no auth
++    await page.evaluate("() => window.localStorage.removeItem('prayersloft_auth_v1')")
++    await page.reload(wait_until="domcontentloaded")
++    await page.wait_for_selector('[data-testid="scripture-day-headline"]', timeout=15000)
++
++    headline = await page.text_content('[data-testid="scripture-day-headline"]')
++    scenario["details"].append(f"Guest headline={headline!r}")
++    subtitle_ok = False
++    try:
++        prog = await page.text_content('[data-testid="scripture-progress-label"]')
++        scenario["details"].append(f"progress_label={prog!r}")
++        subtitle_ok = "journey has begun" in (prog or "").lower()
++    except Exception:
++        pass
++
++    headline_ok = "Day 1" in (headline or "")
++
++    # Tap passage toggle
++    toggle = page.locator('[data-testid="scripture-passage-toggle"]')
++    await toggle.scroll_into_view_if_needed()
++    await page.wait_for_timeout(500)
++    # Try multiple click strategies (RN web pressable can be finicky)
++    try:
++        await toggle.click(force=True)
++    except Exception:
++        pass
++    await page.wait_for_timeout(1500)
++    mark_present = await page.locator('[data-testid="scripture-mark-complete-button"]').count()
++    if mark_present == 0:
++        scenario["details"].append("First toggle click did not expand; dispatching JS click")
++        await page.evaluate("""() => {
++            const el = document.querySelector('[data-testid=\"scripture-passage-toggle\"]');
++            if (el) {
++                const rect = el.getBoundingClientRect();
++                ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type => {
++                    el.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, clientX: rect.left+5, clientY: rect.top+5}));
++                });
++            }
++        }""")
++        await page.wait_for_timeout(2000)
++    try:
++        await page.wait_for_selector('[data-testid="scripture-mark-complete-button"]', timeout=8000, state="attached")
++    except Exception as e:
++        await page.screenshot(path="/app/test_reports/screenshots/s4_no_mark.jpg", quality=40, full_page=False, type="jpeg")
++        ids = await page.evaluate("""() => Array.from(document.querySelectorAll('[data-testid]')).map(e => e.getAttribute('data-testid'))""")
++        scenario["details"].append(f"visible testIDs after toggle: {ids}")
++        raise
++    btn = page.locator('[data-testid="scripture-mark-complete-button"]')
++    await btn.scroll_into_view_if_needed()
++    await page.wait_for_timeout(300)
++    try:
++        await btn.click(force=True)
++    except Exception:
++        await page.evaluate("""() => {
++            const el = document.querySelector('[data-testid=\"scripture-mark-complete-button\"]');
++            if (el) {
++                const rect = el.getBoundingClientRect();
++                ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type => {
++                    el.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, clientX: rect.left+5, clientY: rect.top+5}));
++                });
++            }
++        }""")
++
++    try:
++        await page.wait_for_selector('[data-testid="scripture-completion-card"]', timeout=8000)
++        scenario["details"].append("Completion card appeared (guest)")
++        card_ok = True
++    except Exception as e:
++        scenario["details"].append(f"Completion card did NOT appear: {e}")
++        card_ok = False
++
++    await page.wait_for_timeout(2500)
++    scenario["details"].append(f"POST /complete calls: {len(completion_posts)}")
++    guest_body_ok = False
++    if completion_posts:
++        b = completion_posts[0]["body"]
++        scenario["details"].append(f"resp body: status={b.get('status')} progress={b.get('progress')}")
++        guest_body_ok = b.get("status") == "guest" and b.get("progress") is None
++
++    # Fetch GET /api/daily-verse without auth from browser
++    resp = await page.evaluate(
++        """async (backend) => {
++            const r = await fetch(backend + '/api/daily-verse');
++            return { status: r.status, body: await r.json() };
++        }""",
++        BACKEND,
++    )
++    guest_progress = resp["body"].get("progress")
++    scenario["details"].append(f"GET /daily-verse guest progress={guest_progress}")
++    server_no_progress = guest_progress is None
++
++    scenario["pass"] = headline_ok and subtitle_ok and card_ok and guest_body_ok and server_no_progress
++    if not scenario["pass"]:
++        scenario["details"].append(
++            f"headline_ok={headline_ok} subtitle_ok={subtitle_ok} card_ok={card_ok} "
++            f"guest_body_ok={guest_body_ok} server_no_progress={server_no_progress}"
++        )
++    results["scenario_4"] = scenario
++
++
++async def main():
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++
++        # ---- Scenario 1 & 2: signed-in user #1 ----
++        email1, auth1 = register_user()
++        token1 = auth1["access_token"]
++        print(f"User1: {email1}")
++        ctx1 = await browser.new_context(viewport={"width": 390, "height": 844})
++        page1 = await ctx1.new_page()
++        # Seed localStorage BEFORE app load: navigate to blank/index first
++        await page1.goto(FRONTEND.replace("/scripture", "/"), wait_until="domcontentloaded")
++        await seed_auth_localstorage(page1, auth1, email1)
++
++        try:
++            await run_scenario_1(page1, token1, email1)
++        except Exception as e:
++            results["scenario_1"] = {"name": "S1", "pass": False, "details": [f"exception: {e}"]}
++        try:
++            await run_scenario_2(page1, token1)
++        except Exception as e:
++            results["scenario_2"] = {"name": "S2", "pass": False, "details": [f"exception: {e}"]}
++        await ctx1.close()
++
++        # ---- Scenario 3: fresh signed-in user #2 ----
++        email2, auth2 = register_user()
++        print(f"User2: {email2}")
++        ctx2 = await browser.new_context(viewport={"width": 390, "height": 844})
++        page2 = await ctx2.new_page()
++        await page2.goto(FRONTEND.replace("/scripture", "/"), wait_until="domcontentloaded")
++        await seed_auth_localstorage(page2, auth2, email2)
++        try:
++            await run_scenario_3(page2)
++        except Exception as e:
++            results["scenario_3"] = {"name": "S3", "pass": False, "details": [f"exception: {e}"]}
++        await ctx2.close()
++
++        # ---- Scenario 4: guest / no auth ----
++        ctx3 = await browser.new_context(viewport={"width": 390, "height": 844})
++        page3 = await ctx3.new_page()
++        try:
++            await run_scenario_4(page3)
++        except Exception as e:
++            results["scenario_4"] = {"name": "S4", "pass": False, "details": [f"exception: {e}"]}
++        await ctx3.close()
++
++        await browser.close()
++
++    print("\n\n===== RESULTS =====")
++    for k, v in results.items():
++        status = "PASS" if v["pass"] else "FAIL"
++        print(f"\n[{status}] {v['name']}")
++        for d in v["details"]:
++            print(f"  - {d}")
++
++    # Write JSON
++    with open("/app/test_reports/scripture_selfpaced_results.json", "w") as f:
++        json.dump(results, f, indent=2)
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff --git a/test_result.md b/test_result.md
+index 05230a97..886e642c 100644
+--- a/test_result.md
++++ b/test_result.md
+@@ -335,3 +335,32 @@ agent_communication:
+            too.
+ 
+       FAILED TEST CASES: none.
++
++  - agent: "main"
++    message: |
++      Build 26B UX follow-up (frontend-only): fixed Walk V5 blank-landing
++      regression + session reset. Zero Walk backend files modified.
++
++      Changes (single file: /app/frontend/app/walk-conversation.tsx):
++      - Client-only getLocalTimeGreeting() helper (morning/afternoon/evening).
++      - Mount effect no longer inserts an empty assistant opener when
++        opening_message === "" (V5 case). Transcript stays empty until user
++        speaks.
++      - Static greeting hero renders when phase==="ready" &&
++        messages.length===0 && streamBuffer.length===0. Not persisted, never
++        sent to backend, disappears on first user message.
++      - "Close this conversation" gate switched to
++        messages.some(m => m.role==="user") so it appears only after the
++        user speaks.
++      - New handleDone: aborts stream, clears sessionId/messages/streamBuffer/
++        candidates/savedFromExtraction/savedIds/error/pendingText, recomputes
++        greeting, then router.replace("/(tabs)/walk") — deterministic even
++        for deep-link users with no back stack.
++      - V4 fallback: if s.opening_message is truthy the transcript is seeded
++        with it as before — no V4 regression.
++
++      Focus for testing_agent: Walk regression sweep (frontend). 12 scenarios
++      requested by user (fresh V5 landing, opener absence, no-LLM until send,
++      first message stream/persist, close-btn gating, ended panel, Done
++      routing incl. deep-link, fresh session on reopen, V4 fallback, crisis,
++      no duplicate sessions/messages, no Walk V5 backend edits).
