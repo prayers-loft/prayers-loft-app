@@ -27,7 +27,7 @@ import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { useAuthState } from "@/src/hooks/use-auth-state";
 import { logout, deleteAccount } from "@/src/lib/auth-api";
-import { replayOnboarding } from "@/src/lib/onboarding";
+import { replayOnboarding, emitOnboardingReplay } from "@/src/lib/onboarding";
 import { showToast } from "@/src/components/Toast";
 import {
   cancelAllDailyReminders,
@@ -549,18 +549,33 @@ export default function SettingsScreen() {
             title="Replay Onboarding"
             subtitle="Show the welcome carousel and AI disclosure again."
             onPress={async () => {
-              // Reset the gates, leave the Settings screen back to a root
-              // tab, THEN (deferred) trigger the carousel. Showing the
-              // onboarding Modal over a screen that is simultaneously being
-              // popped was crashing the app in-session. Routing to a stable
-              // root first fixes it without touching onboarding persistence.
-              await replayOnboarding({ deferEmitMs: 450 });
-              router.replace("/(tabs)/prayer" as any);
+              // Reset the once-only gates (persistence only), then LEAVE the
+              // Settings screen so its native dismissal transition can run to
+              // completion. Only after that do we ask the OnboardingHost to
+              // present the carousel — the host defers the actual <Modal>
+              // presentation until transitions are idle. Presenting the Modal
+              // while Settings was still being dismissed caused overlapping
+              // native view-controller transitions and crashed on iOS; a
+              // fixed timer was non-deterministic and still overlapped on a
+              // real device. Serializing the two transitions is the fix.
+              await replayOnboarding(); // reset gates only
               showToast({
                 variant: "success",
                 title: "Onboarding will replay now.",
                 duration: 2200,
               });
+              const r = router as unknown as {
+                canGoBack?: () => boolean;
+                back: () => void;
+                replace: (href: string) => void;
+              };
+              if (r.canGoBack?.()) {
+                r.back();
+              } else {
+                r.replace("/(tabs)/prayer");
+              }
+              // Fire-and-forget — the host waits for the pop to settle.
+              void emitOnboardingReplay();
             }}
             right={<Chev />}
             testID="replay-onboarding-button"

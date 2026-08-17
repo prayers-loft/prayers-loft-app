@@ -16,6 +16,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   DeviceEventEmitter,
+  InteractionManager,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -69,6 +70,10 @@ export function OnboardingHost() {
   const [visible, setVisible] = useState(false);
   const [index, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView | null>(null);
+  // Serialization handles for the Replay flow so the native Modal is
+  // presented only after the Settings dismissal transition is fully idle.
+  const replayInteractionHandle = useRef<{ cancel?: () => void } | null>(null);
+  const replaySettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width } = Dimensions.get("window");
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -95,19 +100,43 @@ export function OnboardingHost() {
     })();
 
     // Listener — Settings → Developer Tools → Replay Onboarding emits this.
+    // The Replay flow first navigates AWAY from the Settings screen; that is
+    // a native screen-dismissal transition. Presenting our <Modal> while that
+    // transition is still running crashes iOS (overlapping view-controller
+    // presentations). So we defer the presentation until interactions/
+    // transitions are idle, then add one more frame + a short buffer to let
+    // the native VC dismissal fully commit before we present. This is
+    // deterministic (waits for the actual transition), unlike a fixed delay.
     const sub = DeviceEventEmitter.addListener(ONBOARDING_REPLAY_EVENT, () => {
       setIndex(0);
-      // Snap scroll back to first slide on next paint.
-      requestAnimationFrame(() => {
-        try {
-          scrollRef.current?.scrollTo({ x: 0, animated: false });
-        } catch {
-          // ignore
-        }
+      const startedAt = Date.now();
+      const handle = InteractionManager.runAfterInteractions(() => {
+        // Guarantee a floor of ~600ms from the emit (which fires right as the
+        // Settings pop begins) so the native pop/dismissal ALWAYS finishes
+        // before we present — even if InteractionManager reports idle early
+        // (react-native-screens transitions don't always register as
+        // interactions). If interactions take longer, we wait for them too.
+        const remaining = Math.max(0, 600 - (Date.now() - startedAt));
+        replaySettleTimer.current = setTimeout(() => {
+          try {
+            scrollRef.current?.scrollTo({ x: 0, animated: false });
+          } catch {
+            // ignore
+          }
+          showCarousel();
+        }, remaining);
       });
-      showCarousel();
+      replayInteractionHandle.current = handle;
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      try {
+        replayInteractionHandle.current?.cancel?.();
+      } catch {
+        // ignore
+      }
+      if (replaySettleTimer.current) clearTimeout(replaySettleTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

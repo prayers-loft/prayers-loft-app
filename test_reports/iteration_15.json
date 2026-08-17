@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only QA of the Replay Onboarding serialization fix on the live Expo web preview (https://exodus-build-preview.preview.emergentagent.com). Verified the full JS flow: Prayer header → settings-icon-button → Settings screen renders, scrolled to Developer Tools → tapped replay-onboarding-button → app navigated back to /prayer and, after the ~600ms InteractionManager+timer serialization, the onboarding <Modal> presented with testID 'onboarding', 'onboarding-brand' = 'Prayers Loft' and the first slide 'onboarding-title-scripture' visible. Completed the carousel by tapping onboarding-next x3 and onboarding-get-started; the modal dismissed cleanly and the app landed on /prayer with no red-box, no uncaught page errors, and no new console errors related to onboarding. Regression: Prayer, Scripture, and Walk tabs all render and are tappable after the flow. IMPORTANT LIMIT (per E1): the underlying iOS-native overlapping-view-controller crash CANNOT be reproduced on Playwright/web (no native VC layer). This run only confirms the JS flow is regression-free on web.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/01_home.jpg",
+    "/tmp/02_settings.jpg",
+    "/tmp/03_after_replay.jpg",
+    "/tmp/04_after_finish.jpg"
+  ],
+  "action_items": [
+    "iOS-native crash validation must be performed by the user on a physical iPhone dev-client — web preview cannot exercise the overlapping-view-controller code path."
+  ],
+  "critical_code_review_comments": [
+    "OnboardingHost.showCarousel is deterministic under Replay: it waits for InteractionManager.runAfterInteractions AND enforces a 600ms floor from emit, then presents the Modal. Cleanup on unmount cancels both the interaction handle and the settle timer (src/components/OnboardingCarousel.tsx:131-139) — good.",
+    "emitOnboardingReplay is fire-and-forget after router.back()/replace in settings.tsx:578, which is correct because OnboardingHost's listener queues presentation and never assumes the emit happens post-navigation. Under Playwright web, router.back() from Settings returns to /prayer and the carousel presents ~600ms later exactly as designed.",
+    "The webdriver auto-skip only affects the initial useEffect first-launch check (OnboardingCarousel.tsx:83-95); the DeviceEventEmitter Replay listener is unaffected, which is why the Replay flow is verifiable on web (as documented in previous iteration_14 note)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% for the JS flow verifiable on web"},
+  "seed_data_creation": "None. Guest mode was used as instructed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Replay Onboarding flow on web preview: (1) [data-testid=settings-icon-button] on the Prayer header. (2) Scroll to bottom of Settings — Developer Tools section. (3) [data-testid=replay-onboarding-button]. Wait ~1s. (4) Modal appears at [data-testid=onboarding] with brand [data-testid=onboarding-brand]='Prayers Loft' and first slide [data-testid=onboarding-title-scripture]. (5) [data-testid=onboarding-next] x3 → [data-testid=onboarding-get-started] dismisses and lands on /prayer. No console errors are related to this fix; existing warnings are the usual web-preview noise (expo-notifications unavailable on web, useNativeDriver JS fallback, shadow*/pointerEvents deprecations).",
+  "rca_of_issue": "N/A — no regression reproduced. The serialization design (reset gates → router.back() → emitOnboardingReplay() → listener defers to InteractionManager.runAfterInteractions + Math.max(0, 600 - elapsed) timeout → showCarousel()) executes cleanly end-to-end on web. The iOS-native crash root cause (RN <Modal> presented while Settings' UIViewController dismissal was still animating, producing overlapping VC transitions) is architecturally addressed by the deterministic wait, but final confirmation requires an on-device dev-client run."
+}

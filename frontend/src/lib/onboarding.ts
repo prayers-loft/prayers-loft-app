@@ -106,31 +106,28 @@ export async function resetFirstLaunchGates(): Promise<void> {
 }
 
 /**
- * Developer Tools — clear the once-only gates AND immediately re-trigger the
- * onboarding carousel without requiring a cold relaunch. Used by Settings →
- * Developer Tools → Replay Onboarding.
+ * Developer Tools — clear the once-only gates (Settings → Replay Onboarding).
+ * NOTE: this ONLY resets persistence. Presenting the carousel is a separate,
+ * deliberately-decoupled step (see emitOnboardingReplay) so the caller can
+ * finish navigating away from the Settings screen BEFORE the onboarding Modal
+ * is presented. Presenting the RN <Modal> while the Settings screen is still
+ * being dismissed causes overlapping native view-controller transitions,
+ * which crash on iOS.
  */
-export async function replayOnboarding(opts?: {
-  deferEmitMs?: number;
-}): Promise<void> {
+export async function replayOnboarding(): Promise<void> {
   await resetFirstLaunchGates();
-  const emit = async () => {
-    try {
-      const rn = await _rn();
-      rn.DeviceEventEmitter.emit(ONBOARDING_REPLAY_EVENT);
-    } catch {
-      // ignore — developer tools only
-    }
-  };
-  // Callers that are on a pushed screen (e.g. Settings) should navigate back
-  // to a root tab first and defer the emit so the onboarding Modal mounts
-  // over a stable root screen. Emitting synchronously while a screen is
-  // being popped caused a same-session navigation crash.
-  if (opts?.deferEmitMs && opts.deferEmitMs > 0) {
-    setTimeout(() => {
-      void emit();
-    }, opts.deferEmitMs);
-  } else {
-    await emit();
+}
+
+/**
+ * Fire the "show the carousel now" event. The OnboardingHost listener defers
+ * the actual native Modal presentation until in-flight navigation transitions
+ * are idle (InteractionManager), so emitting is safe even mid-navigation.
+ */
+export async function emitOnboardingReplay(): Promise<void> {
+  try {
+    const rn = await _rn();
+    rn.DeviceEventEmitter.emit(ONBOARDING_REPLAY_EVENT);
+  } catch {
+    // ignore — developer tools only
   }
 }
