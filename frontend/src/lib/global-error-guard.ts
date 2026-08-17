@@ -13,14 +13,15 @@
 //   • ALWAYS logs + persists the exact error (name/message/stack) so the
 //     concrete cause is recoverable on the next launch (Apple .crash files do
 //     not carry the JS message).
-//   • In DEV: delegates to the previous handler so the RedBox still appears.
-//   • In PRODUCTION: does NOT re-invoke the default handler for the error,
-//     so a single stray async error cannot abort the whole process. The app
-//     stays alive; the user sees a calm toast; we degrade instead of dying.
+//   • ALWAYS delegates to the previous (default) handler afterward — in dev
+//     the RedBox still appears; in production genuine fatals are NOT silently
+//     swallowed (they abort as RN intends). This is intentionally CAPTURE-ONLY.
 //
-// This mirrors the resilience posture already documented in
-// RootErrorBoundary, extended to the async path which was previously
-// unprotected.
+// History: this guard briefly suppressed production fatals to keep the app
+// alive while we diagnosed a release-only startup crash. That crash is now
+// fixed at its source (eager NativeEventEmitter in
+// react-native-keyboard-controller → lazy-init via patch-package), so the
+// guard has been narrowed back to capture-only and no longer suppresses.
 
 const LAST_ERROR_KEY = "prayersloft_last_fatal_error_v1";
 
@@ -92,7 +93,6 @@ export function installGlobalErrorGuard(): void {
     }
 
     // Always log + persist the concrete message so it is recoverable.
-    // eslint-disable-next-line no-console
     console.error(
       `[GlobalErrorGuard] ${isFatal ? "FATAL" : "non-fatal"}: ${name}: ${message}\n${stack}`,
     );
@@ -110,25 +110,13 @@ export function installGlobalErrorGuard(): void {
       return;
     }
 
-    // Production: keep the process alive. A single uncaught async error —
-    // especially during startup — must never SIGABRT the whole app. Surface a
-    // calm toast and degrade; the render-level RootErrorBoundary still handles
-    // render errors with its own recovery UI.
-    try {
-      // Lazy import avoids any module-load cycle with the Toast host.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { showToast } = require("@/src/components/Toast");
-      showToast?.({
-        variant: "error",
-        title: "Something went wrong",
-        message: "The app hit an unexpected error but is still running.",
-        duration: 6000,
-      });
-    } catch {
-      // ignore — never throw from the guard
-    }
-    // Intentionally do NOT call `previous(error, true)` here: the default RN
-    // handler calls RCTFatal, which aborts the process. Swallowing keeps the
-    // app alive; the error is already logged + persisted for diagnosis.
+    // Production: NARROWED to capture-only. We do NOT swallow errors — the
+    // root-cause of the startup crash (eager NativeEventEmitter in
+    // react-native-keyboard-controller) is now fixed at the source via a
+    // patch-package lazy-init patch, so suppression is no longer the fix.
+    // We always delegate to RN's default handler so genuine fatal errors are
+    // NOT silently swallowed; the capture above still persists the exact
+    // message so it can be surfaced on the next launch for diagnosis.
+    previous?.(error, isFatal);
   });
 }

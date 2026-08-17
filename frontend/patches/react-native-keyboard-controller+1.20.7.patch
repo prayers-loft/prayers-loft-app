@@ -1,0 +1,114 @@
+diff --git a/node_modules/react-native-keyboard-controller/lib/commonjs/bindings.native.js b/node_modules/react-native-keyboard-controller/lib/commonjs/bindings.native.js
+index cb5d838..2932cc0 100644
+--- a/node_modules/react-native-keyboard-controller/lib/commonjs/bindings.native.js
++++ b/node_modules/react-native-keyboard-controller/lib/commonjs/bindings.native.js
+@@ -17,9 +17,15 @@ const KeyboardControllerNative = exports.KeyboardControllerNative = RCTKeyboardC
+   }
+ });
+ const KEYBOARD_CONTROLLER_NAMESPACE = "KeyboardController::";
+-const eventEmitter = new _reactNative.NativeEventEmitter(KeyboardControllerNative);
++let _eventEmitter = null;
++const getEventEmitter = () => {
++  if (!_eventEmitter) {
++    _eventEmitter = new _reactNative.NativeEventEmitter(KeyboardControllerNative);
++  }
++  return _eventEmitter;
++};
+ const KeyboardEvents = exports.KeyboardEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ 
+ /**
+@@ -27,10 +33,10 @@ const KeyboardEvents = exports.KeyboardEvents = {
+  * Use it with cautious.
+  */
+ const FocusedInputEvents = exports.FocusedInputEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ const WindowDimensionsEvents = exports.WindowDimensionsEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ const KeyboardControllerView = exports.KeyboardControllerView = KeyboardControllerViewNativeComponentModule.default;
+ const KeyboardControllerViewCommands = exports.KeyboardControllerViewCommands = KeyboardControllerViewNativeComponentModule.Commands;
+diff --git a/node_modules/react-native-keyboard-controller/lib/module/bindings.native.js b/node_modules/react-native-keyboard-controller/lib/module/bindings.native.js
+index 77b9d54..d2348de 100644
+--- a/node_modules/react-native-keyboard-controller/lib/module/bindings.native.js
++++ b/node_modules/react-native-keyboard-controller/lib/module/bindings.native.js
+@@ -11,9 +11,15 @@ export const KeyboardControllerNative = RCTKeyboardController ? RCTKeyboardContr
+   }
+ });
+ const KEYBOARD_CONTROLLER_NAMESPACE = "KeyboardController::";
+-const eventEmitter = new NativeEventEmitter(KeyboardControllerNative);
++let _eventEmitter = null;
++const getEventEmitter = () => {
++  if (!_eventEmitter) {
++    _eventEmitter = new NativeEventEmitter(KeyboardControllerNative);
++  }
++  return _eventEmitter;
++};
+ export const KeyboardEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ 
+ /**
+@@ -21,10 +27,10 @@ export const KeyboardEvents = {
+  * Use it with cautious.
+  */
+ export const FocusedInputEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ export const WindowDimensionsEvents = {
+-  addListener: (name, cb) => eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
++  addListener: (name, cb) => getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb)
+ };
+ export const KeyboardControllerView = KeyboardControllerViewNativeComponentModule.default;
+ export const KeyboardControllerViewCommands = KeyboardControllerViewNativeComponentModule.Commands;
+diff --git a/node_modules/react-native-keyboard-controller/src/bindings.native.ts b/node_modules/react-native-keyboard-controller/src/bindings.native.ts
+index 011478a..96377ff 100644
+--- a/node_modules/react-native-keyboard-controller/src/bindings.native.ts
++++ b/node_modules/react-native-keyboard-controller/src/bindings.native.ts
+@@ -36,11 +36,23 @@ export const KeyboardControllerNative = (
+ ) as KeyboardControllerNativeModule;
+ 
+ const KEYBOARD_CONTROLLER_NAMESPACE = "KeyboardController::";
+-const eventEmitter = new NativeEventEmitter(KeyboardControllerNative);
++// PATCHED (patch-package): construct the NativeEventEmitter LAZILY. Building
++// it at module-eval time crashed the release/bridgeless (New Arch) startup —
++// the "KeyboardController" TurboModule is not yet registered when this module
++// is first imported, so the arg was null → "new NativeEventEmitter() requires
++// a non-null argument". Deferring construction to first use lets the module
++// register first.
++let _eventEmitter: NativeEventEmitter | null = null;
++const getEventEmitter = (): NativeEventEmitter => {
++  if (!_eventEmitter) {
++    _eventEmitter = new NativeEventEmitter(KeyboardControllerNative);
++  }
++  return _eventEmitter;
++};
+ 
+ export const KeyboardEvents: KeyboardEventsModule = {
+   addListener: (name, cb) =>
+-    eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
++    getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
+ };
+ 
+ /**
+@@ -49,11 +61,11 @@ export const KeyboardEvents: KeyboardEventsModule = {
+  */
+ export const FocusedInputEvents: FocusedInputEventsModule = {
+   addListener: (name, cb) =>
+-    eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
++    getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
+ };
+ export const WindowDimensionsEvents: WindowDimensionsEventsModule = {
+   addListener: (name, cb) =>
+-    eventEmitter.addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
++    getEventEmitter().addListener(KEYBOARD_CONTROLLER_NAMESPACE + name, cb),
+ };
+ export const KeyboardControllerView: React.FC<KeyboardControllerProps> =
+   KeyboardControllerViewNativeComponentModule.default;
