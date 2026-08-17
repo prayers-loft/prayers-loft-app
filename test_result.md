@@ -421,3 +421,20 @@ agent_communication:
         send + no duplicate; Scripture cross-chapter reference display (need a
         cross-chapter day — Day 2); Done for Today persistence + completed state
         + Pray/Journal availability; Replay Onboarding does not crash.
+
+  - agent: "main"
+    message: |
+      BUILD 22 regression add-on: Scripture progress persistence.
+      Added /app/backend/tests/test_build22_scripture_progress_persistence.py
+      (3 tests, pass locally). Verifies server-authoritative reading-plan
+      progress for signed-in users:
+      - GET /api/daily-verse READS current_day (never advances) → a user set
+        to Day N stays on Day N across reloads/dev-client restarts.
+      - App/build metadata (User-Agent, X-App-Version, X-Build-Number,
+        cache-bust query) does NOT reset or advance current_day.
+      - Reinstall/update: fresh login (new token/session) for same account
+        restores Day N.
+      - Local-calendar rule: no double-advance on same local day
+        (already_completed/stale no-ops), legitimate +1 on next local day.
+      No source code changed (behavior already correct; this locks it in).
+      Requesting testing_agent to independently run this regression.

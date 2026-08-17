@@ -1,0 +1,26 @@
+{
+  "summary": "Build 22 regression — Scripture reading-plan progress persistence for signed-in users. Ran /app/backend/tests/test_build22_scripture_progress_persistence.py (3 tests) against the deployed preview EXPO_PUBLIC_BACKEND_URL. All 3 tests passed in 4.14s. Also independently corroborated via curl: guest returns day=1/progress=null, GET /api/daily-verse READS current_day and never advances, POST /api/daily-verse/complete on same local_date returns status='already_completed' with no double-advance, and changed build metadata (User-Agent, X-App-Version, X-Build-Number) plus cache-busting query params do NOT affect current_day.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_build22_scripture_progress_persistence.py",
+    "/app/test_reports/pytest/build22_scripture_progress_persistence.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Each test run self-seeds a fresh random user TEST_e2e_<8-hex>@prayersloft-qa.com with password TestPass1234!. Uses far-future local_date values (2031-*, 2032-*) so runs do not collide.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Persistence guarantees verified: (owner_key, plan_id) keying is stable across reload, build metadata churn, and re-login. GET is a pure READ; POST advances only when day==current_day and not already completed on that local calendar date. Guest path (X-Guest-Id only) always returns day=1 / progress=null. XML report at /app/test_reports/pytest/build22_scripture_progress_persistence.xml.",
+  "rca_of_issue": "N/A — no bug. Regression add-on confirms existing server-authoritative behavior in /api/daily-verse and /api/daily-verse/complete is correct."
+}
