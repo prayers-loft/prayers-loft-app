@@ -1,0 +1,25 @@
+{
+  "summary": "Build 28 QA (frontend-only, signed-in Day-2): Verified the cross-chapter Scripture reference DISPLAY fix through the REAL Expo web preview using the seeded Day-2 account (build28-day2-qa@prayersloft-qa.com). Logged in via Settings → 'Keep My Journey Safe' → UpgradePromptSheet CTA → AuthSheet email flow → Sign In. Then navigated to Scripture tab and asserted the reference element WITHOUT scrolling to completion or tapping any Done/Mark Complete control. Result: scripture-passage-reference renders EXACTLY 'Genesis 1:26–31 & Genesis 2:1–3' (en-dash U+2013 inside each range, joined by ' & '); scripture-day-headline shows 'Today's Reading · Day 2'; the raw compact form 'Genesis 1:26-2:3' is NOT displayed; scripture-completion-card is absent (reading was NOT marked complete, so the account remains on Day 2). Cross-chapter display fix verified end-to-end on the live frontend.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/screenshots/b28_scripture.jpg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings → 'Keep My Journey Safe' opens an intermediate UpgradePromptSheet (testID upgrade-prompt-sheet) before the AuthSheet — this is expected behaviour but worth documenting for future test agents so they don't assume the AuthSheet opens directly.",
+    "OnboardingCarousel auto-skips when navigator.webdriver is true (src/components/OnboardingCarousel.tsx:83). This is why the 'Replay Onboarding no-crash' path is NOT verifiable under Playwright and must be tested on a physical device."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None. Used the pre-existing seeded Day-2 QA account documented in /app/memory/test_credentials.md.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To sign in via the real UI on the Expo web preview: (1) tap [data-testid=settings-icon-button] in the header; (2) tap [data-testid=create-account-button] (guest card); (3) IMPORTANT — this opens [data-testid=upgrade-prompt-sheet] first, tap [data-testid=upgrade-prompt-cta] to actually open the AuthSheet; (4) [data-testid=auth-email-btn] → fill [data-testid=auth-input-email]/[data-testid=auth-input-password] → confirm submit label is 'Sign In' (toggle via [data-testid=auth-switch-mode] if it says 'Create Account') → [data-testid=auth-submit]. Wait for [data-testid=signed-in-card]. Then go back and use [data-testid=tab-scripture]. The Scripture reference lives at [data-testid=scripture-passage-reference] and the day headline at [data-testid=scripture-day-headline]. DO NOT tap [data-testid=scripture-mark-complete-button] or save a reflection with the Day-2 QA account or it will advance to Day 3.",
+  "rca_of_issue": "N/A — no issue reproduced. Observed live values: scripture-passage-reference = 'Genesis 1:26\\u201331 & Genesis 2:1\\u20133', scripture-day-headline contains 'Day 2', scripture-completion-card not rendered. Confirms formatReadingReference() in /app/frontend/app/(tabs)/scripture.tsx (lines 108–119) correctly reformats the canonical compact reference 'Genesis 1:26-2:3' into the human-readable cross-chapter form on the real signed-in Day-2 client."
+}
