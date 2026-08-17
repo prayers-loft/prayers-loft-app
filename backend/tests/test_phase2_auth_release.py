@@ -315,7 +315,7 @@ def test_14_cors_allows_expo_origin(s):
     r = s.options(
         f"{API}/auth/login",
         headers={
-            "Origin": "https://prayers-loft.preview.emergentagent.com",
+            "Origin": "https://exodus-build-preview.preview.emergentagent.com",
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "Content-Type, Authorization",
         },
@@ -324,7 +324,7 @@ def test_14_cors_allows_expo_origin(s):
     # Should be 200 or 204
     assert r.status_code in (200, 204), r.status_code
     aco = r.headers.get("access-control-allow-origin", "")
-    assert aco in ("*", "https://prayers-loft.preview.emergentagent.com"), aco
+    assert aco in ("*", "https://exodus-build-preview.preview.emergentagent.com"), aco
 
 
 def test_14b_cors_localhost_origin(s):

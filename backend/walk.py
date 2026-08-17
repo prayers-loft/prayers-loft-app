@@ -336,6 +336,10 @@ Rules for growth observations:
 Do it rarely, do it well.
 
 ===
+MEMORY INTEGRITY — NEVER FABRICATE
+Everything you claim to remember must come from the CONTEXT LEDGER you are given for this person. If a memory is not in that ledger, you do not have it. Never invent, infer, reconstruct, embellish, or guess a past conversation, event, person, activity, or detail. Phrases like "I remember", "Last time", "You told me", or "We talked about" may ONLY be used for content actually in the ledger. If someone asks whether you remember something you have no record of, do not manufacture a memory and do not offer a different one instead: say honestly that you don't have a reliable memory of it and ask them to remind you. No evidence in the ledger means no memory claim.
+
+===
 HOW TO REFLECT (WITHOUT SOUNDING LIKE AN ASSISTANT)
 NEVER quote the person back to themselves. The following phrasings are BANNED — they expose the mechanics and turn you into a chat log:
 
@@ -454,27 +458,28 @@ Return ONLY the JSON object. No preamble. No trailing commentary.
 # =============================================================================
 SUMMARY_PROMPT = """You are helping a discipleship companion remember the SPIRITUAL MOVEMENT of a past conversation — never the chat history. Given the completed conversation below, write ONE sentence (no more than 30 words) that captures the pastoral arc: what shifted in them, what God met them in, what theme they were carrying, what small movement of heart happened.
 
-Write it in the third person (implied subject "they"), present-tense, warm and specific. Remember: growth, themes, prayers, lessons, victories, recurring struggles — NOT what topic they talked about.
+Address the person DIRECTLY in the second person ("you"), warm and specific. This sentence is shown back to the person on their Walk landing screen right after the words "Last time,", so it must read naturally as something said TO them, not ABOUT them. Remember: growth, themes, prayers, lessons, victories, recurring struggles — NOT what topic they talked about.
 
 STRICT rules:
+- Write in the SECOND person. The subject is "you". NEVER use "they", "the user", "the person", "he", or "she".
 - Never quote the person's own words. Paraphrase the MEANING, not the transcript.
-- Never begin with "The user…", "You…", "They said…", "You said…", "You mentioned…", "You told me…", "Earlier you shared…", "Last time you said…", or any label that reads like a chat log.
-- Start with a present-participle or present-tense verb naming the movement of heart (e.g. "Wrestling with…", "Grieving…", "Choosing…", "Turning toward…", "Sitting with…", "Coming to peace with…", "Learning to trust…", "Naming a pattern of…").
-- Do not repeat words or phrases (no "wrestling with wrestling with"). Read the sentence back — if it stumbles, rewrite it.
+- Never begin with "You said…", "You mentioned…", "You told me…", "Earlier you shared…", "Last time you said…", or any label that reads like a chat log.
+- Start with the movement of heart (e.g. "You were wrestling with…", "You were grieving…", "You chose…", "You were turning toward…", "You were sitting with…", "You came to peace with…", "You were learning to trust…", "You named a pattern of…").
+- Do not repeat words or phrases. Read the sentence back — if it stumbles, rewrite it.
 - Use plain sentences. No headers, no bullets, no quotation marks, no markdown.
 
-Good examples (spiritual movement, not chat topic):
-- "Wrestling with dryness in prayer and quietly wondering if God still notices them."
-- "Grieving the death of a father three weeks ago; feeling numb rather than angry."
-- "Choosing obedience even when temptation felt strong, and asking for God's grace to keep choosing it."
-- "Turning toward confession instead of hiding after a difficult week."
-- "Coming to peace with an unanswered prayer while still hoping."
-- "Learning to bring anxiety to God instead of white-knuckling it alone."
+Good examples (second person, spiritual movement — not chat topic):
+- "You were wrestling with dryness in prayer and quietly wondering if God still notices you."
+- "You were grieving the death of your father three weeks ago, feeling numb rather than angry."
+- "You chose obedience even when temptation felt strong, and asked for God's grace to keep choosing it."
+- "You were turning toward confession instead of hiding after a difficult week."
+- "You were coming to peace with an unanswered prayer while still hoping."
+- "You were learning to bring anxiety to God instead of white-knuckling it alone."
 
 Bad examples:
-- "The user talked about their job." (too vague — no movement named)
-- "You said you avoided inappropriate content." (transcript-style — banned; also not the movement)
-- "You reflected on anxiety and I offered Philippians 4:6-7 with a commitment to read it tomorrow morning." (too mechanical, describes the chat not the heart)
+- "They talked about their job." (third person — banned; also too vague)
+- "The user reflected on anxiety." (third person — banned)
+- "You said you avoided inappropriate content." (transcript-style — banned)
 
 Return ONLY the sentence. No preamble.
 """
@@ -1042,13 +1047,15 @@ def _sanitize_summary(text: Optional[str]) -> Optional[str]:
     s = re.sub(r"\s{2,}", " ", s).strip()
     # Drop trailing stray punctuation clusters (",.", ". .", ";." etc.).
     s = re.sub(r"[\s,;:]+([.!?])$", r"\1", s)
-    # Belt-and-braces: after cleaning, if the summary still addresses the
-    # user in the second person ("you were…", "you have…", "you're…") or
-    # opens with a bare conjunction fragment ("That…", "And…"), it failed
-    # the "third-person, meaning-based" rule. Refuse rather than render a
-    # broken pastoral line — silence is more faithful than a chat-log echo.
+    # Belt-and-braces: after cleaning, the summary MUST address the user in
+    # the second person ("You were…", "You've been…"), because it renders on
+    # the landing card right after "Last time,". Reject THIRD-person phrasing
+    # that talks ABOUT the user ("They were…", "The user…", "He/She…") or a
+    # bare conjunction fragment ("That…", "And…") — those failed the
+    # "second-person, meaning-based" rule. Silence is more faithful than a
+    # line that talks about the user instead of to them.
     lowered_after = s.lower().lstrip("\"'\u201c\u2018 ")
-    if re.match(r"^you\s+(?:were|have|had|are|were|will|used|kept|shared|said|mentioned|told|feel|felt|thought)\b", lowered_after):
+    if re.match(r"^(?:they|the\s+user|the\s+person|he|she)\b", lowered_after):
         return None
     if re.match(r"^(?:that|and|but|so|because|which|who)\b", lowered_after):
         return None
@@ -1068,7 +1075,13 @@ def _format_memory_for_context(memory: List[dict]) -> str:
     """Produce a compact, natural-language ledger for the model. Never a list
     of raw JSON — Claude follows tone better when context reads as prose."""
     if not memory:
-        return "No prior memory yet."
+        return (
+            "No prior memory yet. You have NO stored record of any past "
+            "conversation with this person. Do not claim to remember anything, "
+            "do not say 'last time' or 'you told me', and if they reference a "
+            "past conversation, say you don't have a reliable memory of it "
+            "rather than inventing one."
+        )
     lines: List[str] = []
     for m in memory[:15]:
         kind = m["kind"]
@@ -1088,6 +1101,20 @@ def _build_session_system_message(
 ) -> str:
     ledger = _format_memory_for_context(memory)
     lines: List[str] = [SYSTEM_PROMPT, "", "===", "CONTEXT LEDGER", ledger]
+    lines += [
+        "",
+        "===",
+        "MEMORY GROUNDING (STRICT)",
+        (
+            "The CONTEXT LEDGER above is the ONLY record you have of this "
+            "person. Anything you claim to remember must come from it. Never "
+            "invent, infer, embellish, or guess a past conversation, event, "
+            "person, activity, or detail that is not written there. If they "
+            "reference something you have no record of, say plainly you don't "
+            "have a reliable memory of it and ask them to remind you — never "
+            "manufacture a memory and never offer a substitute one."
+        ),
+    ]
     if recent_summaries:
         lines += [
             "",
@@ -1643,7 +1670,7 @@ def build_walk_router(
                             )
                     except Exception:  # noqa: BLE001
                         pass
-                yield f'event: done\ndata: {{"message_id":"{assistant_msg_id}"}}\n\n'
+                yield f'event: done\ndata: {{"message_id":"{assistant_msg_id}","stance":"{v5_stance or ""}","closing":{"true" if v5_closing_shape is not None else "false"}}}\n\n'
 
         return StreamingResponse(
             _event_gen(),

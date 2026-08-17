@@ -31,7 +31,7 @@ def _from_address() -> str:
 
 
 def _public_url() -> str:
-    return os.environ.get("APP_PUBLIC_URL", "https://prayers-loft.preview.emergentagent.com").rstrip("/")
+    return os.environ.get("APP_PUBLIC_URL", "https://exodus-build-preview.preview.emergentagent.com").rstrip("/")
 
 
 def _reset_html(reset_url: str) -> str:

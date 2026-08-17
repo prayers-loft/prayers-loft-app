@@ -29,7 +29,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://exodus-build-preview.preview.emergentagent.com"
       }
     },
     "android-preview": {
@@ -40,7 +40,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://prayers-loft.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://exodus-build-preview.preview.emergentagent.com"
       }
     },
     "testflight": {

@@ -92,6 +92,13 @@ export default function WalkConversationScreen() {
 
   const abortRef = useRef<(() => void) | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
+  // Guards a same-turn double submit while a send is being dispatched.
+  const sendingRef = useRef(false);
+  // Holds the latest closeAndExtract so the memoized `send` callback can
+  // trigger the closing/memory transition on a close-gate without taking
+  // closeAndExtract as a dependency (it is defined further down).
+  const closeAndExtractRef = useRef<(() => void) | null>(null);
 
   // Start a new session on mount.
   useEffect(() => {
@@ -142,7 +149,18 @@ export default function WalkConversationScreen() {
   const send = useCallback(() => {
     const text = pendingText.trim();
     if (!text || !sessionId || phase !== "ready") return;
+    // Block a duplicate submission while this one is being dispatched.
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    // Clear the composer IMMEDIATELY — both the controlled state and the
+    // native buffer. On some Android IME/composition states a controlled
+    // reset to "" does not visually clear a multiline TextInput, so we
+    // also call the imperative .clear() as a belt to the braces. We never
+    // wait for the AI response to clear the input.
     setPendingText("");
+    try {
+      inputRef.current?.clear();
+    } catch {}
     setError(null);
     // Optimistically append the user turn — the backend has already persisted it.
     setMessages((prev) => [
@@ -162,20 +180,35 @@ export default function WalkConversationScreen() {
         accumulated += chunk;
         setStreamBuffer(accumulated);
       },
-      onDone: (messageId) => {
+      onDone: (info) => {
+        sendingRef.current = false;
         setMessages((prev) => [
           ...prev,
           {
-            id: messageId || `local-${Date.now()}`,
+            id: info?.messageId || `local-${Date.now()}`,
             role: "assistant",
             content: accumulated,
             at: new Date().toISOString(),
           },
         ]);
         setStreamBuffer("");
+        // Close-gate satisfied: the backend chose the CLOSE stance and
+        // finalized this conversation. Transition straight into the
+        // closing / memory state instead of leaving the composer open —
+        // this prevents the "See you next time." → "See ya." goodbye loop
+        // and surfaces the "Take a breath" panel automatically.
+        if (info?.closing) {
+          setPhase("ready");
+          // Let the closing message paint first, then extract + show panel.
+          setTimeout(() => {
+            closeAndExtractRef.current?.();
+          }, 450);
+          return;
+        }
         setPhase("ready");
       },
       onError: (e) => {
+        sendingRef.current = false;
         // Preserve whatever partial text we got.
         if (accumulated) {
           setMessages((prev) => [
@@ -225,6 +258,24 @@ export default function WalkConversationScreen() {
       setPhase("ended");
     }
   }, [sessionId, router]);
+
+  // Keep the ref pointing at the latest closeAndExtract so `send` can invoke
+  // it on a close-gate without a dependency cycle.
+  closeAndExtractRef.current = closeAndExtract;
+
+  // When the conversation transitions into the ended / memory state, bring
+  // the "Take a breath" panel into view automatically. Without this the
+  // panel is appended below the transcript and the user stays at their
+  // current scroll position, making it look like nothing happened.
+  useEffect(() => {
+    if (phase === "ended") {
+      const t = setTimeout(
+        () => scrollRef.current?.scrollToEnd({ animated: true }),
+        120,
+      );
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
 
   // Fire /end in the background so a "Leave conversation" tap can navigate
   // instantly while the server still runs extraction. Nothing awaits this.
@@ -500,6 +551,7 @@ export default function WalkConversationScreen() {
             ]}
           >
             <TextInput
+              ref={inputRef}
               value={pendingText}
               onChangeText={setPendingText}
               placeholder="Share what's on your heart…"

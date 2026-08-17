@@ -364,3 +364,60 @@ agent_communication:
       first message stream/persist, close-btn gating, ended panel, Done
       routing incl. deep-link, fresh session on reopen, V4 fallback, crisis,
       no duplicate sessions/messages, no Walk V5 backend edits).
+
+  - agent: "main"
+    message: |
+      BUILD 22 QA PASS — 10 issues fixed in one pass. No new build number.
+
+      BACKEND (walk.py, walk_v5.py):
+      - Issue 7 (fabrication): Added EVIDENCE-ENFORCED "MEMORY GROUNDING"
+        block. In walk_v5 TurnDirective.render() the block branches on whether
+        build_memory_recap() returned content (i.e. whether owner-scoped
+        summaries/active_memory were actually retrieved): empty => explicit
+        "You have NO stored record… never invent/reconstruct" directive;
+        populated => "the block above is the ONLY record you have…". Same in
+        v4 _build_session_system_message + _format_memory_for_context. Added a
+        permanent "MEMORY INTEGRITY — NEVER FABRICATE" invariant to both
+        WALK_VOICE_PROMPT_V5 and v4 SYSTEM_PROMPT. Memory queries were already
+        strictly owner-scoped (u:<uid>/g:<gid>).
+      - Issue 6 (3rd-person copy): SUMMARY_PROMPT now generates SECOND-PERSON
+        summaries ("You were wrestling with…"); _sanitize_summary flipped to
+        accept second person and REJECT third person ("They…/The user…/He/She").
+        Landing renders "Last time, you were…". Not a frontend string replace.
+      - Issue 9/10: "Last time" still sources only from most-recent ended
+        session summary (hardened, never falls back to a memory item). Landing
+        shows most-recent 1–2 active items per section (frontend, non-destructive
+        per user decision (b)); full history stays in Manage Walk Memory.
+      - Issue 5: /message done SSE event now includes {"stance","closing"}.
+
+      FRONTEND:
+      - Issue 1 (Replay Onboarding crash): settings now leaves to /(tabs)/prayer
+        then defers the ONBOARDING_REPLAY_EVENT emit 450ms so the carousel
+        Modal mounts over a stable root (replayOnboarding({deferEmitMs})).
+      - Issue 4 (Begin→Continue flicker): walk.tsx renders a neutral skeleton
+        hero until landing resolves; never shows Begin/Continue while unknown.
+      - Issue 5 (closing below viewport + goodbye loop): auto-scroll to "Take a
+        breath" when phase==="ended"; onDone with closing===true auto-transitions
+        to closeAndExtract (no more "see ya" loop).
+      - Issue 8 (input not clearing): send() clears state + inputRef.clear()
+        immediately; sendingRef guards duplicate submit.
+      - Issue 2 (cross-chapter ref): scripture.tsx formatReadingReference()
+        renders "Genesis 1:26–31 & Genesis 2:1–3" from passage verses. Display
+        only — canonical data/progression untouched.
+      - Issue 3 (Done for Today): persisted per local calendar date
+        (prayersloft_walk_done_date_v1); shows "✓ Today's walk is complete"
+        toast + badge; sheet Done row becomes non-interactive "✓ Done for Today"
+        same day; Pray/Journal still available; resets next local day; does NOT
+        advance reading plan.
+
+      TESTS: added tests/test_build22_qa_fixes.py (13 passed). Existing walk
+      suite 155 passed. 
+
+      Focus for testing_agent (backend + deterministic frontend):
+      - Backend: GET /api/walk/landing returns second-person "Last time,"
+        callback_hint when a prior summary exists; memory endpoints owner-scoped;
+        /message SSE done event carries stance/closing.
+      - Frontend: Walk landing no Begin→Continue flicker; Walk input clears on
+        send + no duplicate; Scripture cross-chapter reference display (need a
+        cross-chapter day — Day 2); Done for Today persistence + completed state
+        + Pray/Journal availability; Replay Onboarding does not crash.

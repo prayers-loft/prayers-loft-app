@@ -13,7 +13,7 @@ import uuid
 import requests
 from playwright.async_api import async_playwright
 
-BACKEND = "https://prayers-loft.preview.emergentagent.com"
+BACKEND = "https://exodus-build-preview.preview.emergentagent.com"
 FRONTEND = "http://localhost:3000/scripture"
 
 results = {}

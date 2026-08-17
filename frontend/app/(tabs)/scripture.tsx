@@ -58,6 +58,7 @@ import { ConversionTrigger, track } from "@/src/lib/analytics";
 import { forceUpgradePrompt } from "@/src/components/UpgradePromptHost";
 import { useAuthState } from "@/src/hooks/use-auth-state";
 import { EmptyState } from "@/src/components/EmptyState";
+import { storage } from "@/src/utils/storage";
 import { DAILY_VERSE_ERROR } from "@/src/lib/empty-state-copy";
 
 // -----------------------------------------------------------------------------
@@ -91,6 +92,33 @@ function groupByChapter(passage: DailyVerseResponse["passage"]) {
   return groups;
 }
 
+// Storage key for the per-local-date "Done for Today" (Walk) completion flag.
+const WALK_DONE_KEY = "prayersloft_walk_done_date_v1";
+
+// Display-only formatting for the "Today's Reading" reference.
+//
+// Canonical data stores cross-chapter readings compactly, e.g.
+// "Genesis 1:26-2:3". That compact form is confusing at a glance, so when a
+// reading crosses chapters we render each chapter's span explicitly and join
+// them with " & ", derived purely from the passage verses we already have:
+//   "Genesis 1:26-2:3"  ->  "Genesis 1:26–31 & Genesis 2:1–3"
+// Same-chapter ranges are left exactly as the canonical `reference` string.
+// This NEVER touches canonical data, passage assignments, current_day, or
+// progression — it only changes what the ref line shows.
+function formatReadingReference(data: DailyVerseResponse): string {
+  const groups = groupByChapter(data.passage);
+  if (groups.length <= 1) return data.reference;
+  const book = data.book_name;
+  const parts = groups.map((g) => {
+    const first = g.verses[0].verse;
+    const last = g.verses[g.verses.length - 1].verse;
+    const range = first === last ? `${first}` : `${first}\u2013${last}`;
+    return `${book} ${g.chapter}:${range}`;
+  });
+  return parts.join(" & ");
+}
+
+
 // -----------------------------------------------------------------------------
 // Screen
 // -----------------------------------------------------------------------------
@@ -115,6 +143,12 @@ export default function ScriptureScreen() {
   const [passageExpanded, setPassageExpanded] = useState<boolean>(false);
   const [overviewExpanded, setOverviewExpanded] = useState<boolean>(false);
   const [readingComplete, setReadingComplete] = useState<boolean>(false);
+  // "Done for Today" — a per-local-calendar-date completion flag for the
+  // Walk step. Persisted so it survives navigation and app restarts, and
+  // resets automatically on the next local calendar day. This does NOT
+  // advance the reading plan — progression stays governed by the local
+  // calendar day, exactly as before.
+  const [walkDoneToday, setWalkDoneToday] = useState<boolean>(false);
   const fade = useRef(new Animated.Value(0)).current;
   const completeFade = useRef(new Animated.Value(0)).current;
 
@@ -402,6 +436,49 @@ export default function ScriptureScreen() {
   const [continueSheetOpen, setContinueSheetOpen] = useState(false);
   const openContinueSheet = useCallback(() => setContinueSheetOpen(true), []);
   const closeContinueSheet = useCallback(() => setContinueSheetOpen(false), []);
+
+  // "Done for Today" persistence — keyed to the local calendar date so it
+  // resets on the next day. Read on focus so the completed state is correct
+  // whenever the Scripture tab is shown (and after midnight rollover).
+  const syncWalkDone = useCallback(async () => {
+    try {
+      const today = localDateInTz(detectTimezone());
+      const stored = await storage.getItem(WALK_DONE_KEY, "");
+      setWalkDoneToday(stored === today);
+    } catch {
+      setWalkDoneToday(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    syncWalkDone();
+  }, [syncWalkDone]);
+
+  useFocusEffect(
+    useCallback(() => {
+      syncWalkDone();
+    }, [syncWalkDone]),
+  );
+
+  const handleDoneForToday = useCallback(async () => {
+    // Guard: already done today → no-op (the row is non-interactive anyway).
+    if (walkDoneToday) return;
+    const today = localDateInTz(detectTimezone());
+    try {
+      await storage.setItem(WALK_DONE_KEY, today);
+    } catch {
+      // Persistence failure must not block the confirmation — worst case
+      // the flag is re-shown next launch, which is harmless.
+    }
+    setWalkDoneToday(true);
+    closeContinueSheet();
+    showToast({
+      variant: "success",
+      title: "✓ Today's walk is complete",
+      duration: 2600,
+    });
+  }, [walkDoneToday, closeContinueSheet]);
+
   const goPray = useCallback(() => {
     closeContinueSheet();
     router.push("/(tabs)/prayer" as any);
@@ -476,7 +553,7 @@ export default function ScriptureScreen() {
                 <Text style={styles.dayLineMuted}>· Day {data.day}</Text>
               </Text>
               <Text style={styles.passageRefHero} testID="scripture-passage-reference">
-                {data.reference}
+                {formatReadingReference(data)}
               </Text>
               <View style={styles.metaRow} testID="scripture-meta-row">
                 <View style={styles.chipRow} testID="scripture-meta-chips">
@@ -716,6 +793,14 @@ export default function ScriptureScreen() {
               <Text style={styles.completionCtaText}>Continue Your Walk</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.accent} />
             </Pressable>
+            {walkDoneToday && (
+              <Text
+                style={styles.walkDoneBadge}
+                testID="scripture-walk-done-badge"
+              >
+                ✓ Today&rsquo;s walk is complete
+              </Text>
+            )}
           </Animated.View>
         )}
       </KeyboardAwareScrollView>
@@ -787,16 +872,32 @@ export default function ScriptureScreen() {
             </Pressable>
 
             <Pressable
-              onPress={closeContinueSheet}
-              style={[styles.sheetRow, styles.sheetRowDone]}
+              onPress={walkDoneToday ? undefined : handleDoneForToday}
+              disabled={walkDoneToday}
+              style={[
+                styles.sheetRow,
+                styles.sheetRowDone,
+                walkDoneToday && styles.sheetRowDoneComplete,
+              ]}
               testID="scripture-continue-sheet-done"
               accessibilityRole="button"
-              accessibilityLabel="Done for today"
+              accessibilityState={{ disabled: walkDoneToday }}
+              accessibilityLabel={
+                walkDoneToday ? "Done for today, completed" : "Done for today"
+              }
             >
-              <Text style={styles.sheetRowIcon}>✕</Text>
+              <Text style={styles.sheetRowIcon}>
+                {walkDoneToday ? "✓" : "✕"}
+              </Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sheetRowTitle}>Done for Today</Text>
-                <Text style={styles.sheetRowHelp}>Close this and rest.</Text>
+                <Text style={styles.sheetRowTitle}>
+                  {walkDoneToday ? "✓ Done for Today" : "Done for Today"}
+                </Text>
+                <Text style={styles.sheetRowHelp}>
+                  {walkDoneToday
+                    ? "Today's walk is complete. Rest well."
+                    : "Mark today's walk complete and rest."}
+                </Text>
               </View>
             </Pressable>
           </Pressable>
@@ -1126,6 +1227,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     opacity: 0.75,
   },
+  sheetRowDoneComplete: {
+    opacity: 1,
+    backgroundColor: "rgba(212,175,110,0.10)",
+    borderRadius: 14,
+  },
   sheetRowIcon: {
     fontSize: 20,
     width: 26,
@@ -1216,6 +1322,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.accent,
     letterSpacing: 0.5,
+  },
+  walkDoneBadge: {
+    marginTop: 12,
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.accent,
+    letterSpacing: 0.3,
   },
 
   // Loading skeleton

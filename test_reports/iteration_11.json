@@ -1,5 +1,5 @@
 {
-  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://prayers-loft.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
+  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://exodus-build-preview.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
   "backend_issues": { "critical": [], "minor": [] },
   "frontend_issues": {
     "ui_bugs": [],

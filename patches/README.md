@@ -96,7 +96,7 @@ git push origin release/build-26-canonical-plan
 ```bash
 # Backend tests (296 pass, 5 skipped in Emergent workspace):
 cd backend
-EXPO_PUBLIC_BACKEND_URL=https://prayers-loft.preview.emergentagent.com python -m pytest tests/ -q
+EXPO_PUBLIC_BACKEND_URL=https://exodus-build-preview.preview.emergentagent.com python -m pytest tests/ -q
 
 # Frontend lint:
 cd frontend

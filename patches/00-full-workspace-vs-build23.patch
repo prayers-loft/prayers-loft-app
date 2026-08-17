@@ -133,11 +133,11 @@ index 00000000..94d025ec
 +# Managed by Emergent webhook-cron (pod-local syscron). DO NOT EDIT.
 +SHELL=/bin/sh
 +PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-+JOB_ID=31ae838c-cc50-49ab-a7d7-3172d2474d69
++JOB_ID=exodus-build-preview
 +WEBHOOK_ENV_FILE=/app/backend/.env
 +CRON_API_URL=https://ea.int.apis.emergentagent.com
 +
-+* * * * * root JOB_ID=31ae838c-cc50-49ab-a7d7-3172d2474d69 CRON_API_URL=https://ea.int.apis.emergentagent.com /bin/sh /app/.emergent/cron/watch_crons.sh >> /var/log/webhook-cron.log 2>&1
++* * * * * root JOB_ID=exodus-build-preview CRON_API_URL=https://ea.int.apis.emergentagent.com /bin/sh /app/.emergent/cron/watch_crons.sh >> /var/log/webhook-cron.log 2>&1
 diff --git a/.emergent/cron/webhook_crond.sh b/.emergent/cron/webhook_crond.sh
 new file mode 100755
 index 00000000..d82b5998
@@ -278148,7 +278148,7 @@ index 00000000..1d7cd1e0
 +++ b/test_reports/iteration_11.json
 @@ -0,0 +1,58 @@
 +{
-+  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://prayers-loft.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
++  "summary": "Frontend-only regression on the Scripture tab (self-paced progression). All 4 required scenarios PASS at 390x844 against http://localhost:3000/scripture with backend https://exodus-build-preview.preview.emergentagent.com. GET /api/daily-verse never advances the user's day; only POST /api/daily-verse/complete does. Guests can complete locally but the server writes no progress (status='guest', progress=null).",
 +  "backend_issues": { "critical": [], "minor": [] },
 +  "frontend_issues": {
 +    "ui_bugs": [],
@@ -278244,7 +278244,7 @@ index 00000000..7f0bac27
 +  "seed_data_creation": "Each test session is namespaced by the per-browser localStorage guest id (prayersloft_guest_id). No shared/production data was mutated. Test-created walk_sessions/walk_memory rows remain scoped to their generated guest_id.",
 +  "retest_needed": false,
 +  "should_main_agent_self_test": false,
-+  "context_for_next_testing_agent": "Frontend runs at http://localhost:3000 with EXPO_PUBLIC_BACKEND_URL pointing at https://prayers-loft.preview.emergentagent.com (so the frontend does NOT proxy /api through localhost:3000 — direct fetch('/api/...') from page.evaluate returns the Metro HTML). Always call the backend with the absolute preview URL when doing programmatic GET/POST from the browser context. Also, the guest identity key in localStorage is 'prayersloft_guest_id' (see /app/frontend/src/lib/guest-identity.ts) — do NOT iterate localStorage keys generically; grab that exact key. Scenario 9 requires flipping WALK_PROMPT_VERSION in /app/backend/.env and restarting backend via supervisorctl; be sure to restore v5 and verify `git diff /app/backend/.env` is empty at the end.",
++  "context_for_next_testing_agent": "Frontend runs at http://localhost:3000 with EXPO_PUBLIC_BACKEND_URL pointing at https://exodus-build-preview.preview.emergentagent.com (so the frontend does NOT proxy /api through localhost:3000 — direct fetch('/api/...') from page.evaluate returns the Metro HTML). Always call the backend with the absolute preview URL when doing programmatic GET/POST from the browser context. Also, the guest identity key in localStorage is 'prayersloft_guest_id' (see /app/frontend/src/lib/guest-identity.ts) — do NOT iterate localStorage keys generically; grab that exact key. Scenario 9 requires flipping WALK_PROMPT_VERSION in /app/backend/.env and restarting backend via supervisorctl; be sure to restore v5 and verify `git diff /app/backend/.env` is empty at the end.",
 +  "rca_of_issue": "N/A — no regressions found in this pass. The four frontend fixes made by the main agent (static greeting hero, opener gate, user-role close-session gate, deterministic router.replace on Done) all behave per spec across V5, V4-fallback, normal-push, and deep-link scenarios."
 +}
 diff --git a/test_reports/screenshots/s4_no_mark.jpg b/test_reports/screenshots/s4_no_mark.jpg
@@ -278692,7 +278692,7 @@ index 00000000..8b931cef
 +import requests
 +from playwright.async_api import async_playwright
 +
-+BACKEND = "https://prayers-loft.preview.emergentagent.com"
++BACKEND = "https://exodus-build-preview.preview.emergentagent.com"
 +FRONTEND = "http://localhost:3000/scripture"
 +
 +results = {}

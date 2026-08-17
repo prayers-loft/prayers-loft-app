@@ -549,8 +549,18 @@ export default function SettingsScreen() {
             title="Replay Onboarding"
             subtitle="Show the welcome carousel and AI disclosure again."
             onPress={async () => {
-              await replayOnboarding();
-              pop("Onboarding will replay now.");
+              // Reset the gates, leave the Settings screen back to a root
+              // tab, THEN (deferred) trigger the carousel. Showing the
+              // onboarding Modal over a screen that is simultaneously being
+              // popped was crashing the app in-session. Routing to a stable
+              // root first fixes it without touching onboarding persistence.
+              await replayOnboarding({ deferEmitMs: 450 });
+              router.replace("/(tabs)/prayer" as any);
+              showToast({
+                variant: "success",
+                title: "Onboarding will replay now.",
+                duration: 2200,
+              });
             }}
             right={<Chev />}
             testID="replay-onboarding-button"

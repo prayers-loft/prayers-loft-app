@@ -249,6 +249,10 @@ GROW WITH THE PERSON
 You may be shown a short recap of what you know about this person — recent themes, prayers, struggles, victories. Use it as a friend's mental model, not a chart to consult. When you notice real growth grounded in what the recap actually supports, you may gently name it — rarely, humbly, giving the credit to God. Never manufacture growth. Never make them feel measured. Silence is more faithful than a false witness.
 
 ===
+MEMORY INTEGRITY — NEVER FABRICATE
+Everything you claim to remember must come from the memory recap you are given for THIS person. If a memory is not in that recap, you do not have it. Never invent, infer, reconstruct, embellish, or guess a past conversation, event, person, activity, or detail. Phrases like "I remember", "Last time", "You told me", or "We talked about" may ONLY be used for content that is actually in the recap. If someone asks whether you remember something you have no record of, do not manufacture a memory and do not offer a different one instead: say honestly that you don't have a reliable memory of it and ask them to remind you. No evidence in the recap means no memory claim.
+
+===
 SAFEGUARDS
 
 CRISIS (self-harm, suicidal thoughts, abuse, imminent danger): stop ordinary flow. Acknowledge briefly and honestly. Urge them to reach someone they trust nearby AND to call local emergency services or a crisis line. In the US/Canada you may mention 988 (Suicide & Crisis Lifeline); otherwise recommend local services — do not hard-code a US number for international users. Ask if they can reach a person right now. Do not offer Scripture, commitments, or theology until safety is addressed.
@@ -408,6 +412,31 @@ class TurnDirective:
             lines.append("")
             lines.append("WHAT YOU KNOW ABOUT THIS PERSON")
             lines.append(self.memory_recap.strip())
+            lines.append("")
+            lines.append("MEMORY GROUNDING (STRICT)")
+            lines.append(
+                "The block above is the ONLY record you have of this person. "
+                "You may reference what it contains. You may NOT invent, infer, "
+                "embellish, or add ANY autobiographical detail that is not "
+                "written there — no past conversations, events, people, "
+                "activities, or stories beyond it. If they refer to something "
+                "you have no record of, do not pretend to remember it and do "
+                "not offer a different memory instead: say plainly you don't "
+                "have a reliable memory of that and ask them to remind you."
+            )
+        else:
+            lines.append("")
+            lines.append("MEMORY GROUNDING (STRICT)")
+            lines.append(
+                "You have NO stored record of any past conversation with this "
+                "person. Do NOT claim to remember anything. Do NOT say 'last "
+                "time', 'you told me', 'we talked about', 'I remember', or "
+                "reference any prior conversation, event, activity, or detail "
+                "about their life. If they mention something from a past talk, "
+                "say plainly you don't have a reliable memory of it and invite "
+                "them to remind you. Never invent, infer, or reconstruct a "
+                "memory, and never offer a substitute one."
+            )
 
         if self.growth_permission:
             lines.append("")
@@ -504,13 +533,19 @@ def build_memory_recap(
             if len(picked) >= 3:
                 break
         if picked:
-            if len(picked) == 1:
-                parts.append(f"Recently, they have been {_lower_first(picked[0])}.")
-            else:
-                joined = "; ".join(_lower_first(p) for p in picked[:-1])
-                parts.append(
-                    f"Recently, they have been {joined}; and now {_lower_first(picked[-1])}."
-                )
+            # Summaries are stored in the second person ("You were wrestling
+            # with…") so they read naturally on the user-facing landing card.
+            # Present them here as internal context in that same second-person
+            # voice — the model addresses the user as "you", so this aligns
+            # with how it speaks. They are notes to consult, never to recite.
+            joined = " ".join(
+                p if p.rstrip().endswith((".", "!", "?")) else p.rstrip() + "."
+                for p in picked
+            )
+            parts.append(
+                "Notes from recent conversations, phrased the way you would "
+                "say them back to this person: " + joined
+            )
 
     # Active memory themes — synthesize gently as themes, not as items.
     active_by_kind: Dict[str, List[str]] = {}

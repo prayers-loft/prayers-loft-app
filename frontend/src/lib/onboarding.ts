@@ -110,12 +110,27 @@ export async function resetFirstLaunchGates(): Promise<void> {
  * onboarding carousel without requiring a cold relaunch. Used by Settings →
  * Developer Tools → Replay Onboarding.
  */
-export async function replayOnboarding(): Promise<void> {
+export async function replayOnboarding(opts?: {
+  deferEmitMs?: number;
+}): Promise<void> {
   await resetFirstLaunchGates();
-  try {
-    const rn = await _rn();
-    rn.DeviceEventEmitter.emit(ONBOARDING_REPLAY_EVENT);
-  } catch {
-    // ignore — developer tools only
+  const emit = async () => {
+    try {
+      const rn = await _rn();
+      rn.DeviceEventEmitter.emit(ONBOARDING_REPLAY_EVENT);
+    } catch {
+      // ignore — developer tools only
+    }
+  };
+  // Callers that are on a pushed screen (e.g. Settings) should navigate back
+  // to a root tab first and defer the emit so the onboarding Modal mounts
+  // over a stable root screen. Emitting synchronously while a screen is
+  // being popped caused a same-session navigation crash.
+  if (opts?.deferEmitMs && opts.deferEmitMs > 0) {
+    setTimeout(() => {
+      void emit();
+    }, opts.deferEmitMs);
+  } else {
+    await emit();
   }
 }

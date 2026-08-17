@@ -49,6 +49,11 @@ export default function WalkScreen() {
   const router = useRouter();
   const [memory, setMemory] = useState<MemoryItem[] | null>(null);
   const [landing, setLanding] = useState<LandingInfo | null>(null);
+  // Tracks whether the landing state has resolved at least once. Until it
+  // has, we render a neutral skeleton hero — we never show the first-time
+  // "Begin" or the returning "Continue" copy while the state is unknown,
+  // which was the source of the Begin→Continue flicker for returning users.
+  const [landingResolved, setLandingResolved] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -67,6 +72,8 @@ export default function WalkScreen() {
     } catch {
       setMemory([]);
       setLanding(null);
+    } finally {
+      setLandingResolved(true);
     }
   }, []);
 
@@ -88,12 +95,23 @@ export default function WalkScreen() {
     setRefreshing(false);
   }, [load]);
 
+  // Landing shows only the most recent 1–2 active items per section — a
+  // quiet, current snapshot, not the full ledger. The complete history
+  // stays available (non-destructively) via "Manage Walk Memory". Items
+  // arrive already sorted by the server (updated_at desc).
+  const LANDING_ITEM_LIMIT = 2;
   const activeCommitments =
-    memory?.filter((m) => m.kind === "commitment" && m.status === "active") ?? [];
+    memory
+      ?.filter((m) => m.kind === "commitment" && m.status === "active")
+      .slice(0, LANDING_ITEM_LIMIT) ?? [];
   const activeStruggles =
-    memory?.filter((m) => m.kind === "struggle" && m.status === "active") ?? [];
+    memory
+      ?.filter((m) => m.kind === "struggle" && m.status === "active")
+      .slice(0, LANDING_ITEM_LIMIT) ?? [];
   const activePrayers =
-    memory?.filter((m) => m.kind === "prayer" && m.status === "active") ?? [];
+    memory
+      ?.filter((m) => m.kind === "prayer" && m.status === "active")
+      .slice(0, LANDING_ITEM_LIMIT) ?? [];
 
   return (
     <ScreenBackground>
@@ -110,41 +128,57 @@ export default function WalkScreen() {
         }
       >
         <View style={styles.hero} testID="walk-hero">
-          <Text style={styles.heroEyebrow}>
-            {landing?.is_first_ever === false ? "Welcome back" : "Welcome"}
-          </Text>
-          <Text style={styles.heroPurpose}>Continue your journey with Christ.</Text>
-          <Text style={styles.heroTitle}>
-            {landing?.is_first_ever === false
-              ? "How are you doing today?"
-              : "How is your walk with God?"}
-          </Text>
-          {landing?.callback_hint ? (
-            <Text style={styles.heroCallback} testID="walk-callback-hint">
-              {landing.callback_hint.trim().replace(/[.!?]?$/, ".")}
-            </Text>
-          ) : null}
-          <Text style={styles.heroBody}>
-            {landing?.is_first_ever === false
-              ? "It's good to continue where we left off. Whenever you're ready."
-              : "Take your time. There is nothing to prove here — just a conversation you can have when you want it."}
-          </Text>
-          <Pressable
-            onPress={() => router.push("/walk-conversation" as any)}
-            style={styles.beginBtn}
-            testID="walk-begin-checkin"
-            accessibilityRole="button"
-            accessibilityLabel={
-              landing?.is_first_ever === false
-                ? "Continue your walk"
-                : "Begin your walk"
-            }
-          >
-            <Text style={styles.beginText} allowFontScaling={false}>
-              {landing?.is_first_ever === false ? "Continue" : "Begin"}
-            </Text>
-            <Ionicons name="arrow-forward" size={16} color={colors.bg} />
-          </Pressable>
+          {!landingResolved ? (
+            // Neutral loading state — never render Begin/Continue until the
+            // returning-vs-first-time state is known (prevents flicker).
+            <View testID="walk-hero-loading">
+              <Text style={styles.heroEyebrow}> </Text>
+              <Text style={styles.heroTitle}>A quiet moment together</Text>
+              <View style={styles.heroSkeletonRow} />
+              <View style={[styles.heroSkeletonRow, { width: "60%" }]} />
+              <View style={styles.heroLoadingSpinner}>
+                <ActivityIndicator color={colors.textTertiary} />
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.heroEyebrow}>
+                {landing?.is_first_ever === false ? "Welcome back" : "Welcome"}
+              </Text>
+              <Text style={styles.heroPurpose}>Continue your journey with Christ.</Text>
+              <Text style={styles.heroTitle}>
+                {landing?.is_first_ever === false
+                  ? "How are you doing today?"
+                  : "How is your walk with God?"}
+              </Text>
+              {landing?.callback_hint ? (
+                <Text style={styles.heroCallback} testID="walk-callback-hint">
+                  {landing.callback_hint.trim().replace(/[.!?]?$/, ".")}
+                </Text>
+              ) : null}
+              <Text style={styles.heroBody}>
+                {landing?.is_first_ever === false
+                  ? "It's good to continue where we left off. Whenever you're ready."
+                  : "Take your time. There is nothing to prove here — just a conversation you can have when you want it."}
+              </Text>
+              <Pressable
+                onPress={() => router.push("/walk-conversation" as any)}
+                style={styles.beginBtn}
+                testID="walk-begin-checkin"
+                accessibilityRole="button"
+                accessibilityLabel={
+                  landing?.is_first_ever === false
+                    ? "Continue your walk"
+                    : "Begin your walk"
+                }
+              >
+                <Text style={styles.beginText} allowFontScaling={false}>
+                  {landing?.is_first_ever === false ? "Continue" : "Begin"}
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color={colors.bg} />
+              </Pressable>
+            </>
+          )}
         </View>
 
         {memory === null ? (
@@ -335,6 +369,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: colors.textSecondary,
+  },
+  heroSkeletonRow: {
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginTop: 12,
+    width: "85%",
+  },
+  heroLoadingSpinner: {
+    marginTop: 20,
+    alignItems: "flex-start",
   },
   heroCallback: {
     fontFamily: fonts.serif,

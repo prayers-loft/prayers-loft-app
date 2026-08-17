@@ -212,9 +212,15 @@ export async function updateCommitment(
 }
 
 // ---------- Streaming: XHR-based SSE parser ----------
+export type StreamDoneInfo = {
+  messageId?: string;
+  stance?: string;
+  closing?: boolean;
+};
+
 export type StreamHandlers = {
   onChunk: (text: string) => void;
-  onDone?: (messageId?: string) => void;
+  onDone?: (info?: StreamDoneInfo) => void;
   onError?: (err: Error) => void;
 };
 
@@ -254,7 +260,11 @@ export function streamWalkMessage(
       if (eventName === "done") {
         try {
           const parsed = data ? JSON.parse(data) : {};
-          handlers.onDone?.(parsed?.message_id);
+          handlers.onDone?.({
+            messageId: parsed?.message_id,
+            stance: parsed?.stance || undefined,
+            closing: parsed?.closing === true,
+          });
         } catch {
           handlers.onDone?.();
         }
