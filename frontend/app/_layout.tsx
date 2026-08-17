@@ -24,6 +24,15 @@ import { getApiBase, getApiBaseSource } from "@/src/lib/api";
 import { showToast } from "@/src/components/Toast";
 import { installForegroundHandler, ensureAndroidChannel } from "@/src/lib/reminders";
 import { useNotificationDeepLink } from "@/src/hooks/use-notification-deep-link";
+import { installGlobalErrorGuard, consumeLastCapturedError } from "@/src/lib/global-error-guard";
+
+// Install the global JS error guard at MODULE LOAD — before any component
+// mounts or any startup side-effect runs. This protects the ASYNC startup
+// path (promise rejections, native-module callbacks, scheduler tasks) that
+// React's render-only RootErrorBoundary cannot catch, and which otherwise
+// reach RN's default handler → RCTFatal → SIGABRT on release/TestFlight
+// builds. It also persists the exact error message for post-mortem.
+installGlobalErrorGuard();
 
 // Notification setup used to run at MODULE LOAD here. That was moved
 // into the `ready` effect below so that (a) cold-start module init is
@@ -73,6 +82,27 @@ export default function RootLayout() {
         });
         console.error("[RootLayout] EXPO_PUBLIC_BACKEND_URL is empty at runtime");
       }
+      // Surface the exact message from any prior crashing launch (captured by
+      // the global error guard). This turns an opaque release SIGABRT into a
+      // concrete, readable diagnosis on the next launch.
+      (async () => {
+        try {
+          const prior = await consumeLastCapturedError();
+          if (prior) {
+            console.error(
+              `[RootLayout] prior captured ${prior.isFatal ? "FATAL" : "error"}: ${prior.name}: ${prior.message}\n${prior.stack}`,
+            );
+            showToast({
+              variant: "error",
+              title: "Recovered from an error",
+              message: `${prior.name}: ${prior.message}`.slice(0, 200),
+              duration: 9000,
+            });
+          }
+        } catch (e) {
+          console.warn("[RootLayout] last-error surface failed", e);
+        }
+      })();
       // Hide native splash. Defensive try/catch — if Expo's splash module fails,
       // do NOT let the error abort the process (root cause of v1.0.0 (2) crash).
       try {
