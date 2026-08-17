@@ -70,12 +70,21 @@ export function OnboardingHost() {
   const [visible, setVisible] = useState(false);
   const [index, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView | null>(null);
-  // Serialization handles for the Replay flow so the native Modal is
-  // presented only after the Settings dismissal transition is fully idle.
+  // Serialization + idempotency guards for the Replay flow so the native
+  // Modal is never presented on top of an in-flight presentation/dismissal.
   const replayInteractionHandle = useRef<{ cancel?: () => void } | null>(null);
   const replaySettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror of `visible` readable from stable event-listener closures.
+  const visibleRef = useRef(false);
+  // Deferred post-onboarding route, applied only AFTER the modal has fully
+  // dismissed (via onDismiss on iOS) so navigation never overlaps dismissal.
+  const pendingRouteRef = useRef(false);
   const { width } = Dimensions.get("window");
   const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     // Initial check on mount — fires for genuine first-time users only.
@@ -100,31 +109,34 @@ export function OnboardingHost() {
     })();
 
     // Listener — Settings → Developer Tools → Replay Onboarding emits this.
-    // The Replay flow first navigates AWAY from the Settings screen; that is
-    // a native screen-dismissal transition. Presenting our <Modal> while that
-    // transition is still running crashes iOS (overlapping view-controller
-    // presentations). So we defer the presentation until interactions/
-    // transitions are idle, then add one more frame + a short buffer to let
-    // the native VC dismissal fully commit before we present. This is
-    // deterministic (waits for the actual transition), unlike a fixed delay.
+    //
+    // STABILIZATION (iOS overlapping-transition crash): the Replay caller does
+    // NOT navigate and does NOT show any other overlay when emitting, so the
+    // ONLY native transition here is presenting this carousel — exactly like
+    // the first-launch present, which is stable. We still (a) ignore the event
+    // if the carousel is already showing (duplicate events / rapid taps), and
+    // (b) present on the next idle frame so the triggering touch/JS work is
+    // fully flushed before the native Modal is presented.
     const sub = DeviceEventEmitter.addListener(ONBOARDING_REPLAY_EVENT, () => {
+      if (visibleRef.current) return; // never present over an existing present
       setIndex(0);
-      const startedAt = Date.now();
+      // Cancel any prior pending present before scheduling a new one.
+      try {
+        replayInteractionHandle.current?.cancel?.();
+      } catch {
+        // ignore
+      }
+      if (replaySettleTimer.current) clearTimeout(replaySettleTimer.current);
       const handle = InteractionManager.runAfterInteractions(() => {
-        // Guarantee a floor of ~600ms from the emit (which fires right as the
-        // Settings pop begins) so the native pop/dismissal ALWAYS finishes
-        // before we present — even if InteractionManager reports idle early
-        // (react-native-screens transitions don't always register as
-        // interactions). If interactions take longer, we wait for them too.
-        const remaining = Math.max(0, 600 - (Date.now() - startedAt));
         replaySettleTimer.current = setTimeout(() => {
+          if (visibleRef.current) return;
           try {
             scrollRef.current?.scrollTo({ x: 0, animated: false });
           } catch {
             // ignore
           }
           showCarousel();
-        }, remaining);
+        }, 120);
       });
       replayInteractionHandle.current = handle;
     });
@@ -141,6 +153,8 @@ export function OnboardingHost() {
   }, []);
 
   function showCarousel() {
+    if (visibleRef.current) return; // idempotent — no double present
+    visibleRef.current = true;
     setVisible(true);
     opacity.setValue(0);
     Animated.timing(opacity, {
@@ -151,31 +165,47 @@ export function OnboardingHost() {
     }).start();
   }
 
+  /** Run the deferred post-onboarding navigation. Called ONLY once the modal
+   *  has fully dismissed so we never navigate while a native dismissal is in
+   *  flight (the iOS overlapping-transition crash). */
+  function applyPendingRoute() {
+    if (!pendingRouteRef.current) return;
+    pendingRouteRef.current = false;
+    try {
+      router.replace(FIRST_ACTION_ROUTE);
+    } catch (e) {
+      // Router unavailable (deep-link race, cold navigation state) is
+      // non-fatal — the user is already in the app.
+      console.warn("[onboarding] first-action route failed", e);
+    }
+  }
+
   /** Dismiss the carousel and optionally route the user to their first
    *  meaningful action. Skip → no route change (respect user intent).
    *  Get Started → route to today's verse (the strongest first action).
+   *
+   *  Navigation is deferred to AFTER the modal is fully gone:
+   *   - iOS: the Modal's onDismiss fires post native-dismissal (see below).
+   *   - Android/web: no overlapping-VC crash exists, so we route once the
+   *     fade-out completes.
    */
   async function finish(routeToFirstAction: boolean) {
     // Storage write is wrapped in try/catch inside markOnboardingSeen —
     // failures never block dismissal. See lib/onboarding.ts.
     await markOnboardingSeen();
+    pendingRouteRef.current = routeToFirstAction;
     Animated.timing(opacity, {
       toValue: 0,
       duration: 260,
       easing: Easing.in(Easing.quad),
       useNativeDriver: Platform.OS !== "web",
     }).start(({ finished }) => {
-      if (finished) setVisible(false);
-      if (routeToFirstAction) {
-        // Route after animation completes so the transition to the tab
-        // isn't visually stacked on top of the fade-out.
-        try {
-          router.replace(FIRST_ACTION_ROUTE);
-        } catch (e) {
-          // Router unavailable (deep-link race, cold navigation state)
-          // is non-fatal — user is already in the app.
-          console.warn("[onboarding] first-action route failed", e);
-        }
+      if (finished) {
+        visibleRef.current = false;
+        setVisible(false);
+      }
+      if (Platform.OS !== "ios") {
+        applyPendingRoute();
       }
     });
   }
@@ -200,6 +230,7 @@ export function OnboardingHost() {
       transparent={false}
       statusBarTranslucent
       onRequestClose={() => void finish(false)}
+      onDismiss={applyPendingRoute}
     >
       <Animated.View style={[styles.root, { opacity }]} testID="onboarding">
         {/* Top bar: centered brand wordmark + Skip pinned to the right.

@@ -549,32 +549,17 @@ export default function SettingsScreen() {
             title="Replay Onboarding"
             subtitle="Show the welcome carousel and AI disclosure again."
             onPress={async () => {
-              // Reset the once-only gates (persistence only), then LEAVE the
-              // Settings screen so its native dismissal transition can run to
-              // completion. Only after that do we ask the OnboardingHost to
-              // present the carousel — the host defers the actual <Modal>
-              // presentation until transitions are idle. Presenting the Modal
-              // while Settings was still being dismissed caused overlapping
-              // native view-controller transitions and crashed on iOS; a
-              // fixed timer was non-deterministic and still overlapped on a
-              // real device. Serializing the two transitions is the fix.
+              // STABILIZATION (iOS overlapping-transition crash):
+              // Reset the once-only gates, then ask the OnboardingHost to
+              // present the carousel IN PLACE. We deliberately do NOT
+              // navigate away and do NOT show a toast here — either would run
+              // a native navigation transition / overlay concurrently with
+              // the onboarding Modal presentation, which is the exact
+              // overlapping-view-controller condition that crashes iOS. The
+              // carousel presents like a fresh first-launch (stable) and
+              // routes the user onward itself, only AFTER it has fully
+              // dismissed (see OnboardingHost.onDismiss).
               await replayOnboarding(); // reset gates only
-              showToast({
-                variant: "success",
-                title: "Onboarding will replay now.",
-                duration: 2200,
-              });
-              const r = router as unknown as {
-                canGoBack?: () => boolean;
-                back: () => void;
-                replace: (href: string) => void;
-              };
-              if (r.canGoBack?.()) {
-                r.back();
-              } else {
-                r.replace("/(tabs)/prayer");
-              }
-              // Fire-and-forget — the host waits for the pop to settle.
               void emitOnboardingReplay();
             }}
             right={<Chev />}
